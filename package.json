@@ -1,0 +1,74 @@
+{
+  "name": "inscope",
+  "version": "0.1.1",
+  "description": "Per-workspace identity for Claude Code: scope MCP servers, GitHub auth, and git commit identity to the directory you are in.",
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "cli",
+    "git",
+    "github",
+    "identity",
+    "workspace",
+    "zsh",
+    "chpwd"
+  ],
+  "homepage": "https://github.com/nrjdalal/inscope#readme",
+  "bugs": "https://github.com/nrjdalal/inscope/issues",
+  "repository": "nrjdalal/inscope",
+  "funding": "https://github.com/sponsors/nrjdalal",
+  "license": "MIT",
+  "author": {
+    "name": "Neeraj Dalal",
+    "email": "admin@nrjdalal.com",
+    "url": "https://nrjdalal.com"
+  },
+  "type": "module",
+  "exports": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "bin": "tsdown && node dist/bin/index.mjs",
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npx simple-git-hooks"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged",
+    "commit-msg": "npx commitlint --edit $1"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "lint-staged": {
+    "*": "prettier --write --ignore-unknown",
+    "package.json": "sort-package-json"
+  },
+  "prettier": {
+    "plugins": [
+      "@ianvs/prettier-plugin-sort-imports"
+    ],
+    "semi": false
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
+    "@types/node": "^22.15.32",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.5.3",
+    "simple-git-hooks": "^2.13.0",
+    "sort-package-json": "^3.2.1",
+    "tsdown": "^0.16.4",
+    "typescript": "^5.8.3"
+  },
+  "bin": {
+    "inscope": "dist/bin/index.mjs"
+  }
+}
