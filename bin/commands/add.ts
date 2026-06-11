@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util"
 import { labelFromPath, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
+import { SERVER_TYPES } from "@/generators/mcp"
 import { ghAccounts, gitGlobal } from "@/secrets"
 import {
   isInteractive,
@@ -30,7 +31,8 @@ Options:
       --email <email>       git commit email (omit to inherit your global identity)
       --git-name <name>     git commit author name (omit to inherit global)
       --label <name>        workspace name; defaults to the directory basename
-      --servers <list>      comma-separated: github,linear,notion,slack
+      --servers <list>      comma-separated, any of: github, atlassian, linear,
+                            notion, plane, sentry, slack, vercel
                             (default: github)
       --slack-keychain <s>  keychain service for the Slack token
                             (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
@@ -39,12 +41,11 @@ Options:
   -y, --yes                 accept defaults, skip all prompts (non-interactive)
   -h, --help                Display help message`
 
-const SERVER_CHOICES = [
-  { label: "github", value: "github", checked: true },
-  { label: "linear", value: "linear", checked: false },
-  { label: "notion", value: "notion", checked: false },
-  { label: "slack", value: "slack", checked: false },
-]
+const SERVER_CHOICES = SERVER_TYPES.map((t) => ({
+  label: t,
+  value: t,
+  checked: t === "github",
+}))
 
 export const add = async (args: string[]) => {
   const { positionals, values } = parseArgs({

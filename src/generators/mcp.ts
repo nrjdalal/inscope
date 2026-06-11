@@ -1,15 +1,33 @@
 import fs from "node:fs"
 import path from "node:path"
-import type { HttpServer, Workspace } from "@/config"
+import type { HttpServer, SlackServer, Workspace } from "@/config"
 import { resolveAbsolute } from "@/env"
 
 export const SLACK_MCP_VERSION = "1.3.0"
 
 const GITHUB_URL = "https://api.githubcopilot.com/mcp/"
-const LINEAR_URL = "https://mcp.linear.app/mcp"
-const NOTION_URL = "https://mcp.notion.com/mcp"
 
-export const SERVER_TYPES = ["github", "linear", "notion", "slack"] as const
+// Remote HTTP servers Claude Code authenticates via OAuth (just a URL each).
+const HTTP_OAUTH: Record<string, string> = {
+  atlassian: "https://mcp.atlassian.com/v1/mcp",
+  linear: "https://mcp.linear.app/mcp",
+  notion: "https://mcp.notion.com/mcp",
+  plane: "https://mcp.plane.so/http/mcp",
+  sentry: "https://mcp.sentry.dev/mcp",
+  vercel: "https://mcp.vercel.com",
+}
+
+// github first (the primary identity), then the rest alphabetical
+export const SERVER_TYPES = [
+  "github",
+  "atlassian",
+  "linear",
+  "notion",
+  "plane",
+  "sentry",
+  "slack",
+  "vercel",
+] as const
 
 export const managedKeys = (name: string) =>
   SERVER_TYPES.map((t) => `${t}-${name}`)
@@ -21,42 +39,40 @@ const httpUrl = (v: boolean | HttpServer | undefined, fallback: string) =>
   v && typeof v === "object" && v.url ? v.url : fallback
 
 export const renderServers = (ws: Workspace): Record<string, unknown> => {
-  const s = ws.servers
+  const s = ws.servers as Record<string, unknown>
   const out: Record<string, unknown> = {}
-  if (s.github) {
-    out[`github-${ws.name}`] = {
-      type: "http",
-      url: GITHUB_URL,
-      headers: { Authorization: "Bearer ${GITHUB_TOKEN}" },
-    }
-  }
-  if (s.linear) {
-    out[`linear-${ws.name}`] = {
-      type: "http",
-      url: httpUrl(s.linear, LINEAR_URL),
-    }
-  }
-  if (s.notion) {
-    out[`notion-${ws.name}`] = {
-      type: "http",
-      url: httpUrl(s.notion, NOTION_URL),
-    }
-  }
-  if (s.slack) {
-    const env: Record<string, string> = {
-      SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}",
-    }
-    if (s.slack.addMessageTool) env.SLACK_MCP_ADD_MESSAGE_TOOL = "true"
-    out[`slack-${ws.name}`] = {
-      type: "stdio",
-      command: "npx",
-      args: [
-        "-y",
-        `slack-mcp-server@${SLACK_MCP_VERSION}`,
-        "--transport",
-        "stdio",
-      ],
-      env,
+  for (const key of SERVER_TYPES) {
+    const v = s[key]
+    if (!v) continue
+    const name = `${key}-${ws.name}`
+    if (key === "github") {
+      out[name] = {
+        type: "http",
+        url: GITHUB_URL,
+        headers: { Authorization: "Bearer ${GITHUB_TOKEN}" },
+      }
+    } else if (key === "slack") {
+      const slack = v as SlackServer
+      const env: Record<string, string> = {
+        SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}",
+      }
+      if (slack.addMessageTool) env.SLACK_MCP_ADD_MESSAGE_TOOL = "true"
+      out[name] = {
+        type: "stdio",
+        command: "npx",
+        args: [
+          "-y",
+          `slack-mcp-server@${SLACK_MCP_VERSION}`,
+          "--transport",
+          "stdio",
+        ],
+        env,
+      }
+    } else {
+      out[name] = {
+        type: "http",
+        url: httpUrl(v as boolean | HttpServer, HTTP_OAUTH[key]),
+      }
     }
   }
   return out

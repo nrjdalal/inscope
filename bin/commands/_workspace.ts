@@ -8,36 +8,36 @@ import {
   type Servers,
   type Workspace,
 } from "@/config"
+import { SERVER_TYPES } from "@/generators/mcp"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { promptHidden } from "~/bin/commands/_prompt"
 
 export const SLACK_AUTH_DOCS =
   "https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth"
 
-export const SERVER_LABELS = ["github", "linear", "notion", "slack"] as const
+export const SERVER_LABELS = SERVER_TYPES
 
 export const slackKeychainFor = (label: string) =>
   `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
 export const enabledServers = (s: Servers): string[] =>
-  [
-    s.github && "github",
-    s.linear && "linear",
-    s.notion && "notion",
-    s.slack && "slack",
-  ].filter(Boolean) as string[]
+  SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t]))
 
 export const buildServers = (
   list: string[],
   slack: { keychain: string; addMessageTool: boolean } | null,
-): Servers => ({
-  github: list.includes("github"),
-  linear: list.includes("linear"),
-  notion: list.includes("notion"),
-  slack: slack
-    ? { keychain: slack.keychain, addMessageTool: slack.addMessageTool }
-    : false,
-})
+): Servers => {
+  const out: Record<string, unknown> = {}
+  for (const t of SERVER_TYPES) {
+    out[t] =
+      t === "slack"
+        ? slack
+          ? { keychain: slack.keychain, addMessageTool: slack.addMessageTool }
+          : false
+        : list.includes(t)
+  }
+  return out as Servers
+}
 
 export const persist = (ws: Workspace) => {
   const cfg = configExists() ? loadConfig() : defaultConfig()

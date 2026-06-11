@@ -5,9 +5,9 @@ Output .github/assets/demo-switch.gif
 Require node
 
 Set Shell zsh
-Set FontSize 18
+Set FontSize 17
 Set Width 1120
-Set Height 640
+Set Height 620
 Set Padding 22
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 60ms
@@ -21,7 +21,7 @@ Type "clear" Enter
 Show
 
 Sleep 800ms
-Type "cd ~/work" Sleep 200ms Enter
+Type "cd ~/acme" Sleep 200ms Enter
 Sleep 900ms
 Type "git config user.email" Sleep 200ms Enter
 Sleep 1500ms

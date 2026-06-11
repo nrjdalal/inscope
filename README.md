@@ -10,7 +10,7 @@
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="800" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="900" />
 </p>
 
 Concurrent sessions in different projects should never bleed work and personal accounts into each other. You describe each workspace once; `inscope` owns the moving parts and keeps them in sync:
@@ -48,11 +48,11 @@ inscope init
 # map a workspace interactively: pick the gh account, git identity, and servers
 inscope add ~/acme
 
-# or pass flags to skip the prompts (work gh account, work email, + slack)
-inscope add ~/acme --gh acme --email you@acme.com --servers github,linear,notion,slack
+# or pass flags to skip the prompts (work gh account, work email, + servers)
+inscope add ~/acme --gh neeraj-acme-org --email neeraj@acme.org --servers github,linear
 
 # map a personal directory: just your gh account and personal email
-inscope add ~/nrjdalal --gh nrjdalal --email you@personal.dev
+inscope add ~/personal --gh nrjdalal --email hello@nrjdalal.com
 
 # list what is configured
 inscope list
@@ -70,10 +70,10 @@ inscope apply
 inscope rm ~/acme
 ```
 
-`cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/nrjdalal/blog` and you are you.
+`cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="800" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="900" />
 </p>
 
 ---
@@ -83,7 +83,7 @@ inscope rm ~/acme
 - 🪪 Per-directory identity: GitHub token, git commit email, and MCP servers scoped to `$PWD`
 - 🧵 Race-free across concurrent shells and Claude Code sessions, with no global toggles
 - 🔐 No secrets on disk: GitHub tokens from the `gh` keyring, Slack tokens from the macOS Keychain
-- 🤖 Generates a `.mcp.json` per workspace with uniquely named GitHub, Linear, Notion and Slack servers
+- 🤖 Generates a `.mcp.json` per workspace with uniquely named GitHub, Atlassian, Linear, Notion, Plane, Sentry, Slack and Vercel servers
 - ✉️ Git `includeIf` rules so every commit lands with the right author email per path
 - 🪝 A single zsh `chpwd` hook does all the resolution; nothing else touches your shell
 - 🩺 `inscope doctor` verifies tokens, identities, and the hook before you trust them
@@ -115,8 +115,8 @@ inscope init
 gh auth login
 
 # 3. map your workspaces
-inscope add ~/acme     --gh acme     --email you@acme.com --servers github,linear,notion,slack
-inscope add ~/nrjdalal --gh nrjdalal --email you@personal.dev
+inscope add ~/acme     --gh neeraj-acme-org --email neeraj@acme.org --servers github,linear
+inscope add ~/personal --gh nrjdalal        --email hello@nrjdalal.com
 
 # 4. reload your shell, then verify
 source ~/.zshrc
@@ -145,7 +145,7 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 Run any command with `-h` for its options.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="800" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />
 </p>
 
 ### `inscope add`
@@ -157,7 +157,8 @@ Run it bare and it walks you through everything: pick the GitHub account from yo
     --email <email>       git commit email (omit to inherit your global identity)
     --git-name <name>     git commit author name (omit to inherit global)
     --label <name>        workspace name; defaults to the directory basename
-    --servers <list>      comma-separated: github,linear,notion,slack
+    --servers <list>      comma-separated, any of: github, atlassian, linear,
+                          notion, plane, sentry, slack, vercel
                           (default: github)
     --slack-keychain <s>  keychain service for the Slack token
                           (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
@@ -185,17 +186,21 @@ Run it bare and it walks you through everything: pick the GitHub account from yo
 
 Each enabled server is written into the workspace `.mcp.json` with a name suffixed by the workspace label (for example `github-acme`), so servers from different workspaces never collide.
 
-| Server   | Transport | Token source                                   |
-| -------- | --------- | ---------------------------------------------- |
-| `github` | http      | `GITHUB_TOKEN` from the active `gh` account    |
-| `linear` | http      | OAuth via the Linear MCP endpoint              |
-| `notion` | http      | OAuth via the Notion MCP endpoint              |
-| `slack`  | stdio     | `SLACK_MCP_XOXP_TOKEN` from the macOS Keychain |
+| Server      | Transport | Token source                                   |
+| ----------- | --------- | ---------------------------------------------- |
+| `github`    | http      | `GITHUB_TOKEN` from the active `gh` account    |
+| `atlassian` | http      | OAuth via the Atlassian (Jira/Confluence) MCP  |
+| `linear`    | http      | OAuth via the Linear MCP endpoint              |
+| `notion`    | http      | OAuth via the Notion MCP endpoint              |
+| `plane`     | http      | OAuth via the Plane MCP endpoint               |
+| `sentry`    | http      | OAuth via the Sentry MCP endpoint              |
+| `slack`     | stdio     | `SLACK_MCP_XOXP_TOKEN` from the macOS Keychain |
+| `vercel`    | http      | OAuth via the Vercel MCP endpoint              |
 
 Slack is opt-in. Enable it with `--servers ...,slack`, then store the token once:
 
 ```sh
-inscope add ~/acme --gh acme --servers github,linear,notion,slack --seed-slack
+inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
 ```
 
 `--seed-slack` prompts for the `xoxp` token and writes it to the Keychain. Pass `--slack-message` to allow the Slack MCP server to post messages.
@@ -215,16 +220,20 @@ The source of truth is `~/.config/inscope/inscope.json`:
     {
       "name": "acme",
       "path": "~/acme",
-      "gh": "acme",
-      "git": { "email": "you@acme.com" },
+      "gh": "neeraj-acme-org",
+      "git": { "email": "neeraj@acme.org" },
       "servers": {
         "github": true,
+        "atlassian": false,
         "linear": true,
-        "notion": true,
+        "notion": false,
+        "plane": false,
+        "sentry": false,
         "slack": {
           "keychain": "SLACK_MCP_XOXP_TOKEN_ACME",
           "addMessageTool": false,
         },
+        "vercel": false,
       },
     },
   ],

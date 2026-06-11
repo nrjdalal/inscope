@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 import { configExists, loadConfig, type Servers } from "@/config"
+import { SERVER_TYPES } from "@/generators/mcp"
 import { name } from "~/package.json"
 
 const helpMessage = `List the configured workspaces. Run \`${name} doctor\` to verify
@@ -12,14 +13,9 @@ Options:
   -h, --help  Display help message`
 
 const enabledServers = (s: Servers) =>
-  [
-    s.github && "github",
-    s.linear && "linear",
-    s.notion && "notion",
-    s.slack && "slack",
-  ]
-    .filter(Boolean)
-    .join(", ") || "none"
+  SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t])).join(
+    ", ",
+  ) || "none"
 
 export const list = (args: string[]) => {
   const { values } = parseArgs({

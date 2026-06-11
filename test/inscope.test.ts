@@ -180,11 +180,11 @@ test("ghAccounts parses unique accounts and ignores the active-account line", ()
       "  ✓ Logged in to github.com account nrjdalal (GITHUB_TOKEN)",
       "  - Active account: true",
       "  ✓ Logged in to github.com account nrjdalal (keyring)",
-      "  ✓ Logged in to github.com account dalonic (keyring)",
+      "  ✓ Logged in to github.com account neeraj-acme-org (keyring)",
     ].join("\n"),
     stderr: "",
   })
-  expect(ghAccounts(run)).toEqual(["nrjdalal", "dalonic"])
+  expect(ghAccounts(run)).toEqual(["nrjdalal", "neeraj-acme-org"])
 })
 
 test("slackKeychainFor names the keychain after the env var, uppercased", () => {
@@ -195,10 +195,14 @@ test("slackKeychainFor names the keychain after the env var, uppercased", () => 
 
 test("buildServers reflects the enabled list and slack details", () => {
   expect(buildServers(["github"], null)).toEqual({
+    atlassian: false,
     github: true,
     linear: false,
     notion: false,
+    plane: false,
+    sentry: false,
     slack: false,
+    vercel: false,
   })
   expect(
     buildServers(["github", "linear", "notion", "slack"], {
@@ -206,10 +210,38 @@ test("buildServers reflects the enabled list and slack details", () => {
       addMessageTool: true,
     }),
   ).toEqual({
+    atlassian: false,
     github: true,
     linear: true,
     notion: true,
+    plane: false,
+    sentry: false,
     slack: { keychain: "K", addMessageTool: true },
+    vercel: false,
+  })
+})
+
+test("renderServers emits each OAuth http server at its endpoint", () => {
+  const out = renderServers({
+    name: "x",
+    path: "~/x",
+    servers: { atlassian: true, plane: true, sentry: true, vercel: true },
+  })
+  expect(out["atlassian-x"]).toEqual({
+    type: "http",
+    url: "https://mcp.atlassian.com/v1/mcp",
+  })
+  expect(out["plane-x"]).toEqual({
+    type: "http",
+    url: "https://mcp.plane.so/http/mcp",
+  })
+  expect(out["sentry-x"]).toEqual({
+    type: "http",
+    url: "https://mcp.sentry.dev/mcp",
+  })
+  expect(out["vercel-x"]).toEqual({
+    type: "http",
+    url: "https://mcp.vercel.com",
   })
 })
 

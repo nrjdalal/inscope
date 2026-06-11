@@ -41,7 +41,6 @@ export const init = (args: string[]) => {
 Next steps:
   1. Reload your shell:           source ~/.zshrc   (or open a new terminal)
   2. Sign each GitHub account in: gh auth login
-  3. Map a workspace:             ${name} add ~/acme --gh acme --email you@acme.com
-`)
+  3. Map a workspace:             ${name} add ~/acme --gh acme --email you@acme.com`)
   process.exit(0)
 }

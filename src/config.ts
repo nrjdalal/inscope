@@ -8,9 +8,13 @@ export type HttpServer = { url?: string }
 
 export type Servers = {
   github?: boolean
+  atlassian?: boolean | HttpServer
   linear?: boolean | HttpServer
   notion?: boolean | HttpServer
+  plane?: boolean | HttpServer
+  sentry?: boolean | HttpServer
   slack?: SlackServer | false
+  vercel?: boolean | HttpServer
 }
 
 export type Workspace = {

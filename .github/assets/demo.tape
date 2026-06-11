@@ -4,10 +4,10 @@ Output .github/assets/demo.gif
 
 Require node
 
-Set Shell bash
-Set FontSize 18
+Set Shell zsh
+Set FontSize 17
 Set Width 1120
-Set Height 840
+Set Height 900
 Set Padding 22
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 55ms
@@ -21,17 +21,17 @@ Sleep 800ms
 Type "inscope init" Sleep 300ms Enter
 Sleep 2600ms
 
-Type "inscope add ~/work" Sleep 300ms Enter
+Type "inscope add ~/acme" Sleep 300ms Enter
 Sleep 1500ms
 Enter
 Sleep 1500ms
-Down Sleep 600ms Up Sleep 600ms Enter
+Down Sleep 700ms Enter
 Sleep 1300ms
-Type "you@work.dev" Sleep 300ms Enter
+Type "neeraj@acme.org" Sleep 300ms Enter
 Sleep 1200ms
 Enter
 Sleep 1400ms
-Down Sleep 600ms Space Sleep 800ms Enter
+Down Sleep 350ms Down Sleep 350ms Down Sleep 350ms Down Sleep 500ms Space Sleep 800ms Enter
 Sleep 2800ms
 
 Type "inscope list" Sleep 300ms Enter
