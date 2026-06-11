@@ -9,12 +9,19 @@ export type HttpServer = { url?: string }
 export type Servers = {
   github?: boolean
   atlassian?: boolean | HttpServer
+  canva?: boolean | HttpServer
+  clickup?: boolean | HttpServer
+  hubspot?: boolean | HttpServer
+  intercom?: boolean | HttpServer
   linear?: boolean | HttpServer
+  monday?: boolean | HttpServer
   notion?: boolean | HttpServer
   plane?: boolean | HttpServer
   sentry?: boolean | HttpServer
   slack?: SlackServer | false
+  stripe?: boolean | HttpServer
   vercel?: boolean | HttpServer
+  webflow?: boolean | HttpServer
 }
 
 export type Workspace = {

@@ -7,26 +7,41 @@ export const SLACK_MCP_VERSION = "1.3.0"
 
 const GITHUB_URL = "https://api.githubcopilot.com/mcp/"
 
-// Remote HTTP servers Claude Code authenticates via OAuth (just a URL each).
-const HTTP_OAUTH: Record<string, string> = {
+// Remote servers Claude Code authenticates via OAuth over streamable HTTP
+// (just a URL each).
+const REMOTE: Record<string, string> = {
   atlassian: "https://mcp.atlassian.com/v1/mcp",
+  canva: "https://mcp.canva.com/mcp",
+  clickup: "https://mcp.clickup.com/mcp",
+  hubspot: "https://mcp.hubspot.com",
+  intercom: "https://mcp.intercom.com/mcp",
   linear: "https://mcp.linear.app/mcp",
+  monday: "https://mcp.monday.com/mcp",
   notion: "https://mcp.notion.com/mcp",
   plane: "https://mcp.plane.so/http/mcp",
   sentry: "https://mcp.sentry.dev/mcp",
+  stripe: "https://mcp.stripe.com",
   vercel: "https://mcp.vercel.com",
+  webflow: "https://mcp.webflow.com/",
 }
 
 // github first (the primary identity), then the rest alphabetical
 export const SERVER_TYPES = [
   "github",
   "atlassian",
+  "canva",
+  "clickup",
+  "hubspot",
+  "intercom",
   "linear",
+  "monday",
   "notion",
   "plane",
   "sentry",
   "slack",
+  "stripe",
   "vercel",
+  "webflow",
 ] as const
 
 export const managedKeys = (name: string) =>
@@ -71,7 +86,7 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
     } else {
       out[name] = {
         type: "http",
-        url: httpUrl(v as boolean | HttpServer, HTTP_OAUTH[key]),
+        url: httpUrl(v as boolean | HttpServer, REMOTE[key]),
       }
     }
   }

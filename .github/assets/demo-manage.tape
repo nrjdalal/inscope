@@ -30,7 +30,7 @@ Enter
 Sleep 1100ms
 Enter
 Sleep 1300ms
-Down Sleep 350ms Down Sleep 350ms Down Sleep 350ms Down Sleep 500ms Space Sleep 800ms Enter
+Down Sleep 500ms Space Sleep 800ms Enter
 Sleep 2400ms
 
 Type "inscope rm personal" Sleep 300ms Enter

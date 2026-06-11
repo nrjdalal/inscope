@@ -194,31 +194,20 @@ test("slackKeychainFor names the keychain after the env var, uppercased", () => 
 })
 
 test("buildServers reflects the enabled list and slack details", () => {
-  expect(buildServers(["github"], null)).toEqual({
-    atlassian: false,
-    github: true,
-    linear: false,
-    notion: false,
-    plane: false,
-    sentry: false,
-    slack: false,
-    vercel: false,
+  const s = buildServers(["github", "linear"], null)
+  expect(s.github).toBe(true)
+  expect(s.linear).toBe(true)
+  expect(s.notion).toBe(false)
+  expect(s.stripe).toBe(false)
+  expect(s.slack).toBe(false)
+
+  const withSlack = buildServers(["github", "slack"], {
+    keychain: "K",
+    addMessageTool: true,
   })
-  expect(
-    buildServers(["github", "linear", "notion", "slack"], {
-      keychain: "K",
-      addMessageTool: true,
-    }),
-  ).toEqual({
-    atlassian: false,
-    github: true,
-    linear: true,
-    notion: true,
-    plane: false,
-    sentry: false,
-    slack: { keychain: "K", addMessageTool: true },
-    vercel: false,
-  })
+  expect(withSlack.github).toBe(true)
+  expect(withSlack.linear).toBe(false)
+  expect(withSlack.slack).toEqual({ keychain: "K", addMessageTool: true })
 })
 
 test("renderServers emits each OAuth http server at its endpoint", () => {
@@ -242,6 +231,43 @@ test("renderServers emits each OAuth http server at its endpoint", () => {
   expect(out["vercel-x"]).toEqual({
     type: "http",
     url: "https://mcp.vercel.com",
+  })
+
+  const out2 = renderServers({
+    name: "y",
+    path: "~/y",
+    servers: {
+      canva: true,
+      clickup: true,
+      hubspot: true,
+      monday: true,
+      stripe: true,
+      webflow: true,
+    },
+  })
+  expect(out2["canva-y"]).toEqual({
+    type: "http",
+    url: "https://mcp.canva.com/mcp",
+  })
+  expect(out2["clickup-y"]).toEqual({
+    type: "http",
+    url: "https://mcp.clickup.com/mcp",
+  })
+  expect(out2["hubspot-y"]).toEqual({
+    type: "http",
+    url: "https://mcp.hubspot.com",
+  })
+  expect(out2["monday-y"]).toEqual({
+    type: "http",
+    url: "https://mcp.monday.com/mcp",
+  })
+  expect(out2["stripe-y"]).toEqual({
+    type: "http",
+    url: "https://mcp.stripe.com",
+  })
+  expect(out2["webflow-y"]).toEqual({
+    type: "http",
+    url: "https://mcp.webflow.com/",
   })
 })
 

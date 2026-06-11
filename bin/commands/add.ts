@@ -31,8 +31,9 @@ Options:
       --email <email>       git commit email (omit to inherit your global identity)
       --git-name <name>     git commit author name (omit to inherit global)
       --label <name>        workspace name; defaults to the directory basename
-      --servers <list>      comma-separated, any of: github, atlassian, linear,
-                            notion, plane, sentry, slack, vercel
+      --servers <list>      comma-separated, any of: github, atlassian, canva,
+                            clickup, hubspot, intercom, linear, monday, notion,
+                            plane, sentry, slack, stripe, vercel, webflow
                             (default: github)
       --slack-keychain <s>  keychain service for the Slack token
                             (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)

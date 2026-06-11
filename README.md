@@ -45,29 +45,19 @@ Nothing sensitive is written to disk. GitHub tokens come from the `gh` keyring a
 # set up the config + hook, and source it from ~/.zshrc
 inscope init
 
-# map a workspace interactively: pick the gh account, git identity, and servers
+# map a workspace — inscope prompts for the gh account, git identity, and servers
 inscope add ~/acme
+inscope add ~/personal
 
-# or pass flags to skip the prompts (work gh account, work email, + servers)
-inscope add ~/acme --gh neeraj-acme-org --email neeraj@acme.org --servers github,linear
-
-# map a personal directory: just your gh account and personal email
-inscope add ~/personal --gh nrjdalal --email hello@nrjdalal.com
-
-# list what is configured
-inscope list
-
-# edit a workspace interactively (gh account, git identity, servers)
+# edit a workspace interactively
 inscope edit acme
 
-# verify tokens, identities, and the hook all resolve
+# list what is configured, and verify everything resolves
+inscope list
 inscope doctor
 
-# regenerate everything after editing the config by hand
-inscope apply
-
-# remove a workspace mapping
-inscope rm ~/acme
+# remove a workspace (asks you to type the label to confirm)
+inscope rm acme
 ```
 
 `cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you.
@@ -83,7 +73,7 @@ inscope rm ~/acme
 - 🪪 Per-directory identity: GitHub token, git commit email, and MCP servers scoped to `$PWD`
 - 🧵 Race-free across concurrent shells and Claude Code sessions, with no global toggles
 - 🔐 No secrets on disk: GitHub tokens from the `gh` keyring, Slack tokens from the macOS Keychain
-- 🤖 Generates a `.mcp.json` per workspace with uniquely named GitHub, Atlassian, Linear, Notion, Plane, Sentry, Slack and Vercel servers
+- 🤖 One `.mcp.json` per workspace with uniquely named servers — GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel and Webflow
 - ✉️ Git `includeIf` rules so every commit lands with the right author email per path
 - 🪝 A single zsh `chpwd` hook does all the resolution; nothing else touches your shell
 - 🩺 `inscope doctor` verifies tokens, identities, and the hook before you trust them
@@ -105,25 +95,28 @@ Install globally (the CLI manages your shell hook, so a global install is expect
 npm i -g inscope
 ```
 
-Then walk through the setup once:
+Prerequisite: sign each GitHub account into `gh` once with `gh auth login` (that's gh's own command, not inscope). inscope reads tokens from the accounts you've signed in.
 
 ```sh
-# 1. set up the config + hook, and source it from ~/.zshrc
+# set up the config + hook, and source it from ~/.zshrc
 inscope init
 
-# 2. sign each GitHub account into gh (once per account)
-gh auth login
+# map a workspace — inscope walks you through the gh account, git identity, and servers
+inscope add ~/acme
+inscope add ~/personal
 
-# 3. map your workspaces
-inscope add ~/acme     --gh neeraj-acme-org --email neeraj@acme.org --servers github,linear
-inscope add ~/personal --gh nrjdalal        --email hello@nrjdalal.com
-
-# 4. reload your shell, then verify
+# reload your shell, then verify
 source ~/.zshrc
 inscope doctor
 ```
 
 Launch `claude` from inside a mapped directory (or relaunch) to pick up the identity. No toggles, and it holds up with several terminals open at once.
+
+Prefer flags or CI? Every prompt has a flag, and `-y` skips them all:
+
+```sh
+inscope add ~/acme --gh <account> --email you@work.com --servers github,linear -y
+```
 
 ---
 
@@ -157,8 +150,9 @@ Run it bare and it walks you through everything: pick the GitHub account from yo
     --email <email>       git commit email (omit to inherit your global identity)
     --git-name <name>     git commit author name (omit to inherit global)
     --label <name>        workspace name; defaults to the directory basename
-    --servers <list>      comma-separated, any of: github, atlassian, linear,
-                          notion, plane, sentry, slack, vercel
+    --servers <list>      comma-separated, any of: github, atlassian, canva,
+                          clickup, hubspot, intercom, linear, monday, notion,
+                          plane, sentry, slack, stripe, vercel, webflow
                           (default: github)
     --slack-keychain <s>  keychain service for the Slack token
                           (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
@@ -186,16 +180,23 @@ Run it bare and it walks you through everything: pick the GitHub account from yo
 
 Each enabled server is written into the workspace `.mcp.json` with a name suffixed by the workspace label (for example `github-acme`), so servers from different workspaces never collide.
 
-| Server      | Transport | Token source                                   |
+| Server      | Transport | Auth                                           |
 | ----------- | --------- | ---------------------------------------------- |
 | `github`    | http      | `GITHUB_TOKEN` from the active `gh` account    |
-| `atlassian` | http      | OAuth via the Atlassian (Jira/Confluence) MCP  |
-| `linear`    | http      | OAuth via the Linear MCP endpoint              |
-| `notion`    | http      | OAuth via the Notion MCP endpoint              |
-| `plane`     | http      | OAuth via the Plane MCP endpoint               |
-| `sentry`    | http      | OAuth via the Sentry MCP endpoint              |
+| `atlassian` | http      | OAuth (Jira / Confluence)                      |
+| `canva`     | http      | OAuth                                          |
+| `clickup`   | http      | OAuth                                          |
+| `hubspot`   | http      | OAuth                                          |
+| `intercom`  | http      | OAuth                                          |
+| `linear`    | http      | OAuth                                          |
+| `monday`    | http      | OAuth                                          |
+| `notion`    | http      | OAuth                                          |
+| `plane`     | http      | OAuth                                          |
+| `sentry`    | http      | OAuth                                          |
 | `slack`     | stdio     | `SLACK_MCP_XOXP_TOKEN` from the macOS Keychain |
-| `vercel`    | http      | OAuth via the Vercel MCP endpoint              |
+| `stripe`    | http      | OAuth                                          |
+| `vercel`    | http      | OAuth                                          |
+| `webflow`   | http      | OAuth                                          |
 
 Slack is opt-in. Enable it with `--servers ...,slack`, then store the token once:
 
@@ -224,16 +225,12 @@ The source of truth is `~/.config/inscope/inscope.json`:
       "git": { "email": "neeraj@acme.org" },
       "servers": {
         "github": true,
-        "atlassian": false,
         "linear": true,
-        "notion": false,
-        "plane": false,
-        "sentry": false,
         "slack": {
           "keychain": "SLACK_MCP_XOXP_TOKEN_ACME",
           "addMessageTool": false,
         },
-        "vercel": false,
+        // every other server (atlassian, canva, … webflow) defaults to false
       },
     },
   ],

@@ -31,7 +31,7 @@ Type "neeraj@acme.org" Sleep 300ms Enter
 Sleep 1200ms
 Enter
 Sleep 1400ms
-Down Sleep 350ms Down Sleep 350ms Down Sleep 350ms Down Sleep 500ms Space Sleep 800ms Enter
+Down Sleep 220ms Down Sleep 220ms Down Sleep 220ms Down Sleep 220ms Down Sleep 220ms Down Sleep 450ms Space Sleep 800ms Enter
 Sleep 2800ms
 
 Type "inscope list" Sleep 300ms Enter
