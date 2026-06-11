@@ -9,6 +9,10 @@
 
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/docs/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="800" />
+</p>
+
 Concurrent sessions in different projects should never bleed work and personal accounts into each other. You describe each workspace once; `inscope` owns the moving parts and keeps them in sync:
 
 - a `.mcp.json` at each workspace root, with uniquely named servers
