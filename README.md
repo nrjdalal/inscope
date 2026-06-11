@@ -57,6 +57,9 @@ inscope add ~/nrjdalal --gh nrjdalal --email you@personal.dev
 # list what is configured
 inscope list
 
+# edit a workspace interactively (gh account, git identity, servers)
+inscope edit acme
+
 # verify tokens, identities, and the hook all resolve
 inscope doctor
 
@@ -68,6 +71,10 @@ inscope rm ~/acme
 ```
 
 `cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/nrjdalal/blog` and you are you.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/docs/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="800" />
+</p>
 
 ---
 
@@ -136,6 +143,10 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 ```
 
 Run any command with `-h` for its options.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/docs/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="800" />
+</p>
 
 ### `inscope add`
 
