@@ -41,7 +41,10 @@ Nothing sensitive is written to disk. GitHub tokens come from the `gh` keyring a
 # set up the config + hook, and source it from ~/.zshrc
 inscope init
 
-# map a work directory: work gh account, work email, work + slack servers
+# map a workspace interactively: pick the gh account, git identity, and servers
+inscope add ~/acme
+
+# or pass flags to skip the prompts (work gh account, work email, + slack)
 inscope add ~/acme --gh acme --email you@acme.com --servers github,linear,notion,slack
 
 # map a personal directory: just your gh account and personal email
@@ -129,33 +132,36 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 
 Run any command with `-h` for its options.
 
-### `inscope add` options
+### `inscope add`
+
+Run it bare and it walks you through everything: pick the GitHub account from your signed-in `gh` accounts, accept your global git identity or set a per-workspace one, and toggle which MCP servers to enable. Pass any flag to skip its prompt, or `-y` to take the defaults non-interactively (for scripts and CI).
 
 ```
     --gh <account>        gh account whose token this workspace uses
-    --email <email>       git commit email for this workspace
-    --git-name <name>     git commit author name (optional)
+    --email <email>       git commit email (omit to inherit your global identity)
+    --git-name <name>     git commit author name (omit to inherit global)
     --label <name>        workspace name; defaults to the directory basename
     --servers <list>      comma-separated: github,linear,notion,slack
-                          (default: github,linear,notion)
+                          (default: github)
     --slack-keychain <s>  keychain service for the Slack token
-                          (default: slack-<label>-mcp-xoxp when slack is on)
+                          (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
     --slack-message       allow the Slack MCP server to post messages
     --seed-slack          prompt for the Slack token and store it in the keychain
+  -y, --yes               accept defaults, skip all prompts (non-interactive)
 ```
 
 ---
 
 ## 🧩 What It Manages
 
-| Surface      | Location                                                    |
-| ------------ | ----------------------------------------------------------- |
-| Config       | `~/.config/claude/workspaces.json`                          |
-| chpwd hook   | `~/.config/claude/mcp-tokens.zsh`                           |
-| MCP servers  | `<workspace>/.mcp.json`                                     |
-| Git identity | `~/.gitconfig` includeIf + `~/.config/git/<name>.gitconfig` |
+| Surface      | Location                                                            |
+| ------------ | ------------------------------------------------------------------- |
+| Config       | `~/.config/inscope/inscope.json`                                    |
+| chpwd hook   | `~/.config/inscope/inscope.zsh`                                     |
+| MCP servers  | `<workspace>/.mcp.json`                                             |
+| Git identity | `~/.gitconfig` includeIf + `~/.config/inscope/git/<name>.gitconfig` |
 
-`inscope` only touches the blocks it owns; your other `.zshrc`, `.gitconfig` and `.mcp.json` content is left alone. Edit `workspaces.json` by hand if you like, then run `inscope apply`.
+`inscope` only touches the blocks it owns; your other `.zshrc`, `.gitconfig` and `.mcp.json` content is left alone. Edit `inscope.json` by hand if you like, then run `inscope apply`.
 
 ---
 
@@ -182,7 +188,7 @@ inscope add ~/acme --gh acme --servers github,linear,notion,slack --seed-slack
 
 ## 📋 Config File
 
-The source of truth is `~/.config/claude/workspaces.json`:
+The source of truth is `~/.config/inscope/inscope.json`:
 
 ```jsonc
 {
@@ -197,10 +203,13 @@ The source of truth is `~/.config/claude/workspaces.json`:
         "github": true,
         "linear": true,
         "notion": true,
-        "slack": { "keychain": "slack-acme-mcp-xoxp", "addMessageTool": false }
-      }
-    }
-  ]
+        "slack": {
+          "keychain": "SLACK_MCP_XOXP_TOKEN_ACME",
+          "addMessageTool": false,
+        },
+      },
+    },
+  ],
 }
 ```
 

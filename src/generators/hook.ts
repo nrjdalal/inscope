@@ -12,7 +12,7 @@ const slackService = (ws: Workspace) =>
   ws.servers.slack ? ws.servers.slack.keychain : ""
 
 export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
-# Source of truth: ~/.config/claude/workspaces.json
+# Source of truth: ~/.config/inscope/inscope.json
 # Edit there, then run \`inscope apply\` to regenerate this file.
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps

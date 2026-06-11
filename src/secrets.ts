@@ -32,6 +32,24 @@ export const ghStatus = (run: Runner = defaultRunner) => {
   return (r.stdout + r.stderr).trim()
 }
 
+// Unique gh accounts parsed from `gh auth status`, in the order they appear.
+export const ghAccounts = (run: Runner = defaultRunner): string[] => {
+  const names: string[] = []
+  for (const m of ghStatus(run).matchAll(/account (\S+) \(/g)) {
+    if (!names.includes(m[1])) names.push(m[1])
+  }
+  return names
+}
+
+export const gitGlobal = (
+  key: string,
+  run: Runner = defaultRunner,
+): string | null => {
+  const r = run("git", ["config", "--global", key])
+  const v = r.stdout.trim()
+  return r.status === 0 && v ? v : null
+}
+
 export const keychainHas = (service: string, run: Runner = defaultRunner) => {
   const r = run("security", [
     "find-generic-password",

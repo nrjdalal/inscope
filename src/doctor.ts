@@ -1,8 +1,8 @@
 import fs from "node:fs"
 import path from "node:path"
-import { ZSHRC_BLOCK_ID } from "@/apply"
+import { zshrcSourcesHook } from "@/apply"
 import type { Config, Workspace } from "@/config"
-import { gitconfigPath, hookPath, resolveAbsolute, zshrcPath } from "@/env"
+import { gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
   GITCONFIG_BLOCK_ID,
   hasGitIdentity,
@@ -80,7 +80,8 @@ export const runDoctor = (
     checks.push({
       status: "warn",
       label: "platform",
-      detail: "inscope's secret resolution targets macOS (gh keyring + Keychain)",
+      detail:
+        "inscope's secret resolution targets macOS (gh keyring + Keychain)",
     })
   }
 
@@ -103,7 +104,7 @@ export const runDoctor = (
   }
 
   checks.push(
-    readBlock(zshrcPath(), ZSHRC_BLOCK_ID) !== null
+    zshrcSourcesHook()
       ? { status: "ok", label: "zshrc", detail: "sources the hook" }
       : {
           status: "warn",

@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { renderZshrcSource } from "@/apply"
 import {
   findWorkspace,
   removeWorkspace,
@@ -14,6 +15,7 @@ import {
 import { renderHook } from "@/generators/hook"
 import { applyMcp, removeMcp, renderServers } from "@/generators/mcp"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
+import { ghAccounts, type Runner } from "@/secrets"
 import { expect, test } from "bun:test"
 
 const blogConfig = (): Config => ({
@@ -28,7 +30,7 @@ const blogConfig = (): Config => ({
         github: true,
         linear: true,
         notion: true,
-        slack: { keychain: "slack-acme-mcp-xoxp", addMessageTool: true },
+        slack: { keychain: "SLACK_MCP_XOXP_TOKEN_ACME", addMessageTool: true },
       },
     },
     {
@@ -40,7 +42,10 @@ const blogConfig = (): Config => ({
         github: true,
         linear: true,
         notion: true,
-        slack: { keychain: "slack-nrjdalal-mcp-xoxp", addMessageTool: true },
+        slack: {
+          keychain: "SLACK_MCP_XOXP_TOKEN_NRJDALAL",
+          addMessageTool: true,
+        },
       },
     },
   ],
@@ -71,7 +76,7 @@ test("renderServers matches the blog's acme .mcp.json", () => {
 
 test("addMessageTool omitted means read-only Slack server", () => {
   const ws = blogConfig().workspaces[0]
-  ws.servers.slack = { keychain: "slack-acme-mcp-xoxp" }
+  ws.servers.slack = { keychain: "SLACK_MCP_XOXP_TOKEN_ACME" }
   const slack = renderServers(ws)["slack-acme"] as any
   expect(slack.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBeUndefined()
 })
@@ -80,9 +85,11 @@ test("renderHook wires both workspaces and is deterministic", () => {
   const hook = renderHook(blogConfig())
   expect(hook).toContain(`"$HOME/acme/"*) ws=acme ;;`)
   expect(hook).toContain(`"$HOME/nrjdalal/"*) ws=nrjdalal ;;`)
-  expect(hook).toContain(`acme) gh_user=acme; slack_svc=slack-acme-mcp-xoxp ;;`)
   expect(hook).toContain(
-    `nrjdalal) gh_user=nrjdalal; slack_svc=slack-nrjdalal-mcp-xoxp ;;`,
+    `acme) gh_user=acme; slack_svc=SLACK_MCP_XOXP_TOKEN_ACME ;;`,
+  )
+  expect(hook).toContain(
+    `nrjdalal) gh_user=nrjdalal; slack_svc=SLACK_MCP_XOXP_TOKEN_NRJDALAL ;;`,
   )
   expect(hook).toContain(`unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN`)
   expect(hook).toContain(`export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"`)
@@ -117,32 +124,60 @@ test("git includes and per-workspace gitconfig", () => {
 
 test("managed block is idempotent and preserves surrounding content", () => {
   const dir = tmpDir()
-  const file = path.join(dir, ".zshrc")
-  fs.writeFileSync(file, "export FOO=1\n")
+  const file = path.join(dir, ".gitconfig")
+  fs.writeFileSync(file, "[core]\n\tpager = less\n")
 
-  upsertBlock(file, "zshrc", "source x")
+  upsertBlock(file, "gitconfig", "source x")
   const once = fs.readFileSync(file, "utf8")
-  upsertBlock(file, "zshrc", "source x")
+  upsertBlock(file, "gitconfig", "source x")
   expect(fs.readFileSync(file, "utf8")).toBe(once)
 
-  expect(once).toContain("export FOO=1")
-  expect(readBlock(file, "zshrc")).toBe("source x")
+  expect(once).toContain("pager = less")
+  expect(readBlock(file, "gitconfig")).toBe("source x")
 
-  upsertBlock(file, "zshrc", "source y")
-  expect(readBlock(file, "zshrc")).toBe("source y")
+  upsertBlock(file, "gitconfig", "source y")
+  expect(readBlock(file, "gitconfig")).toBe("source y")
 
-  removeBlock(file, "zshrc")
-  expect(readBlock(file, "zshrc")).toBeNull()
-  expect(fs.readFileSync(file, "utf8")).toContain("export FOO=1")
+  removeBlock(file, "gitconfig")
+  expect(readBlock(file, "gitconfig")).toBeNull()
+  expect(fs.readFileSync(file, "utf8")).toContain("pager = less")
 })
 
 test("managed block has no leading blank line on a fresh file", () => {
-  const file = path.join(tmpDir(), ".zshrc")
-  upsertBlock(file, "zshrc", "source x")
-  upsertBlock(file, "zshrc", "source y")
+  const file = path.join(tmpDir(), ".gitconfig")
+  upsertBlock(file, "gitconfig", "source x")
+  upsertBlock(file, "gitconfig", "source y")
   const out = fs.readFileSync(file, "utf8")
-  expect(out.startsWith("# >>> inscope:zshrc >>>")).toBe(true)
-  expect(out.match(/# >>> inscope:zshrc >>>/g)).toHaveLength(1)
+  expect(out.startsWith("# >>> inscope:gitconfig >>>")).toBe(true)
+  expect(out.match(/# >>> inscope:gitconfig >>>/g)).toHaveLength(1)
+})
+
+test("renderZshrcSource appends the source line once and stays idempotent", () => {
+  const once = renderZshrcSource("export FOO=1\n")
+  expect(once).toContain("export FOO=1")
+  expect(once).toContain('source "$HOME/.config/inscope/inscope.zsh"')
+  expect(once).not.toContain("# >>> inscope")
+  expect(once.match(/&& source /g)).toHaveLength(1)
+  expect(renderZshrcSource(once)).toBe(once)
+})
+
+test("renderZshrcSource has no leading blank line on a fresh file", () => {
+  expect(renderZshrcSource("").startsWith("# inscope:")).toBe(true)
+})
+
+test("ghAccounts parses unique accounts and ignores the active-account line", () => {
+  const run: Runner = () => ({
+    status: 0,
+    stdout: [
+      "github.com",
+      "  ✓ Logged in to github.com account nrjdalal (GITHUB_TOKEN)",
+      "  - Active account: true",
+      "  ✓ Logged in to github.com account nrjdalal (keyring)",
+      "  ✓ Logged in to github.com account dalonic (keyring)",
+    ].join("\n"),
+    stderr: "",
+  })
+  expect(ghAccounts(run)).toEqual(["nrjdalal", "dalonic"])
 })
 
 test("applyMcp merges with, and removeMcp prunes, only inscope's servers", () => {

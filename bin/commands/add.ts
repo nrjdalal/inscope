@@ -11,34 +11,57 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde } from "@/env"
-import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
-import { promptHidden } from "~/bin/commands/_prompt"
+import {
+  ghAccounts,
+  gitGlobal,
+  keychainHas,
+  keychainSet,
+  keychainSetCommand,
+} from "@/secrets"
+import {
+  isInteractive,
+  promptConfirm,
+  promptHidden,
+  promptText,
+  selectMany,
+  selectOne,
+} from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Map a directory to a GitHub account, git email, and MCP servers.
-Re-running with the same path or label updates that workspace.
+Runs interactively in a terminal; pass flags or -y to skip the prompts. Re-running
+with the same path or label updates that workspace.
 
 Usage:
-  $ ${name} add <path> [options]
+  $ ${name} add [path] [options]
 
 Options:
       --gh <account>        gh account whose token this workspace uses
-      --email <email>       git commit email for this workspace
-      --git-name <name>     git commit author name (optional)
+      --email <email>       git commit email (omit to inherit your global identity)
+      --git-name <name>     git commit author name (omit to inherit global)
       --label <name>        workspace name; defaults to the directory basename
       --servers <list>      comma-separated: github,linear,notion,slack
-                            (default: github,linear,notion)
+                            (default: github)
       --slack-keychain <s>  keychain service for the Slack token
-                            (default: slack-<label>-mcp-xoxp when slack is on)
+                            (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
       --slack-message       allow the Slack MCP server to post messages
       --seed-slack          prompt for the Slack token and store it in the keychain
+  -y, --yes                 accept defaults, skip all prompts (non-interactive)
   -h, --help                Display help message`
+
+const SERVER_CHOICES = [
+  { label: "github", value: "github", checked: true },
+  { label: "linear", value: "linear", checked: false },
+  { label: "notion", value: "notion", checked: false },
+  { label: "slack", value: "slack", checked: false },
+]
 
 export const add = async (args: string[]) => {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
     options: {
       help: { type: "boolean", short: "h" },
+      yes: { type: "boolean", short: "y" },
       gh: { type: "string" },
       email: { type: "string" },
       "git-name": { type: "string" },
@@ -56,39 +79,101 @@ export const add = async (args: string[]) => {
     process.exit(0)
   }
 
-  const target = positionals[0]
-  if (!target) throw new Error(helpMessage)
+  const interactive = isInteractive() && !values.yes
 
-  const label = values.label || labelFromPath(target)
-  const list = (values.servers ?? "github,linear,notion")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
+  // --- path ---
+  let target = positionals[0]
+  if (!target) {
+    if (interactive)
+      target = await promptText("Workspace directory", process.cwd())
+    else throw new Error(helpMessage)
+  }
 
+  // --- label ---
+  let label = values.label || labelFromPath(target)
+  if (interactive && !values.label) label = await promptText("Label", label)
+
+  // --- gh account ---
+  let gh = values.gh
+  if (gh === undefined && interactive) {
+    const choices = [
+      ...ghAccounts().map((a) => ({ label: a, value: a })),
+      { label: "(none)", value: "" },
+    ]
+    gh =
+      (await selectOne("GitHub account for this workspace", choices)) ||
+      undefined
+  }
+
+  // --- git identity (empty answer inherits the global config) ---
+  let email = values.email
+  let gitName = values["git-name"]
+  if (interactive) {
+    if (email === undefined) {
+      const g = gitGlobal("user.email")
+      email =
+        (await promptText(
+          `Git email${g ? ` [${g} · global]` : ""} (enter to inherit global)`,
+        )) || undefined
+    }
+    if (gitName === undefined) {
+      const g = gitGlobal("user.name")
+      gitName =
+        (await promptText(
+          `Git name${g ? ` [${g} · global]` : ""} (enter to inherit global)`,
+        )) || undefined
+    }
+  }
+
+  // --- MCP servers ---
+  let serverList: string[]
+  if (values.servers !== undefined) {
+    serverList = values.servers
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  } else if (interactive) {
+    serverList = await selectMany(
+      "MCP servers (space toggles, enter confirms)",
+      SERVER_CHOICES,
+    )
+  } else {
+    serverList = ["github"]
+  }
+
+  // --- slack details ---
   const wantSlack =
-    list.includes("slack") ||
+    serverList.includes("slack") ||
     !!values["slack-keychain"] ||
     !!values["seed-slack"]
-  const slackSvc = values["slack-keychain"] || `slack-${label}-mcp-xoxp`
+  const slackEnv = label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")
+  let slackSvc = values["slack-keychain"] || `SLACK_MCP_XOXP_TOKEN_${slackEnv}`
+  let slackMessage = !!values["slack-message"]
+  let seedSlack = !!values["seed-slack"]
+  if (wantSlack && interactive) {
+    if (!values["slack-keychain"])
+      slackSvc = await promptText("Slack keychain service", slackSvc)
+    if (!values["slack-message"])
+      slackMessage = await promptConfirm("Allow Slack to post messages?", false)
+    if (!values["seed-slack"])
+      seedSlack = await promptConfirm("Store the Slack token now?", false)
+  }
 
   const servers: Servers = {
-    github: list.includes("github"),
-    linear: list.includes("linear"),
-    notion: list.includes("notion"),
+    github: serverList.includes("github"),
+    linear: serverList.includes("linear"),
+    notion: serverList.includes("notion"),
     slack: wantSlack
-      ? { keychain: slackSvc, addMessageTool: !!values["slack-message"] }
+      ? { keychain: slackSvc, addMessageTool: slackMessage }
       : false,
   }
 
-  const git =
-    values.email || values["git-name"]
-      ? { email: values.email, name: values["git-name"] }
-      : undefined
+  const git = email || gitName ? { email, name: gitName } : undefined
 
   const ws: Workspace = {
     name: label,
     path: contractTilde(target),
-    gh: values.gh,
+    gh,
     git,
     servers,
   }
@@ -98,11 +183,11 @@ export const add = async (args: string[]) => {
   saveConfig(next)
   applyAll(next)
 
-  console.log(`✓ workspace "${label}" -> ${ws.path}`)
+  console.log(`\n✓ workspace "${label}" -> ${ws.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
 
   if (servers.slack) {
-    if (values["seed-slack"]) {
+    if (seedSlack) {
       const token = await promptHidden(
         `Paste the Slack xoxp token for ${slackSvc}: `,
       )
