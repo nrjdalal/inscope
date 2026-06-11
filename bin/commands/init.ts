@@ -28,11 +28,11 @@ export const init = (args: string[]) => {
   let cfg
   if (configExists()) {
     cfg = loadConfig()
-    console.log(`Using existing config at ${configPath()}`)
+    console.log(`\nUsing existing config at ${configPath()}`)
   } else {
     cfg = defaultConfig()
     saveConfig(cfg)
-    console.log(`Created ${configPath()}`)
+    console.log(`\nCreated ${configPath()}`)
   }
 
   applyAll(cfg)
@@ -40,7 +40,6 @@ export const init = (args: string[]) => {
   console.log(`
 Next steps:
   1. Reload your shell:           source ~/.zshrc   (or open a new terminal)
-  2. Sign each GitHub account in: gh auth login
-  3. Map a workspace:             ${name} add ~/acme --gh acme --email you@acme.com`)
+  2. Map a workspace:             ${name} add ~/acme`)
   process.exit(0)
 }

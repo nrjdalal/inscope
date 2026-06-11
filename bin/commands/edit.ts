@@ -19,7 +19,6 @@ import {
   finalizeSlack,
   persist,
   SERVER_LABELS,
-  SLACK_AUTH_DOCS,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
@@ -137,9 +136,7 @@ export const edit = async (args: string[]) => {
     : false
   let seedSlack = false
   if (wantSlack) {
-    console.log(
-      `\nSlack uses a user OAuth (xoxp) token. Setup guide:\n  ${SLACK_AUTH_DOCS}`,
-    )
+    console.log(`\nSlack uses a user OAuth (xoxp) token.`)
     slackSvc = await promptText("Slack keychain service", slackSvc)
     slackMessage = await promptConfirm(
       "Allow Slack to post messages?",

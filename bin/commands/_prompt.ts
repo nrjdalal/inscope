@@ -3,6 +3,17 @@ import readline from "node:readline"
 export const isInteractive = () =>
   Boolean(process.stdin.isTTY && process.stdout.isTTY)
 
+// Render a clickable terminal hyperlink (OSC 8) when stdout is a TTY, so a long
+// URL doesn't sit there as an unclickable wrapped string. Falls back to the raw
+// URL when piped (or a terminal that ignores the escape still shows the text).
+export const hyperlink = (url: string, text = url): string =>
+  process.stdout.isTTY ? `\x1b]8;;${url}\x07${text}\x1b]8;;\x07` : url
+
+// Wrap text in orange so copy-paste commands and links stand out. No-op when
+// stdout isn't a TTY, so piped output stays free of escape codes.
+export const orange = (s: string): string =>
+  process.stdout.isTTY ? `\x1b[38;5;208m${s}\x1b[0m` : s
+
 const setRaw = (on: boolean) => {
   const s: any = process.stdin
   if (s.isTTY && typeof s.setRawMode === "function") s.setRawMode(on)
@@ -53,13 +64,26 @@ export const promptText = async (query: string, def = ""): Promise<string> => {
   return answer.trim() || def
 }
 
+// Yes/No confirm rendered as an arrow-key selector: the default option is
+// pre-highlighted (Enter keeps it), ↑/↓ flips it. Falls back to a [y/N] text
+// reader when stdin isn't an interactive TTY (pipes, --yes flows, tests).
 export const promptConfirm = async (
   query: string,
   def = false,
 ): Promise<boolean> => {
-  const answer = await readLine(`${query} [${def ? "Y/n" : "y/N"}]: `)
-  const a = answer.trim().toLowerCase()
-  return a ? a === "y" || a === "yes" : def
+  if (!isInteractive()) {
+    const answer = await readLine(`${query} [${def ? "Y/n" : "y/N"}]: `)
+    const a = answer.trim().toLowerCase()
+    return a ? a === "y" || a === "yes" : def
+  }
+  return selectOne(
+    query,
+    [
+      { label: "Yes", value: true },
+      { label: "No", value: false },
+    ],
+    def ? 0 : 1,
+  )
 }
 
 export const promptHidden = (query: string): Promise<string> =>

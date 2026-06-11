@@ -40,11 +40,10 @@ export const doctor = (args: string[]) => {
   const cfg = loadConfig()
   const checks = runDoctor(cfg)
 
-  for (const c of checks) {
-    console.log(
-      `${symbol[c.status]} ${c.label}${c.detail ? `  ${c.detail}` : ""}`,
-    )
-  }
+  const report = checks
+    .map((c) => `${symbol[c.status]} ${c.label}${c.detail ? `  ${c.detail}` : ""}`)
+    .join("\n")
+  console.log(`\n${report}`)
 
   const here = currentWorkspace(cfg)
   if (here) {

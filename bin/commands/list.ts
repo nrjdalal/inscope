@@ -43,7 +43,7 @@ export const list = (args: string[]) => {
   }
 
   for (const ws of cfg.workspaces) {
-    console.log(`${ws.name}`)
+    console.log(`\n${ws.name}`)
     console.log(`  path     ${ws.path}`)
     console.log(`  gh       ${ws.gh ?? "(none)"}`)
     console.log(`  git      ${ws.git?.email ?? "(default)"}`)

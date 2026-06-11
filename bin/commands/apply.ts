@@ -32,7 +32,7 @@ export const apply = (args: string[]) => {
   const cfg = loadConfig()
   const res = applyAll(cfg)
 
-  console.log(`✓ hook       ${res.hook}`)
+  console.log(`\n✓ hook       ${res.hook}`)
   if (res.gitconfig) console.log(`✓ gitconfig  ~/.gitconfig (includeIf block)`)
   for (const m of res.mcp) console.log(`✓ mcp        ${m}`)
   console.log(`\nApplied ${cfg.workspaces.length} workspace(s).`)

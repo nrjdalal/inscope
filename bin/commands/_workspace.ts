@@ -10,7 +10,7 @@ import {
 } from "@/config"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
-import { promptHidden } from "~/bin/commands/_prompt"
+import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
 
 export const SLACK_AUTH_DOCS =
   "https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth"
@@ -54,14 +54,14 @@ export const finalizeSlack = async (ws: Workspace, seed: boolean) => {
   if (seed) {
     const token = await promptHidden(`Paste the Slack xoxp token for ${svc}: `)
     if (!token) {
-      console.error("No token entered; skipped keychain write.")
+      console.error("\nNo token entered; skipped keychain write.")
     } else {
       keychainSet(svc, token)
-      console.log(`✓ stored ${svc} in the macOS keychain`)
+      console.log(`\n✓ stored ${svc} in the macOS keychain`)
     }
   } else if (!keychainHas(svc)) {
     console.log(
-      `\nSlack token not in the keychain yet. Create a Slack app (xoxp user OAuth):\n  ${SLACK_AUTH_DOCS}\nthen store the token once with:\n  ${keychainSetCommand(svc)}`,
+      `\nSlack token not in the keychain yet. Store it once with:\n${orange(keychainSetCommand(svc))}\n\nSetup guide: ${orange(hyperlink(SLACK_AUTH_DOCS))}`,
     )
   }
 }

@@ -10,7 +10,12 @@ import {
 } from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
-import { isInteractive, promptText, selectOne } from "~/bin/commands/_prompt"
+import {
+  isInteractive,
+  orange,
+  promptText,
+  selectOne,
+} from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Remove a workspace mapping. Drops its git include and the MCP
@@ -89,11 +94,11 @@ export const remove = async (args: string[]) => {
   saveConfig(next)
   applyAll(next)
 
-  console.log(`✓ removed workspace "${target.name}"`)
+  console.log(`\n✓ removed workspace "${target.name}"`)
   if (target.servers.slack) {
     console.log(
-      `Note: the keychain entry ${target.servers.slack.keychain} was left in place.\n` +
-        `Delete it with: security delete-generic-password -s ${target.servers.slack.keychain}`,
+      `\nNote: the keychain entry ${target.servers.slack.keychain} was left in place.\n` +
+        `Delete it with: ${orange(`security delete-generic-password -s ${target.servers.slack.keychain}`)}`,
     )
   }
   process.exit(0)

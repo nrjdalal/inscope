@@ -14,7 +14,6 @@ import {
   buildServers,
   finalizeSlack,
   persist,
-  SLACK_AUTH_DOCS,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
@@ -72,6 +71,7 @@ export const add = async (args: string[]) => {
   }
 
   const interactive = isInteractive() && !values.yes
+  if (interactive) console.log()
 
   // --- path ---
   let target = positionals[0]
@@ -93,7 +93,7 @@ export const add = async (args: string[]) => {
       { label: "(none)", value: "" },
     ]
     gh =
-      (await selectOne("GitHub account for this workspace", choices)) ||
+      (await selectOne("\nGitHub account for this workspace", choices)) ||
       undefined
   }
 
@@ -142,9 +142,7 @@ export const add = async (args: string[]) => {
   let slackMessage = !!values["slack-message"]
   let seedSlack = !!values["seed-slack"]
   if (wantSlack && interactive) {
-    console.log(
-      `\nSlack uses a user OAuth (xoxp) token. If you haven't created the app yet,\nfollow the setup guide:\n  ${SLACK_AUTH_DOCS}`,
-    )
+    console.log(`\nSlack uses a user OAuth (xoxp) token.`)
     if (!values["slack-keychain"])
       slackSvc = await promptText("Slack keychain service", slackSvc)
     if (!values["slack-message"])

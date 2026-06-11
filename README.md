@@ -7,7 +7,7 @@
 [![downloads](https://img.shields.io/npm/dt/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
 [![stars](https://img.shields.io/github/stars/nrjdalal/inscope?color=blue)](https://github.com/nrjdalal/inscope)
 
-📖 **The why behind the design:** [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace)
+📖 **The why behind the design:** [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace) aka multiple gh, linear, notion, slack and other accounts.
 
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
 
@@ -207,6 +207,10 @@ inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
 `--seed-slack` prompts for the `xoxp` token and writes it to the Keychain. Pass `--slack-message` to allow the Slack MCP server to post messages.
 
 You need a Slack app with a user OAuth (`xoxp`) token first. If you don't have one, follow the [slack-mcp-server authentication guide](https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth). inscope points you there during `add` when Slack is enabled.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-slack.gif" alt="inscope adding Slack: keychain prompt and Yes/No selector confirms" width="900" />
+</p>
 
 ---
 
