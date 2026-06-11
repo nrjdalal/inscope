@@ -1,23 +1,36 @@
 import { parseArgs } from "node:util"
 import { applyAll } from "@/apply"
-import { configExists, loadConfig, removeWorkspace, saveConfig } from "@/config"
+import {
+  configExists,
+  findWorkspace,
+  loadConfig,
+  removeWorkspace,
+  saveConfig,
+  type Workspace,
+} from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
+import { isInteractive, promptText, selectOne } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Remove a workspace mapping. Drops its git include and the MCP
-servers inscope manages; leaves your keychain and gh accounts untouched.
+servers inscope manages; leaves your keychain and gh accounts untouched. Pick a
+workspace, or pass its path/label.
 
 Usage:
-  $ ${name} rm <path|label>
+  $ ${name} rm [path|label]
 
 Options:
+  -y, --yes   Skip the type-the-label confirmation
   -h, --help  Display help message`
 
-export const remove = (args: string[]) => {
+export const remove = async (args: string[]) => {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { help: { type: "boolean", short: "h" } },
+    options: {
+      help: { type: "boolean", short: "h" },
+      yes: { type: "boolean", short: "y" },
+    },
     args,
   })
 
@@ -26,31 +39,61 @@ export const remove = (args: string[]) => {
     process.exit(0)
   }
 
-  const key = positionals[0]
-  if (!key) throw new Error(helpMessage)
-
   if (!configExists()) {
     console.error(`No config found. Run \`${name} init\` first.`)
     process.exit(1)
   }
 
   const cfg = loadConfig()
-  const { cfg: next, removed } = removeWorkspace(cfg, key)
-  if (!removed) {
-    console.error(`No workspace matching "${key}".`)
+  if (!cfg.workspaces.length) {
+    console.error("No workspaces to remove.")
     process.exit(1)
   }
 
-  removeMcp(removed)
-  removePerWorkspaceGitconfig(removed.name)
+  const key = positionals[0]
+  let target: Workspace
+  if (key) {
+    const found = findWorkspace(cfg, key)
+    if (!found) {
+      console.error(`No workspace matching "${key}".`)
+      process.exit(1)
+    }
+    target = found
+  } else if (isInteractive()) {
+    target = await selectOne(
+      "Remove which workspace?",
+      cfg.workspaces.map((w) => ({
+        label: `${w.name}  (${w.path})`,
+        value: w,
+      })),
+    )
+  } else {
+    console.error(`Specify a workspace, e.g. \`${name} rm <label>\`.`)
+    process.exit(1)
+  }
+
+  if (!values.yes) {
+    console.log(
+      `\n⚠ Removing "${target.name}" (${target.path}) unmaps it from inscope.`,
+    )
+    const typed = await promptText(`Type "${target.name}" to confirm`)
+    if (typed !== target.name) {
+      console.error(`Aborted: "${typed}" does not match "${target.name}".`)
+      process.exit(1)
+    }
+  }
+
+  const { cfg: next } = removeWorkspace(cfg, target.name)
+  removeMcp(target)
+  removePerWorkspaceGitconfig(target.name)
   saveConfig(next)
   applyAll(next)
 
-  console.log(`✓ removed workspace "${removed.name}"`)
-  if (removed.servers.slack) {
+  console.log(`✓ removed workspace "${target.name}"`)
+  if (target.servers.slack) {
     console.log(
-      `Note: the keychain entry ${removed.servers.slack.keychain} was left in place.\n` +
-        `Delete it with: security delete-generic-password -s ${removed.servers.slack.keychain}`,
+      `Note: the keychain entry ${target.servers.slack.keychain} was left in place.\n` +
+        `Delete it with: security delete-generic-password -s ${target.servers.slack.keychain}`,
     )
   }
   process.exit(0)

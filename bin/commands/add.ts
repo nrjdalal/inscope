@@ -1,31 +1,21 @@
 import { parseArgs } from "node:util"
-import { applyAll } from "@/apply"
-import {
-  configExists,
-  defaultConfig,
-  labelFromPath,
-  loadConfig,
-  saveConfig,
-  upsertWorkspace,
-  type Servers,
-  type Workspace,
-} from "@/config"
+import { labelFromPath, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
-import {
-  ghAccounts,
-  gitGlobal,
-  keychainHas,
-  keychainSet,
-  keychainSetCommand,
-} from "@/secrets"
+import { ghAccounts, gitGlobal } from "@/secrets"
 import {
   isInteractive,
   promptConfirm,
-  promptHidden,
   promptText,
   selectMany,
   selectOne,
 } from "~/bin/commands/_prompt"
+import {
+  buildServers,
+  finalizeSlack,
+  persist,
+  SLACK_AUTH_DOCS,
+  slackKeychainFor,
+} from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
 const helpMessage = `Map a directory to a GitHub account, git email, and MCP servers.
@@ -146,64 +136,36 @@ export const add = async (args: string[]) => {
     serverList.includes("slack") ||
     !!values["slack-keychain"] ||
     !!values["seed-slack"]
-  const slackEnv = label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")
-  let slackSvc = values["slack-keychain"] || `SLACK_MCP_XOXP_TOKEN_${slackEnv}`
+  let slackSvc = values["slack-keychain"] || slackKeychainFor(label)
   let slackMessage = !!values["slack-message"]
   let seedSlack = !!values["seed-slack"]
   if (wantSlack && interactive) {
+    console.log(
+      `\nSlack uses a user OAuth (xoxp) token. If you haven't created the app yet,\nfollow the setup guide:\n  ${SLACK_AUTH_DOCS}`,
+    )
     if (!values["slack-keychain"])
       slackSvc = await promptText("Slack keychain service", slackSvc)
     if (!values["slack-message"])
-      slackMessage = await promptConfirm("Allow Slack to post messages?", false)
+      slackMessage = await promptConfirm("Allow Slack to post messages?", true)
     if (!values["seed-slack"])
-      seedSlack = await promptConfirm("Store the Slack token now?", false)
+      seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
-
-  const servers: Servers = {
-    github: serverList.includes("github"),
-    linear: serverList.includes("linear"),
-    notion: serverList.includes("notion"),
-    slack: wantSlack
-      ? { keychain: slackSvc, addMessageTool: slackMessage }
-      : false,
-  }
-
-  const git = email || gitName ? { email, name: gitName } : undefined
 
   const ws: Workspace = {
     name: label,
     path: contractTilde(target),
     gh,
-    git,
-    servers,
+    git: email || gitName ? { email, name: gitName } : undefined,
+    servers: buildServers(
+      serverList,
+      wantSlack ? { keychain: slackSvc, addMessageTool: slackMessage } : null,
+    ),
   }
 
-  const cfg = configExists() ? loadConfig() : defaultConfig()
-  const next = upsertWorkspace(cfg, ws)
-  saveConfig(next)
-  applyAll(next)
-
+  persist(ws)
   console.log(`\n✓ workspace "${label}" -> ${ws.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
-
-  if (servers.slack) {
-    if (seedSlack) {
-      const token = await promptHidden(
-        `Paste the Slack xoxp token for ${slackSvc}: `,
-      )
-      if (!token) {
-        console.error("No token entered; skipped keychain write.")
-      } else {
-        keychainSet(slackSvc, token)
-        console.log(`✓ stored ${slackSvc} in the macOS keychain`)
-      }
-    } else if (!keychainHas(slackSvc)) {
-      console.log(
-        `\nSlack token not in the keychain yet. Store it once with:\n  ${keychainSetCommand(slackSvc)}`,
-      )
-    }
-  }
-
+  await finalizeSlack(ws, seedSlack)
   console.log(
     `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
   )

@@ -73,6 +73,19 @@ const readDoc = (file: string): Record<string, any> => {
   }
 }
 
+// Strict read for the write paths: never silently discard an existing file we
+// cannot parse. Throwing leaves the user's .mcp.json untouched.
+const readDocOrThrow = (file: string): Record<string, any> => {
+  if (!fs.existsSync(file)) return {}
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch {
+    throw new Error(
+      `${file} is not valid JSON; fix or remove it, then re-run inscope (left it untouched)`,
+    )
+  }
+}
+
 export const readMcp = (ws: Workspace): Record<string, any> | null => {
   const file = mcpFilePath(ws)
   return fs.existsSync(file) ? readDoc(file) : null
@@ -81,7 +94,7 @@ export const readMcp = (ws: Workspace): Record<string, any> | null => {
 export const applyMcp = (ws: Workspace) => {
   const file = mcpFilePath(ws)
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  const doc = readDoc(file)
+  const doc = readDocOrThrow(file)
   const servers: Record<string, unknown> =
     doc.mcpServers && typeof doc.mcpServers === "object"
       ? { ...doc.mcpServers }
@@ -95,7 +108,7 @@ export const applyMcp = (ws: Workspace) => {
 export const removeMcp = (ws: Workspace) => {
   const file = mcpFilePath(ws)
   if (!fs.existsSync(file)) return
-  const doc = readDoc(file)
+  const doc = readDocOrThrow(file)
   if (doc.mcpServers && typeof doc.mcpServers === "object") {
     for (const key of managedKeys(ws.name)) delete doc.mcpServers[key]
   }

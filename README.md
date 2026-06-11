@@ -120,8 +120,9 @@ Launch `claude` from inside a mapped directory (or relaunch) to pick up the iden
 
 ```
 inscope init           Create the config, generate the hook, source it from ~/.zshrc
-inscope add <path>     Map a directory to a GitHub account, git email, and MCP servers
-inscope rm <path>      Remove a workspace mapping (alias: remove)
+inscope add [path]     Map a directory to a GitHub account, git email, and MCP servers
+inscope edit [path]    Edit a workspace interactively, then re-apply
+inscope rm [path]      Remove a workspace mapping (alias: remove)
 inscope list           List configured workspaces (alias: ls)
 inscope apply          Regenerate the hook, git includes, and .mcp.json (alias: sync)
 inscope doctor         Verify tokens, identities, and the hook resolve correctly
@@ -183,6 +184,8 @@ inscope add ~/acme --gh acme --servers github,linear,notion,slack --seed-slack
 ```
 
 `--seed-slack` prompts for the `xoxp` token and writes it to the Keychain. Pass `--slack-message` to allow the Slack MCP server to post messages.
+
+You need a Slack app with a user OAuth (`xoxp`) token first. If you don't have one, follow the [slack-mcp-server authentication guide](https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth). inscope points you there during `add` when Slack is enabled.
 
 ---
 

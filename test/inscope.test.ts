@@ -8,6 +8,8 @@ import {
   upsertWorkspace,
   type Config,
 } from "@/config"
+import { currentWorkspace } from "@/doctor"
+import { configPath, gitIncludeDir, hookPath } from "@/env"
 import {
   renderGitInclude,
   renderPerWorkspaceGitconfig,
@@ -15,7 +17,12 @@ import {
 import { renderHook } from "@/generators/hook"
 import { applyMcp, removeMcp, renderServers } from "@/generators/mcp"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
-import { ghAccounts, type Runner } from "@/secrets"
+import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
+import {
+  buildServers,
+  enabledServers,
+  slackKeychainFor,
+} from "~/bin/commands/_workspace"
 import { expect, test } from "bun:test"
 
 const blogConfig = (): Config => ({
@@ -180,6 +187,81 @@ test("ghAccounts parses unique accounts and ignores the active-account line", ()
   expect(ghAccounts(run)).toEqual(["nrjdalal", "dalonic"])
 })
 
+test("slackKeychainFor names the keychain after the env var, uppercased", () => {
+  expect(slackKeychainFor("acme")).toBe("SLACK_MCP_XOXP_TOKEN_ACME")
+  expect(slackKeychainFor("brand-new")).toBe("SLACK_MCP_XOXP_TOKEN_BRAND_NEW")
+  expect(slackKeychainFor("a.b c")).toBe("SLACK_MCP_XOXP_TOKEN_A_B_C")
+})
+
+test("buildServers reflects the enabled list and slack details", () => {
+  expect(buildServers(["github"], null)).toEqual({
+    github: true,
+    linear: false,
+    notion: false,
+    slack: false,
+  })
+  expect(
+    buildServers(["github", "linear", "notion", "slack"], {
+      keychain: "K",
+      addMessageTool: true,
+    }),
+  ).toEqual({
+    github: true,
+    linear: true,
+    notion: true,
+    slack: { keychain: "K", addMessageTool: true },
+  })
+})
+
+test("enabledServers lists only enabled servers, in order", () => {
+  expect(
+    enabledServers({ github: true, linear: false, notion: true, slack: false }),
+  ).toEqual(["github", "notion"])
+  expect(
+    enabledServers({
+      github: true,
+      linear: true,
+      notion: true,
+      slack: { keychain: "K" },
+    }),
+  ).toEqual(["github", "linear", "notion", "slack"])
+})
+
+test("gitGlobal returns the trimmed value or null", () => {
+  const ok: Runner = () => ({ status: 0, stdout: "me@x.dev\n", stderr: "" })
+  expect(gitGlobal("user.email", ok)).toBe("me@x.dev")
+  const empty: Runner = () => ({ status: 0, stdout: "\n", stderr: "" })
+  expect(gitGlobal("user.email", empty)).toBeNull()
+  const fail: Runner = () => ({ status: 1, stdout: "", stderr: "" })
+  expect(gitGlobal("user.email", fail)).toBeNull()
+})
+
+test("config, hook, and git paths live under ~/.config/inscope", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = "/tmp/inscope-xdg"
+  try {
+    expect(configPath()).toBe("/tmp/inscope-xdg/inscope/inscope.json")
+    expect(hookPath()).toBe("/tmp/inscope-xdg/inscope/inscope.zsh")
+    expect(gitIncludeDir()).toBe("/tmp/inscope-xdg/inscope/git")
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
+})
+
+test("currentWorkspace matches the enclosing workspace by path", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "acme", path: "/tmp/acme", servers: {} },
+      { name: "blog", path: "/tmp/blog", servers: {} },
+    ],
+  }
+  expect(currentWorkspace(cfg, "/tmp/acme/api")?.name).toBe("acme")
+  expect(currentWorkspace(cfg, "/tmp/blog")?.name).toBe("blog")
+  expect(currentWorkspace(cfg, "/tmp/other")).toBeUndefined()
+})
+
 test("applyMcp merges with, and removeMcp prunes, only inscope's servers", () => {
   const dir = tmpDir()
   const file = path.join(dir, ".mcp.json")
@@ -198,6 +280,17 @@ test("applyMcp merges with, and removeMcp prunes, only inscope's servers", () =>
   doc = JSON.parse(fs.readFileSync(file, "utf8"))
   expect(doc.mcpServers.custom).toBeDefined()
   expect(doc.mcpServers["github-acme"]).toBeUndefined()
+})
+
+test("applyMcp refuses to clobber a malformed .mcp.json", () => {
+  const dir = tmpDir()
+  const file = path.join(dir, ".mcp.json")
+  const malformed = '{ "mcpServers": { '
+  fs.writeFileSync(file, malformed)
+
+  const ws = { name: "acme", path: dir, servers: { github: true } }
+  expect(() => applyMcp(ws)).toThrow(/not valid JSON/)
+  expect(fs.readFileSync(file, "utf8")).toBe(malformed)
 })
 
 test("config upsert and remove by name or path", () => {

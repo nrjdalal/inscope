@@ -2,6 +2,7 @@
 import { add } from "~/bin/commands/add"
 import { apply } from "~/bin/commands/apply"
 import { doctor } from "~/bin/commands/doctor"
+import { edit } from "~/bin/commands/edit"
 import { init } from "~/bin/commands/init"
 import { list } from "~/bin/commands/list"
 import { remove } from "~/bin/commands/remove"
@@ -18,8 +19,9 @@ Usage:
 
 Commands:
   init           Create the config, generate the hook, source it from ~/.zshrc
-  add <path>     Map a directory to a GitHub account, git email, and MCP servers
-  rm <path>      Remove a workspace mapping (alias: remove)
+  add [path]     Map a directory to a GitHub account, git email, and MCP servers
+  edit [path]    Edit a workspace interactively, then re-apply
+  rm [path]      Remove a workspace mapping (alias: remove)
   list           List configured workspaces (alias: ls)
   apply          Regenerate the hook, git includes, and .mcp.json (alias: sync)
   doctor         Verify tokens, identities, and the hook resolve correctly
@@ -42,9 +44,11 @@ const main = async () => {
         return init(rest)
       case "add":
         return await add(rest)
+      case "edit":
+        return edit(rest)
       case "rm":
       case "remove":
-        return remove(rest)
+        return await remove(rest)
       case "ls":
       case "list":
         return list(rest)

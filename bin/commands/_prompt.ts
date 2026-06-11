@@ -8,31 +8,59 @@ const setRaw = (on: boolean) => {
   if (s.isTTY && typeof s.setRawMode === "function") s.setRawMode(on)
 }
 
-export const promptText = (query: string, def = ""): Promise<string> =>
+// One-line reader that keeps any read-ahead in a shared buffer and pauses stdin
+// between calls. A fresh readline interface per prompt would let the first one
+// swallow later prompts' input (broken for pipes, fragile for pasted input).
+let stdinBuffer = ""
+
+const readLine = (query: string): Promise<string> =>
   new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    })
-    const suffix = def ? ` [${def}]` : ""
-    rl.question(`${query}${suffix}: `, (answer) => {
-      rl.close()
-      resolve(answer.trim() || def)
-    })
+    process.stdout.write(query)
+
+    const take = () => {
+      const i = stdinBuffer.indexOf("\n")
+      if (i < 0) return false
+      const line = stdinBuffer.slice(0, i).replace(/\r$/, "")
+      stdinBuffer = stdinBuffer.slice(i + 1)
+      resolve(line)
+      return true
+    }
+    if (take()) return
+
+    const onData = (d: Buffer) => {
+      stdinBuffer += d.toString("utf8")
+      if (stdinBuffer.includes("\n")) {
+        process.stdin.off("data", onData)
+        process.stdin.off("end", onEnd)
+        process.stdin.pause()
+        take()
+      }
+    }
+    const onEnd = () => {
+      process.stdin.off("data", onData)
+      process.stdin.off("end", onEnd)
+      const line = stdinBuffer.replace(/\r$/, "")
+      stdinBuffer = ""
+      resolve(line)
+    }
+    process.stdin.on("data", onData)
+    process.stdin.on("end", onEnd)
+    process.stdin.resume()
   })
 
-export const promptConfirm = (query: string, def = false): Promise<boolean> =>
-  new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    })
-    rl.question(`${query} [${def ? "Y/n" : "y/N"}]: `, (answer) => {
-      rl.close()
-      const a = answer.trim().toLowerCase()
-      resolve(a ? a === "y" || a === "yes" : def)
-    })
-  })
+export const promptText = async (query: string, def = ""): Promise<string> => {
+  const answer = await readLine(`${query}${def ? ` [${def}]` : ""}: `)
+  return answer.trim() || def
+}
+
+export const promptConfirm = async (
+  query: string,
+  def = false,
+): Promise<boolean> => {
+  const answer = await readLine(`${query} [${def ? "Y/n" : "y/N"}]: `)
+  const a = answer.trim().toLowerCase()
+  return a ? a === "y" || a === "yes" : def
+}
 
 export const promptHidden = (query: string): Promise<string> =>
   new Promise((resolve) => {
