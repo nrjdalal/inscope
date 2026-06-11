@@ -7,6 +7,8 @@
 [![downloads](https://img.shields.io/npm/dt/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
 [![stars](https://img.shields.io/github/stars/nrjdalal/inscope?color=blue)](https://github.com/nrjdalal/inscope)
 
+📖 **The why behind the design:** [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace)
+
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
 
 <p align="center">
@@ -20,8 +22,6 @@ Concurrent sessions in different projects should never bleed work and personal a
 - git `includeIf` rules so commits get the right email per path
 
 Nothing sensitive is written to disk. GitHub tokens come from the `gh` keyring and Slack tokens from the macOS Keychain, resolved live by the hook.
-
-> Background and the why behind the design: [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace).
 
 ---
 
