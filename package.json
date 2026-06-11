@@ -1,6 +1,6 @@
 {
   "name": "inscope",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Per-workspace identity for Claude Code: scope MCP servers, GitHub auth, and git commit identity to the directory you are in.",
   "keywords": [
     "claude-code",
