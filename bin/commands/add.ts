@@ -27,20 +27,20 @@ Usage:
   $ ${name} add [path] [options]
 
 Options:
-      --gh <account>        gh account whose token this workspace uses
-      --email <email>       git commit email (omit to inherit your global identity)
-      --git-name <name>     git commit author name (omit to inherit global)
-      --label <name>        workspace name; defaults to the directory basename
-      --servers <list>      comma-separated, any of: github, atlassian, canva,
-                            clickup, hubspot, intercom, linear, monday, notion,
-                            plane, sentry, slack, stripe, vercel, webflow
-                            (default: github)
-      --slack-keychain <s>  keychain service for the Slack token
-                            (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
-      --slack-message       allow the Slack MCP server to post messages
-      --seed-slack          prompt for the Slack token and store it in the keychain
-  -y, --yes                 accept defaults, skip all prompts (non-interactive)
-  -h, --help                Display help message`
+  --gh <account>        gh account whose token this workspace uses
+  --email <email>       git commit email (omit to inherit your global identity)
+  --git-name <name>     git commit author name (omit to inherit global)
+  --label <name>        workspace name; defaults to the directory basename
+  --servers <list>      comma-separated, any of: github, atlassian, canva,
+                        clickup, hubspot, intercom, linear, monday, notion,
+                        plane, sentry, slack, stripe, vercel, webflow
+                        (default: github)
+  --slack-keychain <s>  keychain service for the Slack token
+                        (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
+  --slack-message       allow the Slack MCP server to post messages
+  --seed-slack          prompt for the Slack token and store it in the keychain
+  -y, --yes             accept defaults, skip all prompts (non-interactive)
+  -h, --help            Display help message`
 
 const SERVER_CHOICES = SERVER_TYPES.map((t) => ({
   label: t,

@@ -146,19 +146,19 @@ Run any command with `-h` for its options.
 Run it bare and it walks you through everything: pick the GitHub account from your signed-in `gh` accounts, accept your global git identity or set a per-workspace one, and toggle which MCP servers to enable. Pass any flag to skip its prompt, or `-y` to take the defaults non-interactively (for scripts and CI).
 
 ```
-    --gh <account>        gh account whose token this workspace uses
-    --email <email>       git commit email (omit to inherit your global identity)
-    --git-name <name>     git commit author name (omit to inherit global)
-    --label <name>        workspace name; defaults to the directory basename
-    --servers <list>      comma-separated, any of: github, atlassian, canva,
-                          clickup, hubspot, intercom, linear, monday, notion,
-                          plane, sentry, slack, stripe, vercel, webflow
-                          (default: github)
-    --slack-keychain <s>  keychain service for the Slack token
-                          (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
-    --slack-message       allow the Slack MCP server to post messages
-    --seed-slack          prompt for the Slack token and store it in the keychain
-  -y, --yes               accept defaults, skip all prompts (non-interactive)
+  --gh <account>        gh account whose token this workspace uses
+  --email <email>       git commit email (omit to inherit your global identity)
+  --git-name <name>     git commit author name (omit to inherit global)
+  --label <name>        workspace name; defaults to the directory basename
+  --servers <list>      comma-separated, any of: github, atlassian, canva,
+                        clickup, hubspot, intercom, linear, monday, notion,
+                        plane, sentry, slack, stripe, vercel, webflow
+                        (default: github)
+  --slack-keychain <s>  keychain service for the Slack token
+                        (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
+  --slack-message       allow the Slack MCP server to post messages
+  --seed-slack          prompt for the Slack token and store it in the keychain
+  -y, --yes             accept defaults, skip all prompts (non-interactive)
 ```
 
 ---
