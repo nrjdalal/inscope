@@ -12,7 +12,7 @@
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="900" />
 </p>
 
 Concurrent sessions in different projects should never bleed work and personal accounts into each other. You describe each workspace once; `inscope` owns the moving parts and keeps them in sync:
@@ -63,7 +63,7 @@ inscope rm acme
 `cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="900" />
 </p>
 
 ---
@@ -138,7 +138,7 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 Run any command with `-h` for its options.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />
 </p>
 
 ### `inscope add`
