@@ -22,13 +22,13 @@ export const contractTilde = (p: string) => {
 
 export const resolveAbsolute = (p: string) => path.resolve(expandTilde(p))
 
-export const configPath = () =>
-  path.join(configHome(), "claude", "workspaces.json")
+export const inscopeHome = () => path.join(configHome(), "inscope")
 
-export const hookPath = () =>
-  path.join(configHome(), "claude", "mcp-tokens.zsh")
+export const configPath = () => path.join(inscopeHome(), "inscope.json")
 
-export const gitIncludeDir = () => path.join(configHome(), "git")
+export const hookPath = () => path.join(inscopeHome(), "inscope.zsh")
+
+export const gitIncludeDir = () => path.join(inscopeHome(), "git")
 
 export const gitconfigPath = () => path.join(home(), ".gitconfig")
 
