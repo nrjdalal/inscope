@@ -4,8 +4,14 @@ import path from "node:path"
 import { renderZshrcSource } from "@/apply"
 import {
   findWorkspace,
+  hookValueError,
+  labelFromPath,
   removeWorkspace,
+  slugify,
   upsertWorkspace,
+  validateConfig,
+  workspaceNameError,
+  workspacePathError,
   type Config,
 } from "@/config"
 import { currentWorkspace } from "@/doctor"
@@ -90,13 +96,13 @@ test("addMessageTool omitted means read-only Slack server", () => {
 
 test("renderHook wires both workspaces and is deterministic", () => {
   const hook = renderHook(blogConfig())
-  expect(hook).toContain(`"$HOME/acme/"*) ws=acme ;;`)
-  expect(hook).toContain(`"$HOME/nrjdalal/"*) ws=nrjdalal ;;`)
+  expect(hook).toContain(`"$HOME/acme/"*) ws="acme" ;;`)
+  expect(hook).toContain(`"$HOME/nrjdalal/"*) ws="nrjdalal" ;;`)
   expect(hook).toContain(
-    `acme) gh_user=acme; slack_svc=SLACK_MCP_XOXP_TOKEN_ACME ;;`,
+    `acme) gh_user="acme"; slack_svc="SLACK_MCP_XOXP_TOKEN_ACME" ;;`,
   )
   expect(hook).toContain(
-    `nrjdalal) gh_user=nrjdalal; slack_svc=SLACK_MCP_XOXP_TOKEN_NRJDALAL ;;`,
+    `nrjdalal) gh_user="nrjdalal"; slack_svc="SLACK_MCP_XOXP_TOKEN_NRJDALAL" ;;`,
   )
   expect(hook).toContain(`unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN`)
   expect(hook).toContain(`export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"`)
@@ -372,4 +378,78 @@ test("config upsert and remove by name or path", () => {
   const { cfg: after, removed } = removeWorkspace(cfg, "~/acme")
   expect(removed?.name).toBe("acme")
   expect(after.workspaces).toHaveLength(0)
+})
+
+test("slugify and labelFromPath produce hook-safe names", () => {
+  expect(slugify("My Project")).toBe("my-project")
+  expect(slugify("Acme (work)")).toBe("acme-work")
+  expect(slugify("a.b_c-1")).toBe("a.b_c-1")
+  // basename is slugified, so a directory with spaces never yields a name that
+  // would break the generated hook
+  expect(labelFromPath("~/My Project")).toBe("my-project")
+})
+
+test("workspaceNameError accepts slugs and rejects shell metacharacters", () => {
+  expect(workspaceNameError("acme")).toBeNull()
+  expect(workspaceNameError("a.b-c_1")).toBeNull()
+  expect(workspaceNameError("")).not.toBeNull()
+  expect(workspaceNameError("My Project")).not.toBeNull()
+  expect(workspaceNameError("foo;rm -rf ~")).not.toBeNull()
+  expect(workspaceNameError("a/b")).not.toBeNull()
+})
+
+test("workspacePathError rejects characters that break the hook quoting", () => {
+  expect(workspacePathError("~/acme")).toBeNull()
+  expect(workspacePathError("~/My Project")).toBeNull() // spaces are fine, the pattern is quoted
+  expect(workspacePathError('~/a"b')).not.toBeNull()
+  expect(workspacePathError("~/a`b")).not.toBeNull()
+  expect(workspacePathError("~/a$b")).not.toBeNull()
+})
+
+test("hookValueError rejects shell-substitution metacharacters even when quoted", () => {
+  // quoting does not neutralize these inside zsh double quotes
+  expect(hookValueError("SLACK_MCP_XOXP_TOKEN_ACME")).toBeNull()
+  expect(hookValueError("com.acme.slack token")).toBeNull() // spaces/dots are fine
+  expect(hookValueError("$(rm -rf ~)")).not.toBeNull()
+  expect(hookValueError("`id`")).not.toBeNull()
+  expect(hookValueError('a"b')).not.toBeNull()
+  expect(hookValueError("$HOME")).not.toBeNull()
+})
+
+test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-edited config", () => {
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "my project", path: "~/x", servers: {} }],
+    }),
+  ).toThrow(/name "my project" is invalid/)
+
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "ok", path: "~/a`b", servers: {} }],
+    }),
+  ).toThrow(/path .* is invalid/)
+
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [
+        { name: "ok", path: "~/x", gh: "$(id)", servers: { github: true } },
+      ],
+    }),
+  ).toThrow(/gh account .* is invalid/)
+
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [
+        {
+          name: "ok",
+          path: "~/x",
+          servers: { slack: { keychain: "$(rm -rf ~)" } },
+        },
+      ],
+    }),
+  ).toThrow(/Slack keychain .* is invalid/)
 })

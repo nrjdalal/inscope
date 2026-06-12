@@ -24,16 +24,17 @@ export const renderHook = (cfg: Config): string => {
   const wss = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
 
   const dirArms =
-    wss.map((w) => `    ${pathPattern(w.path)}) ws=${w.name} ;;`).join("\n") ||
-    "    # no workspaces configured"
+    wss
+      .map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`)
+      .join("\n") || "    # no workspaces configured"
 
   const idArms =
     wss
       .map((w) => {
         const parts: string[] = []
-        if (w.gh) parts.push(`gh_user=${w.gh}`)
+        if (w.gh) parts.push(`gh_user="${w.gh}"`)
         const svc = slackService(w)
-        if (svc) parts.push(`slack_svc=${svc}`)
+        if (svc) parts.push(`slack_svc="${svc}"`)
         return `    ${w.name}) ${parts.length ? parts.join("; ") : ":"} ;;`
       })
       .join("\n") || "    # no workspaces configured"

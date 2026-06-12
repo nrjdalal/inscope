@@ -2,6 +2,7 @@ import { parseArgs } from "node:util"
 import {
   configExists,
   findWorkspace,
+  hookValueError,
   loadConfig,
   type Workspace,
 } from "@/config"
@@ -85,6 +86,10 @@ export const edit = async (args: string[]) => {
   console.log(`\nEditing "${ws.name}" (${ws.path})\n`)
 
   // --- gh account, pre-selected to the current one ---
+  // gh is not re-validated here (unlike add.ts): it can only be a real account
+  // from selectOne(ghAccounts()) or empty, never free text, so it cannot carry
+  // hook metacharacters. validateConfig is the backstop. If a --gh flag is ever
+  // added to edit, validate it with hookValueError the way add.ts does.
   const ghChoices = [
     ...ghAccounts().map((a) => ({ label: a, value: a })),
     { label: "(none)", value: "" },
@@ -144,6 +149,16 @@ export const edit = async (args: string[]) => {
     )
     if (!keychainHas(slackSvc))
       seedSlack = await promptConfirm("Store the Slack token now?", true)
+  }
+
+  // The keychain service is typed at the prompt and interpolated into the hook;
+  // reject values that would break out of the quoting.
+  if (wantSlack) {
+    const svcErr = hookValueError(slackSvc)
+    if (svcErr) {
+      console.error(`\nInvalid Slack keychain service "${slackSvc}": ${svcErr}`)
+      process.exit(1)
+    }
   }
 
   const next: Workspace = {
