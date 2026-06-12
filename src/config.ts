@@ -50,7 +50,12 @@ export const loadConfig = (): Config => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
   const parsed = JSON.parse(raw) as Config
-  validateConfig(parsed)
+  try {
+    validateConfig(parsed)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
+  }
   return parsed
 }
 
@@ -73,14 +78,24 @@ export const workspaceNameError = (name: string): string | null => {
   return null
 }
 
-// The path is interpolated into the hook's `case` pattern inside double
-// quotes; these characters break out of the quoting or trigger shell
-// expansion when the hook is sourced on every cd.
+// Every value interpolated into the generated zsh hook is double-quoted, but
+// zsh still performs $-expansion and $(...)/`...` command substitution inside
+// double quotes. So these characters must be rejected wherever a value reaches
+// the hook (workspace path, gh account, Slack keychain service), not just
+// quoted. The workspace name is handled separately (WORKSPACE_NAME_RE) because
+// it also appears as an unquotable `case` pattern.
+const HOOK_UNSAFE = /["`$\n]/
+
+export const hookValueError = (value: string): string | null =>
+  HOOK_UNSAFE.test(value)
+    ? 'must not contain a quote ("), backtick (`), $, or newline'
+    : null
+
+// The path is interpolated into the hook's `case` pattern; spaces are fine
+// (the pattern is quoted) but the breakout set above is not.
 export const workspacePathError = (p: string): string | null => {
   if (!p) return "must not be empty"
-  if (/["`$\n]/.test(p))
-    return 'must not contain a quote ("), backtick (`), $, or newline'
-  return null
+  return hookValueError(p)
 }
 
 export const slugify = (s: string): string =>
@@ -106,6 +121,21 @@ export const validateConfig = (cfg: Config) => {
       throw new Error(
         `workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`,
       )
+    if (ws.gh) {
+      const ghErr = hookValueError(ws.gh)
+      if (ghErr)
+        throw new Error(
+          `workspace "${ws.name}" gh account "${ws.gh}" is invalid: ${ghErr}`,
+        )
+    }
+    const slack = ws.servers?.slack
+    if (slack && slack.keychain) {
+      const kcErr = hookValueError(slack.keychain)
+      if (kcErr)
+        throw new Error(
+          `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
+        )
+    }
     if (seen.has(ws.name))
       throw new Error(`duplicate workspace name "${ws.name}"`)
     seen.add(ws.name)

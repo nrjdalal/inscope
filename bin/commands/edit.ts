@@ -2,6 +2,7 @@ import { parseArgs } from "node:util"
 import {
   configExists,
   findWorkspace,
+  hookValueError,
   loadConfig,
   type Workspace,
 } from "@/config"
@@ -144,6 +145,16 @@ export const edit = async (args: string[]) => {
     )
     if (!keychainHas(slackSvc))
       seedSlack = await promptConfirm("Store the Slack token now?", true)
+  }
+
+  // The keychain service is typed at the prompt and interpolated into the hook;
+  // reject values that would break out of the quoting.
+  if (wantSlack) {
+    const svcErr = hookValueError(slackSvc)
+    if (svcErr) {
+      console.error(`\nInvalid Slack keychain service "${slackSvc}": ${svcErr}`)
+      process.exit(1)
+    }
   }
 
   const next: Workspace = {

@@ -4,6 +4,7 @@ import path from "node:path"
 import { renderZshrcSource } from "@/apply"
 import {
   findWorkspace,
+  hookValueError,
   labelFromPath,
   removeWorkspace,
   slugify,
@@ -405,7 +406,17 @@ test("workspacePathError rejects characters that break the hook quoting", () => 
   expect(workspacePathError("~/a$b")).not.toBeNull()
 })
 
-test("validateConfig rejects an unsafe name or path from a hand-edited config", () => {
+test("hookValueError rejects shell-substitution metacharacters even when quoted", () => {
+  // quoting does not neutralize these inside zsh double quotes
+  expect(hookValueError("SLACK_MCP_XOXP_TOKEN_ACME")).toBeNull()
+  expect(hookValueError("com.acme.slack token")).toBeNull() // spaces/dots are fine
+  expect(hookValueError("$(rm -rf ~)")).not.toBeNull()
+  expect(hookValueError("`id`")).not.toBeNull()
+  expect(hookValueError('a"b')).not.toBeNull()
+  expect(hookValueError("$HOME")).not.toBeNull()
+})
+
+test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-edited config", () => {
   expect(() =>
     validateConfig({
       version: 1,
@@ -419,4 +430,26 @@ test("validateConfig rejects an unsafe name or path from a hand-edited config", 
       workspaces: [{ name: "ok", path: "~/a`b", servers: {} }],
     }),
   ).toThrow(/path .* is invalid/)
+
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [
+        { name: "ok", path: "~/x", gh: "$(id)", servers: { github: true } },
+      ],
+    }),
+  ).toThrow(/gh account .* is invalid/)
+
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [
+        {
+          name: "ok",
+          path: "~/x",
+          servers: { slack: { keychain: "$(rm -rf ~)" } },
+        },
+      ],
+    }),
+  ).toThrow(/Slack keychain .* is invalid/)
 })

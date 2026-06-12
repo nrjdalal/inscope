@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 import {
+  hookValueError,
   labelFromPath,
   type Workspace,
   workspaceNameError,
@@ -164,6 +165,22 @@ export const add = async (args: string[]) => {
       slackMessage = await promptConfirm("Allow Slack to post messages?", true)
     if (!values["seed-slack"])
       seedSlack = await promptConfirm("Store the Slack token now?", true)
+  }
+
+  // gh account and Slack keychain are interpolated into the chpwd hook; reject
+  // values that would break out of the quoting (the --gh / --slack-keychain
+  // flags and the keychain prompt are otherwise unchecked).
+  const ghErr = gh ? hookValueError(gh) : null
+  if (ghErr) {
+    console.error(`\nInvalid gh account "${gh}": ${ghErr}`)
+    process.exit(1)
+  }
+  if (wantSlack) {
+    const svcErr = hookValueError(slackSvc)
+    if (svcErr) {
+      console.error(`\nInvalid Slack keychain service "${slackSvc}": ${svcErr}`)
+      process.exit(1)
+    }
   }
 
   const ws: Workspace = {
