@@ -86,6 +86,10 @@ export const edit = async (args: string[]) => {
   console.log(`\nEditing "${ws.name}" (${ws.path})\n`)
 
   // --- gh account, pre-selected to the current one ---
+  // gh is not re-validated here (unlike add.ts): it can only be a real account
+  // from selectOne(ghAccounts()) or empty, never free text, so it cannot carry
+  // hook metacharacters. validateConfig is the backstop. If a --gh flag is ever
+  // added to edit, validate it with hookValueError the way add.ts does.
   const ghChoices = [
     ...ghAccounts().map((a) => ({ label: a, value: a })),
     { label: "(none)", value: "" },
