@@ -158,8 +158,8 @@ exports[`golden: chpwd hook for two workspaces 1`] = `
 __inscope_resolve_identity() {
   local ws
   case "\${PWD}/" in
-    "$HOME/acme/"*) ws=acme ;;
-    "$HOME/personal/"*) ws=personal ;;
+    "$HOME/acme/"*) ws="acme" ;;
+    "$HOME/personal/"*) ws="personal" ;;
     *) ws="" ;;
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
@@ -168,8 +168,8 @@ __inscope_resolve_identity() {
 
   local gh_user="" slack_svc=""
   case "$ws" in
-    acme) gh_user=neeraj-acme-org; slack_svc=SLACK_MCP_XOXP_TOKEN_ACME ;;
-    personal) gh_user=nrjdalal ;;
+    acme) gh_user="neeraj-acme-org"; slack_svc="SLACK_MCP_XOXP_TOKEN_ACME" ;;
+    personal) gh_user="nrjdalal" ;;
     *) return ;;                                     # outside a mapped workspace: nothing set
   esac
 
@@ -258,7 +258,7 @@ exports[`golden: chpwd hook arm for a workspace with neither gh nor slack 1`] = 
 __inscope_resolve_identity() {
   local ws
   case "\${PWD}/" in
-    "$HOME/docs/"*) ws=docs ;;
+    "$HOME/docs/"*) ws="docs" ;;
     *) ws="" ;;
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups

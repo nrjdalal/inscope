@@ -1,5 +1,10 @@
 import { parseArgs } from "node:util"
-import { labelFromPath, type Workspace } from "@/config"
+import {
+  labelFromPath,
+  type Workspace,
+  workspaceNameError,
+  workspacePathError,
+} from "@/config"
 import { contractTilde } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { ghAccounts, gitGlobal } from "@/secrets"
@@ -80,10 +85,20 @@ export const add = async (args: string[]) => {
       target = await promptText("Workspace directory", process.cwd())
     else throw new Error(helpMessage)
   }
+  const pathErr = workspacePathError(target)
+  if (pathErr) {
+    console.error(`\nInvalid workspace path "${target}": ${pathErr}`)
+    process.exit(1)
+  }
 
   // --- label ---
   let label = values.label || labelFromPath(target)
   if (interactive && !values.label) label = await promptText("Label", label)
+  const labelErr = workspaceNameError(label)
+  if (labelErr) {
+    console.error(`\nInvalid label "${label}": ${labelErr}`)
+    process.exit(1)
+  }
 
   // --- gh account ---
   let gh = values.gh
