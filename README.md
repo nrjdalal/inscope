@@ -83,7 +83,9 @@ inscope rm acme
 
 ## 🧰 Requirements
 
-macOS, zsh, [`gh`](https://cli.github.com), and [Claude Code](https://claude.com/claude-code).
+macOS, zsh, and [Claude Code](https://claude.com/claude-code).
+
+[`gh`](https://cli.github.com) is needed only for workspaces that scope a GitHub account.
 
 ---
 
@@ -95,7 +97,7 @@ Install globally (the CLI manages your shell hook, so a global install is expect
 npm i -g inscope
 ```
 
-Prerequisite: sign each GitHub account into `gh` once with `gh auth login` (that's gh's own command, not inscope). inscope reads tokens from the accounts you've signed in.
+Scoping GitHub accounts? Sign each one into `gh` once with `gh auth login` (that's gh's own command, not inscope). inscope reads tokens from the accounts you've signed in.
 
 ```sh
 # set up the config + hook, and source it from ~/.zshrc
