@@ -125,7 +125,8 @@ export const workspaceTargets = (ws: Workspace): McpDialect[] =>
   `for (const d of workspaceTargets(ws)) { applyMcp(ws, d); mcp.push(mcpFilePath(ws, d)) }`.
 - **`bin/commands/remove.ts`** — `for (const d of workspaceTargets(target)) removeMcp(target, d)`.
 - **`src/doctor.ts`** — check each target's file exists and contains the
-  managed keys; today it reads only `.mcp.json` (`src/doctor.ts:183`).
+  managed keys; today the per-workspace `readMcp(ws)` call reads only
+  `.mcp.json`.
 - **`bin/commands/add.ts` / `edit.ts`** — add an optional multi-select prompt
   for tools, pre-checked to Claude. A `--tool <id>` (repeatable) flag for the
   non-interactive path.
