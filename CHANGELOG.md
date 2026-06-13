@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.8.1
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.0...v0.8.1)
+
+### 🚀 Enhancements
+
+- **add:** Warn when the workspace path does not exist yet ([debb37a](https://github.com/nrjdalal/inscope/commit/debb37a))
+- **config:** Reject a config written by a newer inscope ([e2d1dd8](https://github.com/nrjdalal/inscope/commit/e2d1dd8))
+
+### 🩹 Fixes
+
+- Resolve nested workspaces correctly and block gitconfig injection ([8b7c914](https://github.com/nrjdalal/inscope/commit/8b7c914))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.7.0...v0.8.0)
