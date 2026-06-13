@@ -6,9 +6,11 @@ import path from "node:path"
 import { renderZshrcSource } from "@/apply"
 import {
   findWorkspace,
+  gitValueError,
   hookValueError,
   labelFromPath,
   removeWorkspace,
+  saveConfig,
   slugify,
   upsertWorkspace,
   validateConfig,
@@ -316,6 +318,80 @@ test("currentWorkspace matches the enclosing workspace by path", () => {
   expect(currentWorkspace(cfg, "/tmp/acme/api")?.name).toBe("acme")
   expect(currentWorkspace(cfg, "/tmp/blog")?.name).toBe("blog")
   expect(currentWorkspace(cfg, "/tmp/other")).toBeUndefined()
+})
+
+test("a nested workspace resolves to the child, not the enclosing parent", () => {
+  // Parent name sorts first, so a name-sorted `case` would shadow the child.
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "aaa-parent", path: "~/work", gh: "parent", servers: {} },
+      { name: "zzz-child", path: "~/work/client", gh: "child", servers: {} },
+    ],
+  }
+  // hook: the more specific child arm is emitted before the parent it sits under
+  const hook = renderHook(cfg)
+  expect(hook.indexOf(`"$HOME/work/client/"*`)).toBeLessThan(hook.indexOf(`"$HOME/work/"*`))
+
+  // doctor's resolver agrees (longest-prefix-wins), so it would not bless a
+  // mis-resolution. Parent order in the config array must not matter.
+  expect(currentWorkspace(cfg, "/tmp")).toBeUndefined()
+  const abs = {
+    ...cfg,
+    workspaces: cfg.workspaces.map((w) => ({ ...w, path: `/srv/${w.path.slice(2)}` })),
+  }
+  expect(currentWorkspace(abs, "/srv/work/client/src")?.name).toBe("zzz-child")
+  expect(currentWorkspace(abs, "/srv/work/other")?.name).toBe("aaa-parent")
+})
+
+test("git email/name reject newlines (gitconfig injection guard)", () => {
+  expect(gitValueError("neeraj@acme.com")).toBeNull()
+  expect(gitValueError("Neeraj Dalal")).toBeNull()
+  expect(gitValueError("a@b.com\n[core]\n\tsshCommand = touch /tmp/x")).toBe(
+    "must not contain a newline",
+  )
+  expect(gitValueError("Name\rmore")).toBe("must not contain a newline")
+
+  const inject = (git: { email?: string; name?: string }): Config => ({
+    version: 1,
+    workspaces: [{ name: "w", path: "~/w", git, servers: {} }],
+  })
+  expect(() => validateConfig(inject({ email: "a@b.com\n[core]" }))).toThrow(
+    /git email [\s\S]*must not contain a newline/,
+  )
+  expect(() => validateConfig(inject({ name: "Bad\nName" }))).toThrow(
+    /git name [\s\S]*must not contain a newline/,
+  )
+})
+
+test("saveConfig validates at the write boundary (nothing written on reject)", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = tmpDir()
+  try {
+    const bad: Config = {
+      version: 1,
+      workspaces: [
+        {
+          name: "w",
+          path: "~/w",
+          git: { email: "a@b.com\n[core]\n\tsshCommand = x" },
+          servers: {},
+        },
+      ],
+    }
+    expect(() => saveConfig(bad)).toThrow(/must not contain a newline/)
+    expect(fs.existsSync(configPath())).toBe(false)
+
+    const good: Config = {
+      version: 1,
+      workspaces: [{ name: "w", path: "~/w", git: { email: "a@b.com" }, servers: {} }],
+    }
+    saveConfig(good)
+    expect(fs.existsSync(configPath())).toBe(true)
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
 })
 
 test("applyMcp merges with, and removeMcp prunes, only inscope's servers", () => {

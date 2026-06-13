@@ -164,8 +164,8 @@ exports[`golden: chpwd hook for two workspaces 1`] = `
 __inscope_resolve_identity() {
   local ws
   case "\${PWD}/" in
-    "$HOME/acme/"*) ws="acme" ;;
     "$HOME/personal/"*) ws="personal" ;;
+    "$HOME/acme/"*) ws="acme" ;;
     *) ws="" ;;
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
@@ -313,11 +313,11 @@ exports[`golden: chpwd hook covers tricky paths and every arm shape 1`] = `
 __inscope_resolve_identity() {
   local ws
   case "\${PWD}/" in
-    "$HOME/"*) ws="home" ;;
     "$HOME/My Project (work)/"*) ws="my-project-work" ;;
-    "/opt/work/"*) ws="opt" ;;
     "$HOME/slackonly/"*) ws="slackonly" ;;
+    "/opt/work/"*) ws="opt" ;;
     "$HOME/webapp/"*) ws="web.app-2_x" ;;
+    "$HOME/"*) ws="home" ;;
     *) ws="" ;;
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups

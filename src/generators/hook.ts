@@ -20,14 +20,25 @@ export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 # is written to disk, and there is no shared mutable state for sessions to race.`
 
 export const renderHook = (cfg: Config): string => {
-  const wss = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
+  const byName = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
+
+  // zsh `case` runs the FIRST matching pattern, so emit the dir arms
+  // most-specific-first: a nested workspace must be tested before the parent
+  // whose path prefix it shares, or the parent's arm shadows it (a longer path
+  // can only be a prefix of a shorter one, so longest-path-first is correct).
+  // Stable sort keeps name order on ties, so the output stays deterministic.
+  const bySpecificity = [...byName].sort(
+    (a, b) => contractTilde(b.path).length - contractTilde(a.path).length,
+  )
 
   const dirArms =
-    wss.map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`).join("\n") ||
+    bySpecificity.map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`).join("\n") ||
     "    # no workspaces configured"
 
+  // The id arms key on the exact `$ws` value, so their order is cosmetic; keep
+  // them name-sorted for a stable, readable artifact.
   const idArms =
-    wss
+    byName
       .map((w) => {
         const parts: string[] = []
         if (w.gh) parts.push(`gh_user="${w.gh}"`)
