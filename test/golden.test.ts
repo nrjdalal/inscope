@@ -145,6 +145,11 @@ test("golden: chpwd hook arm for a workspace with neither gh nor slack", () => {
 // are slugs, so they are interpolated unquoted as the case pattern; paths and
 // values are double-quoted. This locks the output the name/path/keychain
 // hardening produces.
+//
+// NOTE: this synthetic config also makes a known hazard visible. "home" maps to
+// "$HOME/"* and sorts first, so it shadows ~/slackonly and ~/webapp at match
+// time. That is the unfixed nested-path resolution issue (arms are name-sorted,
+// not most-specific-first); documented here, not endorsed.
 test("golden: chpwd hook covers tricky paths and every arm shape", () => {
   expect(
     renderHook({
@@ -178,15 +183,19 @@ test("golden: gitconfig includeIf block", () => {
   expect(renderGitInclude(twoWorkspaces)).toMatchSnapshot()
 })
 
-// gitdir patterns for home root, non-home absolute, and a path with spaces,
-// and the no-git-identity workspace ("nogit") is filtered out of the block.
+// gitdir patterns for home root, non-home absolute, and a path with spaces, the
+// no-git-identity workspace ("nogit") filtered out, and a deliberately
+// non-alphabetical input order (opt before home) so the snapshot locks that
+// renderGitInclude preserves config order rather than sorting it (unlike
+// renderHook, which name-sorts). A regression that introduced a sort here would
+// change this snapshot and fail.
 test("golden: includeIf for tricky paths, skipping a no-git workspace", () => {
   expect(
     renderGitInclude({
       version: 1,
       workspaces: [
-        { name: "home", path: "~", git: { email: "h@x.dev" }, servers: {} },
         { name: "opt", path: "/opt/work", git: { email: "o@x.dev" }, servers: {} },
+        { name: "home", path: "~", git: { email: "h@x.dev" }, servers: {} },
         {
           name: "spaced",
           path: "~/My Project (work)",
