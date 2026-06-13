@@ -1,0 +1,71 @@
+name: auto-labeler
+
+# Adapted from zerostarter's labeler for a single-branch repo: label PRs by the
+# paths they touch. pull_request_target so forks still get a write token; this
+# job runs no PR code (it only reads the file list via the API), so it is safe.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  auto-labeler:
+    name: Auto Labeler
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label PR based on changed paths
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { number } = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+
+            // path matcher -> { color }. First matching rule per file adds the label.
+            const rules = [
+              { label: "cli",          color: "0ea5e9", test: (f) => f.startsWith("bin/") },
+              { label: "core",         color: "9333ea", test: (f) => f.startsWith("src/") },
+              { label: "test",         color: "22c55e", test: (f) => f.startsWith("test/") },
+              { label: "ci",           color: "6b7280", test: (f) => f.startsWith(".github/") || f === "lefthook.yml" },
+              { label: "dependencies", color: "f59e0b", test: (f) => f === "package.json" || f === "bun.lock" },
+              { label: "build",        color: "64748b", test: (f) => ["tsdown.config.ts", "tsconfig.json", ".lintstagedrc.json"].includes(f) || f.startsWith(".vscode/") },
+              { label: "docs",         color: "8b5cf6", test: (f) => f.startsWith("docs/") || f.endsWith(".md") },
+            ];
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: number, per_page: 100,
+            });
+
+            const wanted = new Map();
+            for (const { filename } of files) {
+              for (const rule of rules) {
+                if (rule.test(filename)) wanted.set(rule.label, rule.color);
+              }
+            }
+            if (wanted.size === 0) {
+              core.info("No path rules matched; nothing to label.");
+              return;
+            }
+
+            // make sure every label exists with its color before applying
+            for (const [label, color] of wanted) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: label });
+              } catch (e) {
+                if (e.status !== 404) throw e;
+                await github.rest.issues.createLabel({ owner, repo, name: label, color });
+              }
+            }
+
+            await github.rest.issues.addLabels({
+              owner, repo, issue_number: number, labels: [...wanted.keys()],
+            });
+            core.info(`Applied: ${[...wanted.keys()].join(", ")}`);
