@@ -5,10 +5,12 @@ import path from "node:path"
 
 import { renderZshrcSource } from "@/apply"
 import {
+  CONFIG_VERSION,
   findWorkspace,
   gitValueError,
   hookValueError,
   labelFromPath,
+  loadConfig,
   removeWorkspace,
   saveConfig,
   slugify,
@@ -362,6 +364,36 @@ test("git email/name reject newlines (gitconfig injection guard)", () => {
   expect(() => validateConfig(inject({ name: "Bad\nName" }))).toThrow(
     /git name [\s\S]*must not contain a newline/,
   )
+})
+
+test("validateConfig refuses a config newer than it understands, tolerates older", () => {
+  expect(() => validateConfig({ version: CONFIG_VERSION, workspaces: [] })).not.toThrow()
+  // missing/older version is fine (a future migration owns the upgrade)
+  expect(() => validateConfig({ workspaces: [] } as unknown as Config)).not.toThrow()
+  expect(() => validateConfig({ version: CONFIG_VERSION + 1, workspaces: [] })).toThrow(
+    /newer than this inscope supports/,
+  )
+})
+
+test("loadConfig surfaces a too-new version on its own, not under 'fix it and re-run'", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = tmpDir()
+  try {
+    const file = configPath()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ version: CONFIG_VERSION + 1, workspaces: [] }))
+    expect(() => loadConfig()).toThrow(/newer than this inscope supports/)
+    let message = ""
+    try {
+      loadConfig()
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).not.toContain("Fix it in")
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
 })
 
 test("saveConfig validates at the write boundary (nothing written on reject)", () => {

@@ -51,6 +51,10 @@ export const loadConfig = (): Config => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
   const parsed = JSON.parse(raw) as Config
+  // A too-new config is fixed by upgrading inscope, not by editing the file, so
+  // surface it on its own rather than under the generic "fix it and re-run".
+  const versionErr = configVersionError(parsed)
+  if (versionErr) throw new Error(versionErr)
   try {
     validateConfig(parsed)
   } catch (err) {
@@ -109,6 +113,14 @@ export const workspacePathError = (p: string): string | null => {
 export const gitValueError = (value: string): string | null =>
   /[\n\r]/.test(value) ? "must not contain a newline" : null
 
+// Forward-compat guard: refuse a config written by a newer inscope rather than
+// mis-parsing its shape silently. A missing/older version is tolerated (any
+// future migration owns that), so only a strictly-newer version is rejected.
+export const configVersionError = (cfg: Config): string | null =>
+  typeof cfg.version === "number" && cfg.version > CONFIG_VERSION
+    ? `config version ${cfg.version} is newer than this inscope supports (max ${CONFIG_VERSION}); upgrade inscope`
+    : null
+
 export const slugify = (s: string): string =>
   s
     .toLowerCase()
@@ -117,6 +129,8 @@ export const slugify = (s: string): string =>
 
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
+  const versionErr = configVersionError(cfg)
+  if (versionErr) throw new Error(versionErr)
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
