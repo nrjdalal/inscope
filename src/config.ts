@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { configPath, contractTilde, resolveAbsolute } from "@/env"
+import { writeFileAtomic } from "@/io"
 
 export type SlackServer = { keychain: string; addMessageTool?: boolean }
 
@@ -50,7 +51,14 @@ export const configExists = () => fs.existsSync(configPath())
 export const loadConfig = (): Config => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
-  const parsed = JSON.parse(raw) as Config
+  // A raw JSON.parse throws "Unexpected EOF" with no path; match the friendly,
+  // path-hinted framing the validation errors below already use.
+  let parsed: Config
+  try {
+    parsed = JSON.parse(raw) as Config
+  } catch {
+    throw new Error(`${contractTilde(file)} is not valid JSON; fix it, then re-run.`)
+  }
   // A too-new config is fixed by upgrading inscope, not by editing the file, so
   // surface it on its own rather than under the generic "fix it and re-run".
   const versionErr = configVersionError(parsed)
@@ -70,8 +78,7 @@ export const saveConfig = (cfg: Config) => {
   // caller remembering to validate first.
   validateConfig(cfg)
   const file = configPath()
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n")
+  writeFileAtomic(file, JSON.stringify(cfg, null, 2) + "\n")
 }
 
 // A workspace name is interpolated into the generated zsh hook as a `case`

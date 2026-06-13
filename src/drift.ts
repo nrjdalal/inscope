@@ -10,19 +10,12 @@ import {
   renderPerWorkspaceGitconfig,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { managedKeys, mcpFilePath, REMOTE, renderServers, SERVER_TYPES } from "@/generators/mcp"
+import { mcpFilePath, mergeMcpDoc, REMOTE, SERVER_TYPES, serializeMcp } from "@/generators/mcp"
+import { readFileOrEmpty } from "@/io"
 import { readBlock } from "@/managed-block"
 
-const read = (file: string): string => {
-  try {
-    return fs.readFileSync(file, "utf8")
-  } catch {
-    return ""
-  }
-}
-
 const parseDoc = (file: string): Record<string, any> | null => {
-  const raw = read(file)
+  const raw = readFileOrEmpty(file)
   if (!raw) return null
   try {
     return JSON.parse(raw)
@@ -31,17 +24,10 @@ const parseDoc = (file: string): Record<string, any> | null => {
   }
 }
 
-// What `inscope apply` would write to a workspace's .mcp.json: existing
-// non-managed keys preserved, managed keys replaced with the rendered set.
-export const mcpTarget = (ws: Workspace): string => {
-  const doc = parseDoc(mcpFilePath(ws)) ?? {}
-  const servers: Record<string, unknown> =
-    doc.mcpServers && typeof doc.mcpServers === "object" ? { ...doc.mcpServers } : {}
-  for (const key of managedKeys(ws.name)) delete servers[key]
-  Object.assign(servers, renderServers(ws))
-  doc.mcpServers = servers
-  return JSON.stringify(doc, null, 2) + "\n"
-}
+// What `inscope apply` would write to a workspace's .mcp.json, via the same
+// merge apply uses — so this preview cannot diverge from what apply writes.
+export const mcpTarget = (ws: Workspace): string =>
+  serializeMcp(mergeMcpDoc(parseDoc(mcpFilePath(ws)) ?? {}, ws))
 
 // A `.mcp.json` that exists but won't parse: `apply` (via readDocOrThrow) refuses
 // to rewrite it, so surface that instead of a misleading clean-rewrite diff.
@@ -64,7 +50,7 @@ export const computeDrift = (cfg: Config): Drift[] => {
   const drifts: Drift[] = []
 
   const hp = hookPath()
-  drifts.push({ label: "hook", path: hp, current: read(hp), next: renderHook(cfg) })
+  drifts.push({ label: "hook", path: hp, current: readFileOrEmpty(hp), next: renderHook(cfg) })
 
   drifts.push({
     label: "gitconfig",
@@ -79,7 +65,7 @@ export const computeDrift = (cfg: Config): Drift[] => {
     drifts.push({
       label: `gitconfig:${ws.name}`,
       path: f,
-      current: read(f),
+      current: readFileOrEmpty(f),
       next: renderPerWorkspaceGitconfig(ws),
     })
   }
@@ -91,7 +77,12 @@ export const computeDrift = (cfg: Config): Drift[] => {
       drifts.push({ label: `mcp:${ws.name}`, path: f, current: "", next: "", error: err })
       continue
     }
-    drifts.push({ label: `mcp:${ws.name}`, path: f, current: read(f), next: mcpTarget(ws) })
+    drifts.push({
+      label: `mcp:${ws.name}`,
+      path: f,
+      current: readFileOrEmpty(f),
+      next: mcpTarget(ws),
+    })
   }
 
   return drifts.filter((d) => d.error != null || d.current !== d.next)
