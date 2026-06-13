@@ -12,7 +12,7 @@
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo.gif" alt="inscope demo: interactive add, list, and doctor" width="900" />
 </p>
 
 Concurrent sessions in different projects should never bleed work and personal accounts into each other. You describe each workspace once; `inscope` owns the moving parts and keeps them in sync:
@@ -63,7 +63,7 @@ inscope rm acme
 `cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-switch.gif" alt="inscope switching git identity and tokens on cd" width="900" />
 </p>
 
 ---
@@ -141,7 +141,7 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 Run any command with `-h` for its options.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />
 </p>
 
 ### `inscope add`
@@ -169,7 +169,7 @@ Run it bare and it walks you through everything: pick the GitHub account from yo
 Preview exactly what `apply` would write: a colored diff of the hook, git includes, and each `.mcp.json` against your config. `--adopt` pulls config-expressible on-disk settings (a Slack add-message tool, a custom server URL) back into the config, so the next apply keeps them instead of dropping them.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-diff.gif" alt="inscope diff: preview drift as a colored diff, then --adopt back-syncs an on-disk setting into the config" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-diff.gif" alt="inscope diff: preview drift as a colored diff, then --adopt back-syncs an on-disk setting into the config" width="900" />
 </p>
 
 ---
@@ -220,7 +220,7 @@ inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
 You need a Slack app with a user OAuth (`xoxp`) token first. If you don't have one, follow the [slack-mcp-server authentication guide](https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth). inscope points you there during `add` when Slack is enabled.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-slack.gif" alt="inscope adding Slack: keychain prompt and Yes/No selector confirms" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo-slack.gif" alt="inscope adding Slack: keychain prompt and Yes/No selector confirms" width="900" />
 </p>
 
 ---
