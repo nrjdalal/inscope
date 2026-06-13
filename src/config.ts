@@ -88,15 +88,20 @@ export const workspaceNameError = (name: string): string | null => {
 }
 
 // Every value interpolated into the generated zsh hook is double-quoted, but
-// zsh still performs $-expansion and $(...)/`...` command substitution inside
-// double quotes. So these characters must be rejected wherever a value reaches
-// the hook (workspace path, gh account, Slack keychain service), not just
-// quoted. The workspace name is handled separately (WORKSPACE_NAME_RE) because
-// it also appears as an unquotable `case` pattern.
-const HOOK_UNSAFE = /["`$\n]/
+// zsh still treats several characters as significant inside double quotes:
+// $-expansion, $(...)/`...` command substitution, and a backslash, which
+// escapes the next character (a trailing one escapes the closing quote and
+// produces an unsourceable hook, since gh/keychain arms put the quote directly
+// after the value). So these must be rejected wherever a value reaches the hook
+// (workspace path, gh account, Slack keychain service), not just quoted. The
+// workspace name is handled separately (WORKSPACE_NAME_RE) because it also
+// appears as an unquotable `case` pattern.
+const HOOK_UNSAFE = /[\\"`$\n]/
 
 export const hookValueError = (value: string): string | null =>
-  HOOK_UNSAFE.test(value) ? 'must not contain a quote ("), backtick (`), $, or newline' : null
+  HOOK_UNSAFE.test(value)
+    ? 'must not contain a backslash (\\), quote ("), backtick (`), $, or newline'
+    : null
 
 // The path is interpolated into the hook's `case` pattern; spaces are fine
 // (the pattern is quoted) but the breakout set above is not.
