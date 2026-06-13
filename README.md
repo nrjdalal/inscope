@@ -141,10 +141,6 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 Run any command with `-h` for its options.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-diff.gif" alt="inscope diff: preview drift as a colored diff, then --adopt back-syncs an on-disk setting into the config" width="900" />
-</p>
-
-<p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />
 </p>
 
@@ -167,6 +163,14 @@ Run it bare and it walks you through everything: pick the GitHub account from yo
   --seed-slack          prompt for the Slack token and store it in the keychain
   -y, --yes             accept defaults, skip all prompts (non-interactive)
 ```
+
+### `inscope diff`
+
+Preview exactly what `apply` would write: a colored diff of the hook, git includes, and each `.mcp.json` against your config. `--adopt` pulls config-expressible on-disk settings (a Slack add-message tool, a custom server URL) back into the config, so the next apply keeps them instead of dropping them.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-diff.gif" alt="inscope diff: preview drift as a colored diff, then --adopt back-syncs an on-disk setting into the config" width="900" />
+</p>
 
 ---
 
