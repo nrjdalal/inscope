@@ -187,6 +187,15 @@ export const findWorkspace = (cfg: Config, key: string): Workspace | undefined =
   return cfg.workspaces.find((w) => resolveAbsolute(w.path) === target)
 }
 
+// A directory maps to one workspace (one hook arm, one .mcp.json). This returns
+// a workspace already at `target`'s resolved path under a name other than
+// `label` (so adding `label` there would duplicate the path), or undefined when
+// the path is free or already owned by `label` itself (a normal re-run update).
+export const pathConflict = (cfg: Config, target: string, label: string): Workspace | undefined => {
+  const abs = resolveAbsolute(target)
+  return cfg.workspaces.find((w) => w.name !== label && resolveAbsolute(w.path) === abs)
+}
+
 export const upsertWorkspace = (cfg: Config, ws: Workspace): Config => {
   const next = cfg.workspaces.filter((w) => w.name !== ws.name)
   next.push({ ...ws, path: contractTilde(ws.path) })

@@ -11,6 +11,7 @@ import {
   hookValueError,
   labelFromPath,
   loadConfig,
+  pathConflict,
   removeWorkspace,
   saveConfig,
   slugify,
@@ -28,7 +29,13 @@ import { renderHook } from "@/generators/hook"
 import { applyMcp, removeMcp, renderServers } from "@/generators/mcp"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
-import { buildServers, enabledServers, slackKeychainFor } from "~/bin/commands/_workspace"
+import {
+  buildServers,
+  enabledServers,
+  gitGlobalHint,
+  persist,
+  slackKeychainFor,
+} from "~/bin/commands/_workspace"
 
 const blogConfig = (): Config => ({
   version: 1,
@@ -320,6 +327,49 @@ test("currentWorkspace matches the enclosing workspace by path", () => {
   expect(currentWorkspace(cfg, "/tmp/acme/api")?.name).toBe("acme")
   expect(currentWorkspace(cfg, "/tmp/blog")?.name).toBe("blog")
   expect(currentWorkspace(cfg, "/tmp/other")).toBeUndefined()
+})
+
+test("pathConflict flags a different-named workspace already at a path", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [{ name: "foo", path: "/tmp/acme", servers: {} }],
+  }
+  expect(pathConflict(cfg, "/tmp/acme", "foo")).toBeUndefined() // same label = a normal update
+  expect(pathConflict(cfg, "/tmp/acme", "bar")?.name).toBe("foo") // different name collides
+  expect(pathConflict(cfg, "/tmp/free", "bar")).toBeUndefined() // free path
+})
+
+test("gitGlobalHint surfaces the global value, or notes there is none", () => {
+  expect(gitGlobalHint("me@acme.org")).toBe("global: me@acme.org")
+  expect(gitGlobalHint(null)).toBe("no global set")
+})
+
+test("relocating a workspace to a new path prunes the old path's managed block", () => {
+  const prevHome = process.env.HOME
+  const prevXdg = process.env.XDG_CONFIG_HOME
+  const sb = tmpDir()
+  process.env.HOME = sb
+  process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
+  try {
+    const a = path.join(sb, "a")
+    const b = path.join(sb, "b")
+    fs.mkdirSync(a, { recursive: true })
+    fs.mkdirSync(b, { recursive: true })
+    const keys = (dir: string) =>
+      Object.keys(JSON.parse(fs.readFileSync(path.join(dir, ".mcp.json"), "utf8")).mcpServers)
+
+    persist({ name: "foo", path: a, servers: { github: true } })
+    expect(keys(a)).toContain("github-foo")
+
+    persist({ name: "foo", path: b, servers: { github: true } }) // relocate a -> b
+    expect(keys(b)).toContain("github-foo")
+    expect(keys(a)).not.toContain("github-foo") // old managed block pruned
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevXdg
+  }
 })
 
 test("a nested workspace resolves to the child, not the enclosing parent", () => {
