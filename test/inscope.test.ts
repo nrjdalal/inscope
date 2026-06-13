@@ -782,6 +782,20 @@ test("writeFileAtomic writes through a symlink, preserving the link", () => {
   expect(fs.readFileSync(link, "utf8")).toBe("new\n")
 })
 
+test("writeFileAtomic preserves the target file's mode", () => {
+  const dir = tmpDir()
+  const file = path.join(dir, "secret")
+  fs.writeFileSync(file, "old\n")
+  fs.chmodSync(file, 0o600)
+
+  writeFileAtomic(file, "new\n")
+
+  // rename swaps the inode, so without restoring the mode a 0600 file would
+  // silently widen to the umask default.
+  expect(fs.statSync(file).mode & 0o777).toBe(0o600)
+  expect(fs.readFileSync(file, "utf8")).toBe("new\n")
+})
+
 test("loadConfig gives a friendly, path-hinted error on malformed JSON", () => {
   const prev = process.env.XDG_CONFIG_HOME
   process.env.XDG_CONFIG_HOME = tmpDir()

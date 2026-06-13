@@ -35,8 +35,16 @@ export const writeFileAtomic = (file: string, data: string) => {
   }
   const dir = path.dirname(target)
   fs.mkdirSync(dir, { recursive: true })
+  // Preserve the target's mode: rename swaps the inode, so a fresh temp would
+  // otherwise widen a restrictive file (e.g. a 0600 dotfile) to the umask
+  // default. A missing target (a new file) keeps the default, as before.
+  let mode: number | undefined
+  try {
+    mode = fs.statSync(target).mode
+  } catch {}
   const tmp = path.join(dir, `.${path.basename(target)}.inscope-${process.pid}.tmp`)
   fs.writeFileSync(tmp, data)
+  if (mode !== undefined) fs.chmodSync(tmp, mode & 0o7777)
   try {
     fs.renameSync(tmp, target)
   } catch (err) {
