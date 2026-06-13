@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+
 import { zshrcSourcesHook } from "@/apply"
 import type { Config, Workspace } from "@/config"
 import { gitconfigPath, hookPath, resolveAbsolute } from "@/env"
@@ -38,7 +39,7 @@ const unpinnedServers = (doc: Record<string, any> | null): string[] => {
   if (!servers || typeof servers !== "object") return out
   for (const [name, def] of Object.entries<any>(servers)) {
     const args: string[] = Array.isArray(def?.args) ? def.args : []
-    if (args.some((a) => typeof a === "string" && /@latest$/.test(a))) {
+    if (args.some((a) => typeof a === "string" && a.endsWith("@latest"))) {
       out.push(name)
     } else if (def?.command === "npx") {
       const pkg = args.find((a) => typeof a === "string" && !a.startsWith("-"))
@@ -70,18 +71,14 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
   }
 }
 
-export const runDoctor = (
-  cfg: Config,
-  run: Runner = defaultRunner,
-): Check[] => {
+export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => {
   const checks: Check[] = []
 
   if (!isMacOS()) {
     checks.push({
       status: "warn",
       label: "platform",
-      detail:
-        "inscope's secret resolution targets macOS (gh keyring + Keychain)",
+      detail: "inscope's secret resolution targets macOS (gh keyring + Keychain)",
     })
   }
 

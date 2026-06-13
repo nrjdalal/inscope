@@ -1,11 +1,6 @@
 import { parseArgs } from "node:util"
-import {
-  configExists,
-  findWorkspace,
-  hookValueError,
-  loadConfig,
-  type Workspace,
-} from "@/config"
+
+import { configExists, findWorkspace, hookValueError, loadConfig, type Workspace } from "@/config"
 import { ghAccounts, keychainHas } from "@/secrets"
 import {
   isInteractive,
@@ -98,8 +93,7 @@ export const edit = async (args: string[]) => {
     0,
     ghChoices.findIndex((c) => c.value === (ws.gh ?? "")),
   )
-  const gh =
-    (await selectOne("GitHub account", ghChoices, ghInitial)) || undefined
+  const gh = (await selectOne("GitHub account", ghChoices, ghInitial)) || undefined
 
   // --- git identity: enter keeps current, "-" inherits the global config ---
   const curEmail = ws.git?.email
@@ -133,22 +127,14 @@ export const edit = async (args: string[]) => {
 
   // --- slack details, pre-filled from the current config ---
   const wantSlack = serverList.includes("slack")
-  let slackSvc = ws.servers.slack
-    ? ws.servers.slack.keychain
-    : slackKeychainFor(ws.name)
-  let slackMessage = ws.servers.slack
-    ? !!ws.servers.slack.addMessageTool
-    : false
+  let slackSvc = ws.servers.slack ? ws.servers.slack.keychain : slackKeychainFor(ws.name)
+  let slackMessage = ws.servers.slack ? !!ws.servers.slack.addMessageTool : false
   let seedSlack = false
   if (wantSlack) {
     console.log(`\nSlack uses a user OAuth (xoxp) token.`)
     slackSvc = await promptText("Slack keychain service", slackSvc)
-    slackMessage = await promptConfirm(
-      "Allow Slack to post messages?",
-      slackMessage,
-    )
-    if (!keychainHas(slackSvc))
-      seedSlack = await promptConfirm("Store the Slack token now?", true)
+    slackMessage = await promptConfirm("Allow Slack to post messages?", slackMessage)
+    if (!keychainHas(slackSvc)) seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
   // The keychain service is typed at the prompt and interpolated into the hook;

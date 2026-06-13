@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util"
+
 import { applyAll } from "@/apply"
 import { configExists, loadConfig } from "@/config"
 import { name } from "~/package.json"

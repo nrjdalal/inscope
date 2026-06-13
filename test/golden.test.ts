@@ -1,13 +1,11 @@
+import { expect, test } from "bun:test"
+
 import { renderZshrcSource } from "@/apply"
 import type { Config, Workspace } from "@/config"
-import {
-  renderGitInclude,
-  renderPerWorkspaceGitconfig,
-} from "@/generators/gitconfig"
+import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { renderMcp, SERVER_TYPES } from "@/generators/mcp"
 import { slackKeychainFor } from "~/bin/commands/_workspace"
-import { expect, test } from "bun:test"
 
 // Golden suite: lock the EXACT generated artifacts (chpwd hook, .mcp.json, git
 // includes, .zshrc source line) so any drift is caught on review instead of
@@ -86,9 +84,7 @@ test("golden: .mcp.json for a github-only workspace", () => {
 
 test("golden: Slack server, read-only vs post-enabled", () => {
   const base = { name: "acme", path: "~/acme" }
-  expect(
-    renderMcp({ ...base, servers: { slack: { keychain: "K" } } }),
-  ).toMatchSnapshot("read-only")
+  expect(renderMcp({ ...base, servers: { slack: { keychain: "K" } } })).toMatchSnapshot("read-only")
   expect(
     renderMcp({
       ...base,
@@ -108,9 +104,7 @@ test("golden: an http server with a custom url override", () => {
 })
 
 test("golden: .mcp.json for a workspace with no servers", () => {
-  expect(
-    renderMcp({ name: "none", path: "~/none", servers: {} }),
-  ).toMatchSnapshot()
+  expect(renderMcp({ name: "none", path: "~/none", servers: {} })).toMatchSnapshot()
 })
 
 // --- chpwd hook ---
@@ -225,17 +219,13 @@ test("golden: per-workspace gitconfig", () => {
       git: { email: "e@x.dev", name: "E" },
     }),
   ).toMatchSnapshot("email and name")
-  expect(
-    renderPerWorkspaceGitconfig({ ...base, git: { email: "e@x.dev" } }),
-  ).toMatchSnapshot("email only")
-  expect(
-    renderPerWorkspaceGitconfig({ ...base, git: { name: "E" } }),
-  ).toMatchSnapshot("name only")
+  expect(renderPerWorkspaceGitconfig({ ...base, git: { email: "e@x.dev" } })).toMatchSnapshot(
+    "email only",
+  )
+  expect(renderPerWorkspaceGitconfig({ ...base, git: { name: "E" } })).toMatchSnapshot("name only")
   // defensive branch: neither field set (unreachable via applyGitconfig, which
   // gates on hasGitIdentity, but the function still renders a bare [user])
-  expect(
-    renderPerWorkspaceGitconfig({ ...base, git: {} }),
-  ).toMatchSnapshot("neither")
+  expect(renderPerWorkspaceGitconfig({ ...base, git: {} })).toMatchSnapshot("neither")
 })
 
 // --- .zshrc source line ---

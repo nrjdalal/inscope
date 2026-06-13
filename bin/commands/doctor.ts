@@ -1,11 +1,7 @@
 import { parseArgs } from "node:util"
+
 import { configExists, loadConfig } from "@/config"
-import {
-  currentWorkspace,
-  liveSnapshot,
-  runDoctor,
-  type CheckStatus,
-} from "@/doctor"
+import { currentWorkspace, liveSnapshot, runDoctor, type CheckStatus } from "@/doctor"
 import { name } from "~/package.json"
 
 const helpMessage = `Verify the setup: gh tokens resolve, keychain entries exist,

@@ -2,11 +2,7 @@ import { spawnSync } from "node:child_process"
 
 export type RunResult = { status: number; stdout: string; stderr: string }
 
-export type Runner = (
-  cmd: string,
-  args: string[],
-  opts?: { input?: string },
-) => RunResult
+export type Runner = (cmd: string, args: string[], opts?: { input?: string }) => RunResult
 
 export const defaultRunner: Runner = (cmd, args, opts) => {
   const res = spawnSync(cmd, args, { encoding: "utf8", input: opts?.input })
@@ -41,32 +37,18 @@ export const ghAccounts = (run: Runner = defaultRunner): string[] => {
   return names
 }
 
-export const gitGlobal = (
-  key: string,
-  run: Runner = defaultRunner,
-): string | null => {
+export const gitGlobal = (key: string, run: Runner = defaultRunner): string | null => {
   const r = run("git", ["config", "--global", key])
   const v = r.stdout.trim()
   return r.status === 0 && v ? v : null
 }
 
 export const keychainHas = (service: string, run: Runner = defaultRunner) => {
-  const r = run("security", [
-    "find-generic-password",
-    "-a",
-    user(),
-    "-s",
-    service,
-    "-w",
-  ])
+  const r = run("security", ["find-generic-password", "-a", user(), "-s", service, "-w"])
   return r.status === 0 && r.stdout.trim().length > 0
 }
 
-export const keychainSet = (
-  service: string,
-  token: string,
-  run: Runner = defaultRunner,
-) => {
+export const keychainSet = (service: string, token: string, run: Runner = defaultRunner) => {
   const r = run("security", [
     "add-generic-password",
     "-U",
@@ -78,9 +60,7 @@ export const keychainSet = (
     token,
   ])
   if (r.status !== 0) {
-    throw new Error(
-      `security add-generic-password failed: ${r.stderr.trim() || "unknown error"}`,
-    )
+    throw new Error(`security add-generic-password failed: ${r.stderr.trim() || "unknown error"}`)
   }
 }
 

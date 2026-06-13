@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util"
+
 import { applyAll } from "@/apply"
 import { configExists, defaultConfig, loadConfig, saveConfig } from "@/config"
 import { configPath } from "@/env"

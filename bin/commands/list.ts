@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util"
+
 import { configExists, loadConfig, type Servers } from "@/config"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { name } from "~/package.json"
@@ -13,9 +14,7 @@ Options:
   -h, --help  Display help message`
 
 const enabledServers = (s: Servers) =>
-  SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t])).join(
-    ", ",
-  ) || "none"
+  SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t])).join(", ") || "none"
 
 export const list = (args: string[]) => {
   const { values } = parseArgs({
@@ -36,9 +35,7 @@ export const list = (args: string[]) => {
 
   const cfg = loadConfig()
   if (!cfg.workspaces.length) {
-    console.log(
-      `No workspaces yet. Add one with \`${name} add <path> --gh <account>\`.`,
-    )
+    console.log(`No workspaces yet. Add one with \`${name} add <path> --gh <account>\`.`)
     process.exit(0)
   }
 
@@ -48,8 +45,7 @@ export const list = (args: string[]) => {
     console.log(`  gh       ${ws.gh ?? "(none)"}`)
     console.log(`  git      ${ws.git?.email ?? "(default)"}`)
     console.log(`  servers  ${enabledServers(ws.servers)}`)
-    if (ws.servers.slack)
-      console.log(`  slack    keychain: ${ws.servers.slack.keychain}`)
+    if (ws.servers.slack) console.log(`  slack    keychain: ${ws.servers.slack.keychain}`)
   }
   process.exit(0)
 }

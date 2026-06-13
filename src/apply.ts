@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+
 import type { Config } from "@/config"
 import { home, hookPath, zshrcPath } from "@/env"
 import { applyGitconfig } from "@/generators/gitconfig"

@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util"
+
 import {
   hookValueError,
   labelFromPath,
@@ -16,12 +17,7 @@ import {
   selectMany,
   selectOne,
 } from "~/bin/commands/_prompt"
-import {
-  buildServers,
-  finalizeSlack,
-  persist,
-  slackKeychainFor,
-} from "~/bin/commands/_workspace"
+import { buildServers, finalizeSlack, persist, slackKeychainFor } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
 const helpMessage = `Map a directory to a GitHub account, git email, and MCP servers.
@@ -82,8 +78,7 @@ export const add = async (args: string[]) => {
   // --- path ---
   let target = positionals[0]
   if (!target) {
-    if (interactive)
-      target = await promptText("Workspace directory", process.cwd())
+    if (interactive) target = await promptText("Workspace directory", process.cwd())
     else throw new Error(helpMessage)
   }
   const pathErr = workspacePathError(target)
@@ -108,9 +103,7 @@ export const add = async (args: string[]) => {
       ...ghAccounts().map((a) => ({ label: a, value: a })),
       { label: "(none)", value: "" },
     ]
-    gh =
-      (await selectOne("\nGitHub account for this workspace", choices)) ||
-      undefined
+    gh = (await selectOne("\nGitHub account for this workspace", choices)) || undefined
   }
 
   // --- git identity (empty answer inherits the global config) ---
@@ -120,16 +113,14 @@ export const add = async (args: string[]) => {
     if (email === undefined) {
       const g = gitGlobal("user.email")
       email =
-        (await promptText(
-          `Git email${g ? ` [${g} · global]` : ""} (enter to inherit global)`,
-        )) || undefined
+        (await promptText(`Git email${g ? ` [${g} · global]` : ""} (enter to inherit global)`)) ||
+        undefined
     }
     if (gitName === undefined) {
       const g = gitGlobal("user.name")
       gitName =
-        (await promptText(
-          `Git name${g ? ` [${g} · global]` : ""} (enter to inherit global)`,
-        )) || undefined
+        (await promptText(`Git name${g ? ` [${g} · global]` : ""} (enter to inherit global)`)) ||
+        undefined
     }
   }
 
@@ -141,30 +132,23 @@ export const add = async (args: string[]) => {
       .map((s) => s.trim())
       .filter(Boolean)
   } else if (interactive) {
-    serverList = await selectMany(
-      "MCP servers (space toggles, enter confirms)",
-      SERVER_CHOICES,
-    )
+    serverList = await selectMany("MCP servers (space toggles, enter confirms)", SERVER_CHOICES)
   } else {
     serverList = ["github"]
   }
 
   // --- slack details ---
   const wantSlack =
-    serverList.includes("slack") ||
-    !!values["slack-keychain"] ||
-    !!values["seed-slack"]
+    serverList.includes("slack") || !!values["slack-keychain"] || !!values["seed-slack"]
   let slackSvc = values["slack-keychain"] || slackKeychainFor(label)
   let slackMessage = !!values["slack-message"]
   let seedSlack = !!values["seed-slack"]
   if (wantSlack && interactive) {
     console.log(`\nSlack uses a user OAuth (xoxp) token.`)
-    if (!values["slack-keychain"])
-      slackSvc = await promptText("Slack keychain service", slackSvc)
+    if (!values["slack-keychain"]) slackSvc = await promptText("Slack keychain service", slackSvc)
     if (!values["slack-message"])
       slackMessage = await promptConfirm("Allow Slack to post messages?", true)
-    if (!values["seed-slack"])
-      seedSlack = await promptConfirm("Store the Slack token now?", true)
+    if (!values["seed-slack"]) seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
   // gh account and Slack keychain are interpolated into the chpwd hook; reject
@@ -198,8 +182,6 @@ export const add = async (args: string[]) => {
   console.log(`\n✓ workspace "${label}" -> ${ws.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
   await finalizeSlack(ws, seedSlack)
-  console.log(
-    `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
-  )
+  console.log(`\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`)
   process.exit(0)
 }
