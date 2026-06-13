@@ -1,3 +1,4 @@
+import fs from "node:fs"
 import { parseArgs } from "node:util"
 
 import {
@@ -7,7 +8,7 @@ import {
   workspaceNameError,
   workspacePathError,
 } from "@/config"
-import { contractTilde } from "@/env"
+import { contractTilde, resolveAbsolute } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { ghAccounts, gitGlobal } from "@/secrets"
 import {
@@ -16,6 +17,7 @@ import {
   promptText,
   selectMany,
   selectOne,
+  yellow,
 } from "~/bin/commands/_prompt"
 import { buildServers, finalizeSlack, persist, slackKeychainFor } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
@@ -85,6 +87,13 @@ export const add = async (args: string[]) => {
   if (pathErr) {
     console.error(`\nInvalid workspace path "${target}": ${pathErr}`)
     process.exit(1)
+  }
+  // apply creates the .mcp.json (and its parent) on persist, so a typo'd path is
+  // otherwise created silently. Warn but don't block: the dir may not exist yet.
+  if (!fs.existsSync(resolveAbsolute(target))) {
+    console.error(
+      yellow(`\nWarning: ${contractTilde(target)} does not exist yet; it will be created.`),
+    )
   }
 
   // --- label ---
