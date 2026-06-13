@@ -8,7 +8,8 @@ import {
   type Servers,
   type Workspace,
 } from "@/config"
-import { SERVER_TYPES } from "@/generators/mcp"
+import { resolveAbsolute } from "@/env"
+import { removeMcp, SERVER_TYPES } from "@/generators/mcp"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
 
@@ -39,11 +40,23 @@ export const buildServers = (
   return out as Servers
 }
 
+// The hint shown next to the interactive git email/name prompts. Pressing enter
+// inherits the global (the workspace stores nothing and tracks global at commit
+// time), so the hint just surfaces the global value; when none is set there is
+// nothing to inherit, so blank means no git identity (a valid servers-only/
+// gh-only setup).
+export const gitGlobalHint = (global: string | null): string =>
+  global ? `global: ${global}` : "no global set"
+
 export const persist = (ws: Workspace) => {
   const cfg = configExists() ? loadConfig() : defaultConfig()
+  const prior = cfg.workspaces.find((w) => w.name === ws.name)
   const next = upsertWorkspace(cfg, ws)
   saveConfig(next)
   applyAll(next)
+  // Relocated to a new path: applyAll only writes paths still in the config, so
+  // prune the now-orphaned managed block from the old path's .mcp.json.
+  if (prior && resolveAbsolute(prior.path) !== resolveAbsolute(ws.path)) removeMcp(prior)
 }
 
 // After persisting: seed the Slack token now (hidden prompt), or print the

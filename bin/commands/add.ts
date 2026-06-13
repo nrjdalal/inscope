@@ -3,10 +3,10 @@ import { parseArgs } from "node:util"
 
 import {
   configExists,
-  findWorkspace,
   hookValueError,
   labelFromPath,
   loadConfig,
+  pathConflict,
   type Workspace,
   workspaceNameError,
   workspacePathError,
@@ -22,7 +22,13 @@ import {
   selectOne,
   yellow,
 } from "~/bin/commands/_prompt"
-import { buildServers, finalizeSlack, persist, slackKeychainFor } from "~/bin/commands/_workspace"
+import {
+  buildServers,
+  finalizeSlack,
+  gitGlobalHint,
+  persist,
+  slackKeychainFor,
+} from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
 const helpMessage = `Map a directory to a GitHub account, git email, and MCP servers.
@@ -95,7 +101,7 @@ export const add = async (args: string[]) => {
   // otherwise created silently. Warn but don't block: the dir may not exist yet.
   if (!fs.existsSync(resolveAbsolute(target))) {
     console.error(
-      yellow(`\nWarning: ${contractTilde(target)} does not exist yet; it will be created.`),
+      yellow(`Warning: ${contractTilde(target)} does not exist yet; it will be created.`) + "\n",
     )
   }
 
@@ -113,8 +119,8 @@ export const add = async (args: string[]) => {
   // a broken duplicate, so refuse and point at the existing one. Re-running with
   // the same label updates that workspace, so only a different name collides.
   if (configExists()) {
-    const owner = findWorkspace(loadConfig(), target)
-    if (owner && owner.name !== label) {
+    const owner = pathConflict(loadConfig(), target, label)
+    if (owner) {
       console.error(
         `\n${contractTilde(target)} is already mapped to workspace "${owner.name}". Run \`${name} edit ${owner.name}\` to change it, or \`${name} rm ${owner.name}\` first.`,
       )
@@ -132,21 +138,18 @@ export const add = async (args: string[]) => {
     gh = (await selectOne("\nGitHub account for this workspace", choices)) || undefined
   }
 
-  // --- git identity (empty answer inherits the global config) ---
+  // --- git identity (blank inherits the global config, or leaves it unset when
+  // there is no global to inherit) ---
   let email = values.email
   let gitName = values["git-name"]
   if (interactive) {
     if (email === undefined) {
-      const g = gitGlobal("user.email")
       email =
-        (await promptText(`Git email${g ? ` [${g} · global]` : ""} (enter to inherit global)`)) ||
-        undefined
+        (await promptText(`Git email (${gitGlobalHint(gitGlobal("user.email"))})`)) || undefined
     }
     if (gitName === undefined) {
-      const g = gitGlobal("user.name")
       gitName =
-        (await promptText(`Git name${g ? ` [${g} · global]` : ""} (enter to inherit global)`)) ||
-        undefined
+        (await promptText(`Git name (${gitGlobalHint(gitGlobal("user.name"))})`)) || undefined
     }
   }
 
