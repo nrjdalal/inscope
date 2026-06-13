@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.7.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.6.0...v0.7.0)
+
+### 🩹 Fixes
+
+- Harden workspace name/path/gh/keychain so the generated zsh hook is always safe ([145b99f](https://github.com/nrjdalal/inscope/commit/145b99f))
+
+### 📖 Documentation
+
+- Clarify gh requirement and add multi-tool MCP design note ([861550c](https://github.com/nrjdalal/inscope/commit/861550c))
+
+### 🏡 Chore
+
+- **tooling:** Sync zerostarter toolchain (oxc, lefthook, changelogen) ([d23faf9](https://github.com/nrjdalal/inscope/commit/d23faf9))
+- **release:** 0.7.0 ([735c24b](https://github.com/nrjdalal/inscope/commit/735c24b))
+
+### ✅ Tests
+
+- Add a golden snapshot suite and gate releases on tests ([0f9dfc3](https://github.com/nrjdalal/inscope/commit/0f9dfc3))
+- Lock golden coverage for every generator edge case ([ed88ce7](https://github.com/nrjdalal/inscope/commit/ed88ce7))
+
+### 🎨 Styles
+
+- Format and lint the codebase with oxfmt and oxlint ([4ba37b5](https://github.com/nrjdalal/inscope/commit/4ba37b5))
+
+### ❤️ Contributors
+
+- Neeraj Dalal <admin@nrjdalal.com>
+
 ## v0.6.0
 
 ### 🚀 Enhancements
