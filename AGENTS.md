@@ -26,7 +26,7 @@ This file provides guidance to AI coding agents working in the inscope repositor
 - NEVER: include a `Co-authored-by` trailer in commit messages.
 - NEVER: use em-dashes in prose.
 - Keep logic in `src/`; `bin/` is the CLI surface (arg parsing, prompts, output) only.
-- Generators are pure (config in, text out); all writes go through `src/apply.ts` and `src/managed-block.ts` and stay inside the marked managed block, so re-applying never clobbers user edits.
+- Generators pair pure render functions (config in, text out, snapshot-pinned) with the side-effecting apply/remove for that artifact. Every write goes through the atomic writer in `src/io.ts`; shared dotfiles (`~/.zshrc`, `~/.gitconfig`) are edited inside a marked managed block (`src/managed-block.ts`) so re-applying never clobbers user edits.
 
 ## Hooks
 

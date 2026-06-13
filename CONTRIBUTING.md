@@ -40,21 +40,31 @@ bun run changelog    # changelogen --bump (version + CHANGELOG.md)
 ## Architecture
 
 inscope generates per-workspace identity config from one source of truth and
-applies it idempotently. Keep that boundary intact:
+applies it idempotently. The layering:
 
-- `src/config.ts`, `src/env.ts`, `src/secrets.ts`: read state and resolve paths
-  / secrets. No file writes.
-- `src/generators/*`: pure functions that turn config into the text of a target
-  artifact (`mcp.ts`, `hook.ts`, `gitconfig.ts`). Same input, same output.
-- `src/apply.ts`, `src/managed-block.ts`: own all writes; everything inscope
-  manages lives inside a marked managed block so re-applying never clobbers
-  user edits.
+- `src/env.ts`, `src/secrets.ts`: read state, resolve paths / secrets. No file
+  writes.
+- `src/config.ts`: the config schema, validation, and `saveConfig` (the one
+  place the config file is persisted, validated at the write boundary).
+- `src/generators/*` (`hook.ts`, `mcp.ts`, `gitconfig.ts`): each pairs pure
+  render functions (config in, text out, same input → same output) with the
+  side-effecting `apply` / `remove` for that artifact.
+- `src/io.ts`: the single atomic writer (`writeFileAtomic`: temp + rename, and
+  symlink-aware so a chezmoi/stow dotfile keeps its link) that every write goes
+  through, plus the shared file readers.
+- `src/managed-block.ts`: shared dotfiles (`~/.zshrc`, `~/.gitconfig`) are edited
+  only inside a marked managed block, so re-applying never clobbers user edits.
+  Whole files inscope owns (`.mcp.json` managed keys, per-workspace gitconfigs,
+  `inscope.json`) are written directly through the atomic writer.
+- `src/apply.ts`: orchestrates a full apply (pre-flights the `.mcp.json` parses
+  so apply is all-or-nothing, then writes the hook, git includes, zshrc source
+  line, and each `.mcp.json`).
 - `bin/`: the CLI surface (commands, prompts). Logic belongs in `src/`, not
   here.
 
-Generators stay pure so the golden snapshot suite (`test/golden.test.ts`) can
-pin their output. If you change generated output, the snapshot diff is the
-review surface; update it deliberately, never blindly.
+The render functions stay pure so the golden snapshot suite
+(`test/golden.test.ts`) can pin their output. If you change generated output,
+the snapshot diff is the review surface; update it deliberately, never blindly.
 
 ## Pull requests
 
@@ -84,5 +94,6 @@ when a fix is not yet reachable through the dependency ranges.
 
 Bump the version in `package.json` (and refresh `CHANGELOG.md` with
 `bun run changelog`); pushing to `main` triggers `.github/workflows/release.yml`,
-which publishes to npm as `latest`. A maintainer comment containing `release`
-on a PR publishes a throwaway test version for that PR's head.
+which publishes to npm as `latest`. The publish is gated to `main`, so a
+version-bumped feature branch never publishes. A maintainer comment starting
+with `/release` on a PR publishes a throwaway test version for that PR's head.
