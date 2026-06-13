@@ -146,6 +146,12 @@ exports[`golden: an http server with a custom url override 1`] = `
 }
 `;
 
+exports[`golden: .mcp.json for a workspace with no servers 1`] = `
+{
+  "mcpServers": {},
+}
+`;
+
 exports[`golden: chpwd hook for two workspaces 1`] = `
 "# Managed by inscope. Do not edit by hand.
 # Source of truth: ~/.config/inscope/inscope.json
@@ -295,12 +301,80 @@ __inscope_resolve_identity
 "
 `;
 
+exports[`golden: chpwd hook covers tricky paths and every arm shape 1`] = `
+"# Managed by inscope. Do not edit by hand.
+# Source of truth: ~/.config/inscope/inscope.json
+# Edit there, then run \`inscope apply\` to regenerate this file.
+#
+# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
+# the current directory to a workspace, then pulls that workspace's GitHub token
+# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# is written to disk, and there is no shared mutable state for sessions to race.
+__inscope_resolve_identity() {
+  local ws
+  case "\${PWD}/" in
+    "$HOME/"*) ws="home" ;;
+    "$HOME/My Project (work)/"*) ws="my-project-work" ;;
+    "/opt/work/"*) ws="opt" ;;
+    "$HOME/slackonly/"*) ws="slackonly" ;;
+    "$HOME/webapp/"*) ws="web.app-2_x" ;;
+    *) ws="" ;;
+  esac
+  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
+  __inscope_ws="$ws"
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
+
+  local gh_user="" slack_svc=""
+  case "$ws" in
+    home) gh_user="acct" ;;
+    my-project-work) gh_user="acme-org"; slack_svc="SLACK_MCP_XOXP_TOKEN_MYPROJECT" ;;
+    opt) gh_user="acct" ;;
+    slackonly) slack_svc="K" ;;
+    web.app-2_x) gh_user="acct" ;;
+    *) return ;;                                     # outside a mapped workspace: nothing set
+  esac
+
+  local tok
+  if [[ -n "$gh_user" ]]; then
+    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
+    else
+      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
+    fi
+  fi
+  if [[ -n "$slack_svc" ]]; then
+    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export SLACK_MCP_XOXP_TOKEN="$tok"
+    else
+      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
+    fi
+  fi
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
+__inscope_resolve_identity
+"
+`;
+
 exports[`golden: gitconfig includeIf block 1`] = `
 "[includeIf "gitdir:~/acme/"]
 	path = ~/.config/inscope/git/acme.gitconfig
 [includeIf "gitdir:~/personal/"]
 	path = ~/.config/inscope/git/personal.gitconfig"
 `;
+
+exports[`golden: includeIf for tricky paths, skipping a no-git workspace 1`] = `
+"[includeIf "gitdir:/opt/work/"]
+	path = ~/.config/inscope/git/opt.gitconfig
+[includeIf "gitdir:~/"]
+	path = ~/.config/inscope/git/home.gitconfig
+[includeIf "gitdir:~/My Project (work)/"]
+	path = ~/.config/inscope/git/spaced.gitconfig"
+`;
+
+exports[`golden: includeIf is empty when no workspace has a git identity 1`] = `""`;
 
 exports[`golden: per-workspace gitconfig: email and name 1`] = `
 "# Managed by inscope. Do not edit by hand.
@@ -321,6 +395,12 @@ exports[`golden: per-workspace gitconfig: name only 1`] = `
 "# Managed by inscope. Do not edit by hand.
 [user]
 	name = E
+"
+`;
+
+exports[`golden: per-workspace gitconfig: neither 1`] = `
+"# Managed by inscope. Do not edit by hand.
+[user]
 "
 `;
 
