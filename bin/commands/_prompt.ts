@@ -16,11 +16,13 @@ const paint =
     process.stdout.isTTY ? `\x1b[${code}m${s}\x1b[0m` : s
 
 // orange marks copy-paste commands and links. green/yellow/red are the status
-// palette (GitHub's dark fgColor-success/attention/danger), matching the diff.
+// palette (GitHub's bright dark-mode success/attention/danger), matching the
+// diff. Bright variants (#56d364 / #e3b341 / #ff7b72) so they read clearly on a
+// dark terminal rather than looking muted.
 export const orange = paint("38;5;208")
-export const green = paint("38;2;63;185;80")
-export const yellow = paint("38;2;210;153;34")
-export const red = paint("38;2;248;81;73")
+export const green = paint("38;2;86;211;100")
+export const yellow = paint("38;2;227;179;65")
+export const red = paint("38;2;255;123;114")
 
 const setRaw = (on: boolean) => {
   const s: any = process.stdin

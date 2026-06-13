@@ -8,9 +8,9 @@ import { name } from "~/package.json"
 
 // Diff coloring in GitHub's dark-mode diff palette: additions green, deletions
 // red, each filled to the terminal width so the line reads as a full-width band.
-// 24-bit color (text + the subtle line background GitHub uses):
-//   add: text #3fb950 on bg #12261e (rgba(46,160,67,0.15) over the dark canvas)
-//   del: text #f85149 on bg #301b1f (rgba(248,81,73,0.15) over the dark canvas)
+// 24-bit color (bright text on the subtle line background GitHub uses):
+//   add: text #56d364 on bg #12261e (rgba(46,160,67,0.15) over the dark canvas)
+//   del: text #ff7b72 on bg #301b1f (rgba(248,81,73,0.15) over the dark canvas)
 // No-op when stdout is not a TTY (piped output stays plain), matching `orange`.
 const colorizeDiff = (text: string): string => {
   if (!process.stdout.isTTY) return text
@@ -21,8 +21,8 @@ const colorizeDiff = (text: string): string => {
       if (!line.startsWith("- ") && !line.startsWith("+ ")) return line
       const pad = " ".repeat(Math.max(0, cols - line.length))
       const color = line.startsWith("- ")
-        ? "48;2;48;27;31;38;2;248;81;73"
-        : "48;2;18;38;30;38;2;63;185;80"
+        ? "48;2;48;27;31;38;2;255;123;114"
+        : "48;2;18;38;30;38;2;86;211;100"
       return `\x1b[${color}m${line}${pad}\x1b[0m`
     })
     .join("\n")
