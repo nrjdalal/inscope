@@ -12,6 +12,7 @@ import {
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { managedKeys, mcpFilePath, readMcp } from "@/generators/mcp"
+import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
 import {
   defaultRunner,
@@ -25,14 +26,6 @@ import {
 
 export type CheckStatus = "ok" | "warn" | "fail"
 export type Check = { status: CheckStatus; label: string; detail?: string }
-
-const read = (file: string) => {
-  try {
-    return fs.readFileSync(file, "utf8")
-  } catch {
-    return null
-  }
-}
 
 const unpinnedServers = (doc: Record<string, any> | null): string[] => {
   const out: string[] = []
@@ -92,8 +85,19 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
     })
   }
 
+  // inscope writes its source line to ~/.zshrc and the hook is zsh; a login
+  // shell that is not zsh would never load it. Warn so it is not silently inert.
+  const shell = process.env.SHELL ?? ""
+  if (shell && !/(^|\/)zsh$/.test(shell)) {
+    checks.push({
+      status: "warn",
+      label: "shell",
+      detail: `login shell is ${path.basename(shell)}; inscope targets zsh (the hook is written to ~/.zshrc)`,
+    })
+  }
+
   const hookFile = hookPath()
-  const current = read(hookFile)
+  const current = readFileOrNull(hookFile)
   if (current === null) {
     checks.push({
       status: "fail",
@@ -209,7 +213,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
         })
         // content drift, mirroring the hook check's exactness (a present-but-stale
         // managed server otherwise slips past the count above)
-        if (read(mcpFilePath(ws)) !== mcpTarget(ws)) {
+        if (readFileOrNull(mcpFilePath(ws)) !== mcpTarget(ws)) {
           checks.push({
             status: "warn",
             label: `${tag} mcp`,

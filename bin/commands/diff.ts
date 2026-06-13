@@ -37,16 +37,21 @@ With --adopt, pull settings that exist in your .mcp.json but not your config
 next apply keeps them instead of dropping them.
 
 Usage:
-  $ ${name} diff [--adopt]
+  $ ${name} diff [--adopt] [--exit-code]
 
 Options:
-      --adopt   Write config-expressible on-disk settings back into the config
-  -h, --help    Display help message`
+      --adopt       Write config-expressible on-disk settings back into the config
+      --exit-code   Exit 1 if anything is out of sync (for CI / pre-commit gates)
+  -h, --help        Display help message`
 
 export const diff = (args: string[]) => {
   const { values } = parseArgs({
     allowPositionals: true,
-    options: { help: { type: "boolean", short: "h" }, adopt: { type: "boolean" } },
+    options: {
+      help: { type: "boolean", short: "h" },
+      adopt: { type: "boolean" },
+      "exit-code": { type: "boolean" },
+    },
     args,
   })
 
@@ -82,6 +87,11 @@ export const diff = (args: string[]) => {
     process.exit(0)
   }
 
+  // --exit-code makes drift a non-zero exit so `inscope diff --exit-code` can
+  // gate CI / pre-commit ("is everything applied?"). Default stays 0: the plain
+  // diff is a read-only preview, not a failure.
+  const driftExit = values["exit-code"] ? 1 : 0
+
   for (const d of drifts) {
     console.log(`\n${orange(`${contractTilde(d.path)} (${d.label})`)}`)
     if (d.error) console.log(red(`  ${d.error}`))
@@ -97,5 +107,5 @@ export const diff = (args: string[]) => {
     )
   }
 
-  process.exit(0)
+  process.exit(driftExit)
 }
