@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.7.0...v0.8.0)
+
+### 🚀 Enhancements
+
+- Add `inscope diff` with back-sync, and detect mcp drift in doctor ([3bfa9b8](https://github.com/nrjdalal/inscope/commit/3bfa9b8))
+
+### 📖 Documentation
+
+- Add AGENTS.md agent rules, symlink CLAUDE.md to it ([27284e1](https://github.com/nrjdalal/inscope/commit/27284e1))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.7.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.6.0...v0.7.0)
