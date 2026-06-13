@@ -1,7 +1,6 @@
-# Manage workspaces: list, interactive edit (add the Slack server -> the Yes/No
-# selector confirms, defaulting to the current value), rm with a type-the-label
-# confirm, list. Render from the repo root: vhs .github/assets/demo-manage.tape
-Output .github/assets/demo-manage.gif
+# inscope list: the configured workspaces at a glance (path, gh, git, servers).
+# Render from the repo root: vhs .github/assets/list.tape
+Output .github/assets/list.gif
 
 Require node
 
@@ -22,29 +21,4 @@ Show
 
 Sleep 800ms
 Type "inscope list" Sleep 300ms Enter
-Sleep 2600ms
-
-Type "inscope edit acme" Sleep 300ms Enter
-Sleep 1600ms
-Enter
-Sleep 1000ms
-Enter
-Sleep 1000ms
-Enter
-Sleep 1200ms
-Up Sleep 200ms Up Sleep 200ms Up Sleep 200ms Up Sleep 500ms Space Sleep 900ms Enter
-Sleep 1600ms
-Enter
-Sleep 1400ms
-Up Sleep 800ms Enter
-Sleep 1300ms
-Down Sleep 800ms Enter
-Sleep 2600ms
-
-Type "inscope rm personal" Sleep 300ms Enter
-Sleep 1600ms
-Type "personal" Sleep 300ms Enter
-Sleep 2200ms
-
-Type "inscope list" Sleep 300ms Enter
-Sleep 3200ms
+Sleep 3500ms
