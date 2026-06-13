@@ -15,7 +15,6 @@
 ### 🏡 Chore
 
 - **tooling:** Sync zerostarter toolchain (oxc, lefthook, changelogen) ([d23faf9](https://github.com/nrjdalal/inscope/commit/d23faf9))
-- **release:** 0.7.0 ([735c24b](https://github.com/nrjdalal/inscope/commit/735c24b))
 
 ### ✅ Tests
 
@@ -28,7 +27,7 @@
 
 ### ❤️ Contributors
 
-- Neeraj Dalal <admin@nrjdalal.com>
+- Neeraj Dalal @nrjdalal
 
 ## v0.6.0
 

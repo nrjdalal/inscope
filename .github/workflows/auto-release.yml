@@ -1,12 +1,13 @@
 name: auto-release
 
-# When a manually-bumped version lands on main (package.json version has no
-# matching git tag yet), generate the CHANGELOG.md section with changelogen,
-# tag it, and cut the GitHub release. release.yml handles the npm publish.
+# After "Release Package" publishes a manually-bumped version to npm, generate
+# the CHANGELOG.md section, tag it, and cut the GitHub release. Gated on the
+# publish succeeding, so a failed release never gets a changelog/tag/release.
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Release Package"]
+    types: [completed]
 
 concurrency: ${{ github.workflow }}
 
@@ -16,8 +17,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # the changelog commit this job pushes is mechanical; never act on it
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(changelog)') }}
+    # only after a green publish on main; never act on the changelog commit
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      !startsWith(github.event.workflow_run.head_commit.message, 'ci(changelog)')
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
@@ -30,9 +34,11 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Generate changelog, tag, and release on version drift
+      - name: Generate changelog, tag, and release on a published version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # changelogen resolves contributor GitHub @handles with this token
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -40,9 +46,14 @@ jobs:
           VERSION="$(bunx json -f package.json -a version)"
           TAG="v$VERSION"
 
-          # drift = the bumped version is not yet tagged. otherwise nothing to do.
+          # already released?
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "$TAG already tagged; no release."
+            echo "$TAG already tagged; nothing to do."
+            exit 0
+          fi
+          # only proceed once the publish actually shipped this version to npm
+          if ! npm view "inscope@$VERSION" version >/dev/null 2>&1; then
+            echo "inscope@$VERSION is not on npm; this run did not publish it."
             exit 0
           fi
 
@@ -50,8 +61,8 @@ jobs:
           LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo '')"
 
           # changelogen writes the section (and bumps to ITS computed version);
-          # we restore the manually-chosen version and restamp the heading/compare
-          # link to it, since changelogen cannot be told a target version.
+          # restore the manually-chosen version and restamp heading/compare link,
+          # since changelogen cannot be told a target version.
           if [ -n "$LAST_TAG" ]; then
             bunx changelogen --bump --from "$LAST_TAG" --no-commit
           else
@@ -59,9 +70,27 @@ jobs:
           fi
           GEN="$(bunx json -f package.json -a version)"
           bunx json -I -f package.json -e "this.version=\"$VERSION\""
+          # restamp the heading to the manual version; changelog-manager fixes the
+          # compare link from the heading, so only the heading needs correcting here.
           if [ "$GEN" != "$VERSION" ]; then
-            sed -i "s|## v$GEN|## v$VERSION|; s|\.\.\.v$GEN)|...$TAG)|" CHANGELOG.md
+            sed -i "s|## v$GEN|## v$VERSION|" CHANGELOG.md
           fi
+          # drop the release-bump commit's own line, then any header left empty by it
+          sed -i '/^- \*\*release:\*\*/d' CHANGELOG.md
+          awk '{L[NR]=$0}
+          END{
+            for(i=1;i<=NR;i++){
+              l=L[i]
+              if(l ~ /^#{3,4} /){
+                c=0
+                for(j=i+1;j<=NR;j++){ if(L[j] ~ /^#+ /) break; if(L[j] ~ /[^ \t]/){c=1;break} }
+                if(!c) continue
+              }
+              print l
+            }
+          }' CHANGELOG.md > CHANGELOG.tmp && mv CHANGELOG.tmp CHANGELOG.md
+          # resolve contributor @handles + normalize compare links (ported from zerostarter)
+          bun .github/scripts/changelog-manager.ts
           bunx oxfmt CHANGELOG.md
 
           if [ -z "$(git status --porcelain CHANGELOG.md)" ]; then
@@ -72,7 +101,10 @@ jobs:
           git add CHANGELOG.md package.json
           git commit -m "ci(changelog): $TAG [skip ci]"
           git tag "$TAG"
-          git push origin HEAD:main --follow-tags
+          # push the commit, then the tag explicitly: --follow-tags skips
+          # lightweight tags, leaving gh release create with no remote tag.
+          git push origin HEAD:main
+          git push origin "$TAG"
 
           NOTES="$(awk -v t="## $TAG" '$0==t{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md | awk 'NF{p=1} p')"
           gh release create "$TAG" --title "$TAG" --notes "${NOTES:-$TAG}" --latest
