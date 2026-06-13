@@ -3,72 +3,67 @@
   "version": "0.6.0",
   "description": "Per-workspace identity for Claude Code: scope MCP servers, GitHub auth, and git commit identity to the directory you are in.",
   "keywords": [
+    "chpwd",
     "claude-code",
-    "mcp",
     "cli",
     "git",
     "github",
     "identity",
+    "mcp",
     "workspace",
-    "zsh",
-    "chpwd"
+    "zsh"
   ],
   "homepage": "https://github.com/nrjdalal/inscope#readme",
   "bugs": "https://github.com/nrjdalal/inscope/issues",
-  "repository": "nrjdalal/inscope",
-  "funding": "https://github.com/sponsors/nrjdalal",
   "license": "MIT",
   "author": {
     "name": "Neeraj Dalal",
     "email": "admin@nrjdalal.com",
     "url": "https://nrjdalal.com"
   },
-  "type": "module",
-  "exports": "./dist/index.mjs",
-  "types": "./dist/index.d.mts",
+  "repository": "nrjdalal/inscope",
+  "funding": "https://github.com/sponsors/nrjdalal",
+  "bin": {
+    "inscope": "dist/bin/index.mjs"
+  },
   "files": [
     "dist"
   ],
+  "type": "module",
+  "types": "./dist/index.d.mts",
+  "exports": "./dist/index.mjs",
   "scripts": {
     "bin": "tsdown && node dist/bin/index.mjs",
     "build": "tsdown",
+    "changelog": "changelogen --bump",
     "dev": "tsdown --watch",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint",
+    "prepare": "lefthook install",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "prepare": "npx simple-git-hooks"
+    "typecheck": "tsc --noEmit"
   },
-  "simple-git-hooks": {
-    "pre-commit": "npx lint-staged",
-    "commit-msg": "npx commitlint --edit $1"
+  "devDependencies": {
+    "@commitlint/cli": "^21.0.1",
+    "@commitlint/config-conventional": "^21.0.1",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^22.19.21",
+    "changelogen": "^0.6.2",
+    "lefthook": "^2.1.9",
+    "lint-staged": "^17.0.5",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "tsdown": "^0.16.8",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "fast-uri": "^3.1.2",
+    "picomatch": "^4.0.4"
   },
   "commitlint": {
     "extends": [
       "@commitlint/config-conventional"
     ]
-  },
-  "lint-staged": {
-    "*": "prettier --write --ignore-unknown",
-    "package.json": "sort-package-json"
-  },
-  "prettier": {
-    "plugins": [
-      "@ianvs/prettier-plugin-sort-imports"
-    ],
-    "semi": false
-  },
-  "devDependencies": {
-    "@commitlint/cli": "^19.8.1",
-    "@commitlint/config-conventional": "^19.8.1",
-    "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
-    "@types/node": "^22.15.32",
-    "lint-staged": "^15.5.2",
-    "prettier": "^3.5.3",
-    "simple-git-hooks": "^2.13.0",
-    "sort-package-json": "^3.2.1",
-    "tsdown": "^0.16.4",
-    "typescript": "^5.8.3"
-  },
-  "bin": {
-    "inscope": "dist/bin/index.mjs"
   }
 }

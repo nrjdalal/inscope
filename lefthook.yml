@@ -1,0 +1,19 @@
+pre-commit:
+  piped: true
+  commands:
+    lint-staged:
+      run: bunx lint-staged --verbose
+      stage_fixed: true
+    build:
+      run: bun run build
+      use_stdin: true
+
+pre-push:
+  commands:
+    audit:
+      run: bun audit --audit-level high
+
+commit-msg:
+  commands:
+    commitlint:
+      run: bunx commitlint --edit {1}
