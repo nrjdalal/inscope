@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.8.4
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.3...v0.8.4)
+
+### 🩹 Fixes
+
+- **apply:** Atomic transactional writes sharing one mcp merge ([f245507](https://github.com/nrjdalal/inscope/commit/f245507))
+- **cli:** Doctor shell check, diff --exit-code, safe prompt teardown ([9b03324](https://github.com/nrjdalal/inscope/commit/9b03324))
+- **io:** Preserve the target file mode in writeFileAtomic ([50f7cf4](https://github.com/nrjdalal/inscope/commit/50f7cf4))
+
+### 📖 Documentation
+
+- **audit:** Add 2026-06-13 audit, drop the stale multi-tool sketch ([464c948](https://github.com/nrjdalal/inscope/commit/464c948))
+- Reconcile the architecture and release-trigger notes ([b229ee9](https://github.com/nrjdalal/inscope/commit/b229ee9))
+- Restore the demo tapes and gifs in-repo ([be117b9](https://github.com/nrjdalal/inscope/commit/be117b9))
+
+### ✅ Tests
+
+- Zsh -n hook validation and apply-path coverage ([04ae750](https://github.com/nrjdalal/inscope/commit/04ae750))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.3
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.2...v0.8.3)
