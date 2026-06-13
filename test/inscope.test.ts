@@ -511,6 +511,10 @@ test("hookValueError rejects shell-substitution metacharacters even when quoted"
   expect(hookValueError("`id`")).not.toBeNull()
   expect(hookValueError('a"b')).not.toBeNull()
   expect(hookValueError("$HOME")).not.toBeNull()
+  // a trailing backslash escapes the closing quote in `gh_user="<v>"`, producing
+  // an unsourceable hook, so it must be rejected too
+  expect(hookValueError("foo\\")).not.toBeNull()
+  expect(hookValueError("a\\b")).not.toBeNull()
 })
 
 test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-edited config", () => {
