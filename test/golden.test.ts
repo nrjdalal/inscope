@@ -107,6 +107,12 @@ test("golden: an http server with a custom url override", () => {
   ).toMatchSnapshot()
 })
 
+test("golden: .mcp.json for a workspace with no servers", () => {
+  expect(
+    renderMcp({ name: "none", path: "~/none", servers: {} }),
+  ).toMatchSnapshot()
+})
+
 // --- chpwd hook ---
 
 test("golden: chpwd hook for two workspaces", () => {
@@ -133,10 +139,73 @@ test("golden: chpwd hook arm for a workspace with neither gh nor slack", () => {
   ).toMatchSnapshot()
 })
 
+// Exercises every pathPattern branch (home root, non-home absolute, ~/sub,
+// path with spaces) and every idArm shape (gh+slack, gh-only, slack-only) in a
+// single artifact, plus a dotted/dashed/underscored name as a case label. Names
+// are slugs, so they are interpolated unquoted as the case pattern; paths and
+// values are double-quoted. This locks the output the name/path/keychain
+// hardening produces.
+test("golden: chpwd hook covers tricky paths and every arm shape", () => {
+  expect(
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "home", path: "~", gh: "acct", servers: { github: true } },
+        { name: "opt", path: "/opt/work", gh: "acct", servers: { github: true } },
+        {
+          name: "my-project-work",
+          path: "~/My Project (work)",
+          gh: "acme-org",
+          servers: {
+            github: true,
+            slack: { keychain: "SLACK_MCP_XOXP_TOKEN_MYPROJECT" },
+          },
+        },
+        {
+          name: "slackonly",
+          path: "~/slackonly",
+          servers: { slack: { keychain: "K" } },
+        },
+        { name: "web.app-2_x", path: "~/webapp", gh: "acct", servers: { github: true } },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
 // --- git config ---
 
 test("golden: gitconfig includeIf block", () => {
   expect(renderGitInclude(twoWorkspaces)).toMatchSnapshot()
+})
+
+// gitdir patterns for home root, non-home absolute, and a path with spaces,
+// and the no-git-identity workspace ("nogit") is filtered out of the block.
+test("golden: includeIf for tricky paths, skipping a no-git workspace", () => {
+  expect(
+    renderGitInclude({
+      version: 1,
+      workspaces: [
+        { name: "home", path: "~", git: { email: "h@x.dev" }, servers: {} },
+        { name: "opt", path: "/opt/work", git: { email: "o@x.dev" }, servers: {} },
+        {
+          name: "spaced",
+          path: "~/My Project (work)",
+          git: { email: "s@x.dev" },
+          servers: {},
+        },
+        { name: "nogit", path: "~/nogit", servers: {} },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
+test("golden: includeIf is empty when no workspace has a git identity", () => {
+  expect(
+    renderGitInclude({
+      version: 1,
+      workspaces: [{ name: "x", path: "~/x", servers: {} }],
+    }),
+  ).toMatchSnapshot()
 })
 
 test("golden: per-workspace gitconfig", () => {
@@ -153,6 +222,11 @@ test("golden: per-workspace gitconfig", () => {
   expect(
     renderPerWorkspaceGitconfig({ ...base, git: { name: "E" } }),
   ).toMatchSnapshot("name only")
+  // defensive branch: neither field set (unreachable via applyGitconfig, which
+  // gates on hasGitIdentity, but the function still renders a bare [user])
+  expect(
+    renderPerWorkspaceGitconfig({ ...base, git: {} }),
+  ).toMatchSnapshot("neither")
 })
 
 // --- .zshrc source line ---
