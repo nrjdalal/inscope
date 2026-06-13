@@ -2,6 +2,7 @@ import { parseArgs } from "node:util"
 
 import { configExists, loadConfig } from "@/config"
 import { currentWorkspace, liveSnapshot, runDoctor, type CheckStatus } from "@/doctor"
+import { green, red, yellow } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Verify the setup: gh tokens resolve, keychain entries exist,
@@ -15,6 +16,7 @@ Options:
   -h, --help  Display help message`
 
 const symbol: Record<CheckStatus, string> = { ok: "✓", warn: "!", fail: "✗" }
+const paint: Record<CheckStatus, (s: string) => string> = { ok: green, warn: yellow, fail: red }
 
 export const doctor = (args: string[]) => {
   const { values } = parseArgs({
@@ -37,7 +39,7 @@ export const doctor = (args: string[]) => {
   const checks = runDoctor(cfg)
 
   const report = checks
-    .map((c) => `${symbol[c.status]} ${c.label}${c.detail ? `  ${c.detail}` : ""}`)
+    .map((c) => `${paint[c.status](symbol[c.status])} ${c.label}${c.detail ? `  ${c.detail}` : ""}`)
     .join("\n")
   console.log(`\n${report}`)
 
@@ -53,9 +55,9 @@ export const doctor = (args: string[]) => {
 
   const failed = checks.filter((c) => c.status === "fail").length
   if (failed) {
-    console.log(`\n${failed} check(s) failed.`)
+    console.log(`\n${red(`${failed} check(s) failed.`)}`)
     process.exit(1)
   }
-  console.log(`\nAll checks passed.`)
+  console.log(`\n${green("All checks passed.")}`)
   process.exit(0)
 }

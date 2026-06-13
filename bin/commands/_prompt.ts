@@ -8,10 +8,19 @@ export const isInteractive = () => Boolean(process.stdin.isTTY && process.stdout
 export const hyperlink = (url: string, text = url): string =>
   process.stdout.isTTY ? `\x1b]8;;${url}\x07${text}\x1b]8;;\x07` : url
 
-// Wrap text in orange so copy-paste commands and links stand out. No-op when
-// stdout isn't a TTY, so piped output stays free of escape codes.
-export const orange = (s: string): string =>
-  process.stdout.isTTY ? `\x1b[38;5;208m${s}\x1b[0m` : s
+// Paint text with an SGR color when stdout is a TTY; a no-op when piped, so
+// piped output stays free of escape codes.
+const paint =
+  (code: string) =>
+  (s: string): string =>
+    process.stdout.isTTY ? `\x1b[${code}m${s}\x1b[0m` : s
+
+// orange marks copy-paste commands and links. green/yellow/red are the status
+// palette (GitHub's dark fgColor-success/attention/danger), matching the diff.
+export const orange = paint("38;5;208")
+export const green = paint("38;2;63;185;80")
+export const yellow = paint("38;2;210;153;34")
+export const red = paint("38;2;248;81;73")
 
 const setRaw = (on: boolean) => {
   const s: any = process.stdin

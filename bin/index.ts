@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { add } from "~/bin/commands/add"
 import { apply } from "~/bin/commands/apply"
+import { diff } from "~/bin/commands/diff"
 import { doctor } from "~/bin/commands/doctor"
 import { edit } from "~/bin/commands/edit"
 import { init } from "~/bin/commands/init"
@@ -23,6 +24,7 @@ Commands:
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
   list           List configured workspaces (alias: ls)
+  diff           Preview what apply would change; --adopt pulls on-disk extras back
   apply          Regenerate the hook, git includes, and .mcp.json (alias: sync)
   doctor         Verify tokens, identities, and the hook resolve correctly
 
@@ -52,6 +54,8 @@ const main = async () => {
       case "ls":
       case "list":
         return list(rest)
+      case "diff":
+        return diff(rest)
       case "apply":
       case "sync":
         return apply(rest)

@@ -3,6 +3,7 @@ import path from "node:path"
 
 import { zshrcSourcesHook } from "@/apply"
 import type { Config, Workspace } from "@/config"
+import { mcpError, mcpTarget } from "@/drift"
 import { gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
   GITCONFIG_BLOCK_ID,
@@ -10,7 +11,7 @@ import {
   perWorkspaceGitconfigPath,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { managedKeys, readMcp } from "@/generators/mcp"
+import { managedKeys, mcpFilePath, readMcp } from "@/generators/mcp"
 import { readBlock } from "@/managed-block"
 import {
   defaultRunner,
@@ -177,27 +178,43 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       }
     }
 
-    const doc = readMcp(ws)
-    if (doc === null) {
-      checks.push({
-        status: "warn",
-        label: `${tag} mcp`,
-        detail: "no .mcp.json; run `inscope apply`",
-      })
+    const mcpErr = mcpError(ws)
+    if (mcpErr) {
+      // apply (readDocOrThrow) refuses an unparseable file, so this is a fail,
+      // not "out of date" with a misleading clean-rewrite diff
+      checks.push({ status: "fail", label: `${tag} mcp`, detail: mcpErr })
     } else {
-      const managed = managedKeys(ws.name).filter((k) => doc.mcpServers?.[k])
-      checks.push({
-        status: "ok",
-        label: `${tag} mcp`,
-        detail: `${managed.length} server(s)`,
-      })
-      const loose = unpinnedServers(doc)
-      if (loose.length) {
+      const doc = readMcp(ws)
+      if (doc === null) {
         checks.push({
           status: "warn",
           label: `${tag} mcp`,
-          detail: `unpinned: ${loose.join(", ")}`,
+          detail: "no .mcp.json; run `inscope apply`",
         })
+      } else {
+        const managed = managedKeys(ws.name).filter((k) => doc.mcpServers?.[k])
+        checks.push({
+          status: "ok",
+          label: `${tag} mcp`,
+          detail: `${managed.length} server(s)`,
+        })
+        // content drift, mirroring the hook check's exactness (a present-but-stale
+        // managed server otherwise slips past the count above)
+        if (read(mcpFilePath(ws)) !== mcpTarget(ws)) {
+          checks.push({
+            status: "warn",
+            label: `${tag} mcp`,
+            detail: "out of date; run `inscope diff`",
+          })
+        }
+        const loose = unpinnedServers(doc)
+        if (loose.length) {
+          checks.push({
+            status: "warn",
+            label: `${tag} mcp`,
+            detail: `unpinned: ${loose.join(", ")}`,
+          })
+        }
       }
     }
   }
