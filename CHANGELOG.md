@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.5
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.4...v0.8.5)
+
+### 📖 Documentation
+
+- Rewrite the README around per-command demos ([6fb479d](https://github.com/nrjdalal/inscope/commit/6fb479d))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.4
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.3...v0.8.4)
