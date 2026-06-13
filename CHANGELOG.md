@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.8.2
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.1...v0.8.2)
+
+### 🚀 Enhancements
+
+- **add:** Refuse duplicate-path mappings, warn on unknown servers ([b68e0b7](https://github.com/nrjdalal/inscope/commit/b68e0b7))
+
+### 🩹 Fixes
+
+- **config:** Reject backslash in hook values (quote-breakout) ([20b121e](https://github.com/nrjdalal/inscope/commit/20b121e))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.1
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.0...v0.8.1)
