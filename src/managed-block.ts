@@ -1,5 +1,4 @@
-import fs from "node:fs"
-import path from "node:path"
+import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 const begin = (id: string) => `# >>> inscope:${id} >>>`
 const end = (id: string) => `# <<< inscope:${id} <<<`
@@ -14,17 +13,8 @@ const wrap = (id: string, content: string) => {
   return `${begin(id)}\n${body}\n${end(id)}\n`
 }
 
-const readOrEmpty = (file: string) => {
-  try {
-    return fs.readFileSync(file, "utf8")
-  } catch {
-    return ""
-  }
-}
-
 export const upsertBlock = (file: string, id: string, content: string) => {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const current = readOrEmpty(file)
+  const current = readFileOrEmpty(file)
   const block = wrap(id, content)
   const re = blockRe(id)
   let next: string
@@ -34,21 +24,21 @@ export const upsertBlock = (file: string, id: string, content: string) => {
     const base = current.replace(/\n*$/, "")
     next = base.length ? `${base}\n\n${block}` : block
   }
-  fs.writeFileSync(file, next)
+  writeFileAtomic(file, next)
 }
 
 export const removeBlock = (file: string, id: string) => {
-  const current = readOrEmpty(file)
+  const current = readFileOrEmpty(file)
   if (!current) return
   const next = current
     .replace(blockRe(id), "")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/^\n+/, "")
-  fs.writeFileSync(file, next)
+  writeFileAtomic(file, next)
 }
 
 export const readBlock = (file: string, id: string): string | null => {
-  const current = readOrEmpty(file)
+  const current = readFileOrEmpty(file)
   const m = current.match(new RegExp(`${escape(begin(id))}\\n([\\s\\S]*?)\\n${escape(end(id))}`))
   return m ? m[1] : null
 }

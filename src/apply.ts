@@ -1,11 +1,11 @@
-import fs from "node:fs"
 import path from "node:path"
 
 import type { Config } from "@/config"
 import { home, hookPath, zshrcPath } from "@/env"
 import { applyGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { applyMcp, mcpFilePath } from "@/generators/mcp"
+import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
+import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 const homeVar = (abs: string) => {
   const h = home()
@@ -34,21 +34,12 @@ export const renderZshrcSource = (current: string): string => {
 
 export const ensureZshrcSource = () => {
   const file = zshrcPath()
-  let current = ""
-  try {
-    current = fs.readFileSync(file, "utf8")
-  } catch {}
+  const current = readFileOrEmpty(file)
   const next = renderZshrcSource(current)
-  if (next !== current) fs.writeFileSync(file, next)
+  if (next !== current) writeFileAtomic(file, next)
 }
 
-export const zshrcSourcesHook = (): boolean => {
-  try {
-    return fs.readFileSync(zshrcPath(), "utf8").includes(sourceLine())
-  } catch {
-    return false
-  }
-}
+export const zshrcSourcesHook = (): boolean => readFileOrEmpty(zshrcPath()).includes(sourceLine())
 
 export type ApplyResult = {
   hook: string
@@ -57,9 +48,13 @@ export type ApplyResult = {
 }
 
 export const applyAll = (cfg: Config): ApplyResult => {
+  // Pre-flight every .mcp.json before touching anything: one unparseable file
+  // aborts the whole apply here, rather than after the hook and earlier
+  // .mcp.json files are already rewritten (a half-applied state).
+  preflightMcp(cfg.workspaces)
+
   const hp = hookPath()
-  fs.mkdirSync(path.dirname(hp), { recursive: true })
-  fs.writeFileSync(hp, renderHook(cfg))
+  writeFileAtomic(hp, renderHook(cfg))
 
   applyGitconfig(cfg)
   ensureZshrcSource()

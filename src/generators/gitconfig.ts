@@ -3,6 +3,7 @@ import path from "node:path"
 
 import type { Config, Workspace } from "@/config"
 import { contractTilde, gitconfigPath, gitIncludeDir } from "@/env"
+import { writeFileAtomic } from "@/io"
 import { removeBlock, upsertBlock } from "@/managed-block"
 
 export const GITCONFIG_BLOCK_ID = "gitconfig"
@@ -36,7 +37,12 @@ export const applyGitconfig = (cfg: Config) => {
   fs.mkdirSync(gitIncludeDir(), { recursive: true })
   for (const ws of cfg.workspaces) {
     if (hasGitIdentity(ws)) {
-      fs.writeFileSync(perWorkspaceGitconfigPath(ws.name), renderPerWorkspaceGitconfig(ws))
+      writeFileAtomic(perWorkspaceGitconfigPath(ws.name), renderPerWorkspaceGitconfig(ws))
+    } else {
+      // Identity dropped (e.g. via `edit`): prune any per-workspace file left
+      // from before. The includeIf no longer references it, so it is inert, but
+      // it would otherwise linger on disk as stale, confusing state.
+      removePerWorkspaceGitconfig(ws.name)
     }
   }
   const block = renderGitInclude(cfg)

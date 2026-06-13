@@ -3,6 +3,7 @@ import path from "node:path"
 
 import type { HttpServer, SlackServer, Workspace } from "@/config"
 import { resolveAbsolute } from "@/env"
+import { writeFileAtomic } from "@/io"
 
 export const SLACK_MCP_VERSION = "1.3.0"
 
@@ -116,16 +117,31 @@ export const readMcp = (ws: Workspace): Record<string, any> | null => {
   return fs.existsSync(file) ? readDoc(file) : null
 }
 
-export const applyMcp = (ws: Workspace) => {
-  const file = mcpFilePath(ws)
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const doc = readDocOrThrow(file)
+// The one merge both `apply` (write) and `diff` (preview) use: preserve the
+// user's non-managed keys, replace the keys inscope manages. Sharing it is what
+// makes the diff provably the bytes apply will write. Returns a new doc so
+// callers can serialize it without mutating their input.
+export const mergeMcpDoc = (doc: Record<string, any>, ws: Workspace): Record<string, any> => {
   const servers: Record<string, unknown> =
     doc.mcpServers && typeof doc.mcpServers === "object" ? { ...doc.mcpServers } : {}
   for (const key of managedKeys(ws.name)) delete servers[key]
   Object.assign(servers, renderServers(ws))
-  doc.mcpServers = servers
-  fs.writeFileSync(file, JSON.stringify(doc, null, 2) + "\n")
+  return { ...doc, mcpServers: servers }
+}
+
+export const serializeMcp = (doc: Record<string, any>): string =>
+  JSON.stringify(doc, null, 2) + "\n"
+
+// Pre-flight for `apply`: parse every workspace's .mcp.json before any write, so
+// one unparseable file aborts the apply up front instead of after earlier files
+// are already rewritten. readDocOrThrow only reads; it leaves files untouched.
+export const preflightMcp = (workspaces: Workspace[]) => {
+  for (const ws of workspaces) readDocOrThrow(mcpFilePath(ws))
+}
+
+export const applyMcp = (ws: Workspace) => {
+  const file = mcpFilePath(ws)
+  writeFileAtomic(file, serializeMcp(mergeMcpDoc(readDocOrThrow(file), ws)))
 }
 
 export const removeMcp = (ws: Workspace) => {
@@ -135,5 +151,5 @@ export const removeMcp = (ws: Workspace) => {
   if (doc.mcpServers && typeof doc.mcpServers === "object") {
     for (const key of managedKeys(ws.name)) delete doc.mcpServers[key]
   }
-  fs.writeFileSync(file, JSON.stringify(doc, null, 2) + "\n")
+  writeFileAtomic(file, serializeMcp(doc))
 }
