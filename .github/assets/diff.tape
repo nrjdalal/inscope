@@ -1,7 +1,7 @@
-# inscope diff demo: preview drift as a colored diff, then --adopt back-syncs an
-# on-disk setting into the config. Render from the repo root:
-#   vhs .github/assets/demo-diff.tape
-Output .github/assets/demo-diff.gif
+# inscope diff: preview drift as a colored diff, then --adopt back-syncs an
+# on-disk setting into the config so the next apply keeps it.
+# Render from the repo root: vhs .github/assets/diff.tape
+Output .github/assets/diff.gif
 
 Require node
 
