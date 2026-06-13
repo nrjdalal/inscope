@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.3
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.2...v0.8.3)
+
+### 🚀 Enhancements
+
+- **add:** Clearer git prompts, relocate cleanup, tested duplicate-path guard ([d56b61d](https://github.com/nrjdalal/inscope/commit/d56b61d))
+
+### 📖 Documentation
+
+- **readme:** Unstack the demo gifs, add an inscope diff section ([5dd4109](https://github.com/nrjdalal/inscope/commit/5dd4109))
+
+### 🎨 Styles
+
+- **diff:** Lead the result messages with a blank line ([03ce5d7](https://github.com/nrjdalal/inscope/commit/03ce5d7))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.2
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.1...v0.8.2)
