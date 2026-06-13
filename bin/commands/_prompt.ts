@@ -27,6 +27,22 @@ const setRaw = (on: boolean) => {
   if (s.isTTY && typeof s.setRawMode === "function") s.setRawMode(on)
 }
 
+// Enter raw mode for a selector and return the cleanup that restores cooked mode.
+// The restore is also registered on `exit`, so if a keypress handler throws
+// (Node turns that into an uncaughtException and exits) the terminal is not left
+// stranded in raw mode after inscope is gone.
+const enterRawMode = (): (() => void) => {
+  setRaw(true)
+  process.stdin.resume()
+  const restore = () => setRaw(false)
+  process.once("exit", restore)
+  return () => {
+    process.removeListener("exit", restore)
+    setRaw(false)
+    process.stdin.pause()
+  }
+}
+
 // One-line reader that keeps any read-ahead in a shared buffer and pauses stdin
 // between calls. A fresh readline interface per prompt would let the first one
 // swallow later prompts' input (broken for pipes, fragile for pasted input).
@@ -140,12 +156,10 @@ export const selectOne = <T>(message: string, choices: Choice<T>[], initial = 0)
     }
     render(true)
     readline.emitKeypressEvents(process.stdin)
-    setRaw(true)
-    process.stdin.resume()
+    const exitRaw = enterRawMode()
     const cleanup = () => {
       process.stdin.off("keypress", onKey)
-      setRaw(false)
-      process.stdin.pause()
+      exitRaw()
     }
     const onKey = (_s: string, key: readline.Key) => {
       if (key.name === "up" || key.name === "k") {
@@ -191,12 +205,10 @@ export const selectMany = (
     }
     render(true)
     readline.emitKeypressEvents(process.stdin)
-    setRaw(true)
-    process.stdin.resume()
+    const exitRaw = enterRawMode()
     const cleanup = () => {
       process.stdin.off("keypress", onKey)
-      setRaw(false)
-      process.stdin.pause()
+      exitRaw()
     }
     const onKey = (s: string, key: readline.Key) => {
       if (key.name === "up" || key.name === "k") {

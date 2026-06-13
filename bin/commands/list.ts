@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
-import { configExists, loadConfig, type Servers } from "@/config"
-import { SERVER_TYPES } from "@/generators/mcp"
+import { configExists, loadConfig } from "@/config"
+import { enabledServers } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
 const helpMessage = `List the configured workspaces. Run \`${name} doctor\` to verify
@@ -12,9 +12,6 @@ Usage:
 
 Options:
   -h, --help  Display help message`
-
-const enabledServers = (s: Servers) =>
-  SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t])).join(", ") || "none"
 
 export const list = (args: string[]) => {
   const { values } = parseArgs({
@@ -44,7 +41,7 @@ export const list = (args: string[]) => {
     console.log(`  path     ${ws.path}`)
     console.log(`  gh       ${ws.gh ?? "(none)"}`)
     console.log(`  git      ${ws.git?.email ?? "(default)"}`)
-    console.log(`  servers  ${enabledServers(ws.servers)}`)
+    console.log(`  servers  ${enabledServers(ws.servers).join(", ") || "none"}`)
     if (ws.servers.slack) console.log(`  slack    keychain: ${ws.servers.slack.keychain}`)
   }
   process.exit(0)
