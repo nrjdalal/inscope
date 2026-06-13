@@ -2,8 +2,11 @@ import fs from "node:fs"
 import { parseArgs } from "node:util"
 
 import {
+  configExists,
+  findWorkspace,
   hookValueError,
   labelFromPath,
+  loadConfig,
   type Workspace,
   workspaceNameError,
   workspacePathError,
@@ -24,7 +27,7 @@ import { name } from "~/package.json"
 
 const helpMessage = `Map a directory to a GitHub account, git email, and MCP servers.
 Runs interactively in a terminal; pass flags or -y to skip the prompts. Re-running
-with the same path or label updates that workspace.
+with the same label updates that workspace; each directory maps to one workspace.
 
 Usage:
   $ ${name} add [path] [options]
@@ -105,6 +108,20 @@ export const add = async (args: string[]) => {
     process.exit(1)
   }
 
+  // A directory maps to exactly one workspace (one hook arm, one .mcp.json).
+  // Adding a second label for a path another workspace already owns would create
+  // a broken duplicate, so refuse and point at the existing one. Re-running with
+  // the same label updates that workspace, so only a different name collides.
+  if (configExists()) {
+    const owner = findWorkspace(loadConfig(), target)
+    if (owner && owner.name !== label) {
+      console.error(
+        `\n${contractTilde(target)} is already mapped to workspace "${owner.name}". Run \`${name} edit ${owner.name}\` to change it, or \`${name} rm ${owner.name}\` first.`,
+      )
+      process.exit(1)
+    }
+  }
+
   // --- gh account ---
   let gh = values.gh
   if (gh === undefined && interactive) {
@@ -140,6 +157,11 @@ export const add = async (args: string[]) => {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
+    const known = new Set<string>(SERVER_TYPES)
+    const unknown = serverList.filter((s) => !known.has(s))
+    if (unknown.length) {
+      console.error(yellow(`\nIgnoring unknown server(s): ${unknown.join(", ")}`))
+    }
   } else if (interactive) {
     serverList = await selectMany("MCP servers (space toggles, enter confirms)", SERVER_CHOICES)
   } else {
