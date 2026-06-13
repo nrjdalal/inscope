@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util"
+
 import { applyAll } from "@/apply"
 import {
   configExists,
@@ -10,12 +11,7 @@ import {
 } from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
-import {
-  isInteractive,
-  orange,
-  promptText,
-  selectOne,
-} from "~/bin/commands/_prompt"
+import { isInteractive, orange, promptText, selectOne } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Remove a workspace mapping. Drops its git include and the MCP
@@ -78,9 +74,7 @@ export const remove = async (args: string[]) => {
   }
 
   if (!values.yes) {
-    console.log(
-      `\n⚠ Removing "${target.name}" (${target.path}) unmaps it from inscope.`,
-    )
+    console.log(`\n⚠ Removing "${target.name}" (${target.path}) unmaps it from inscope.`)
     const typed = await promptText(`Type "${target.name}" to confirm`)
     if (typed !== target.name) {
       console.error(`Aborted: "${typed}" does not match "${target.name}".`)

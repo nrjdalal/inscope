@@ -1,7 +1,6 @@
 import readline from "node:readline"
 
-export const isInteractive = () =>
-  Boolean(process.stdin.isTTY && process.stdout.isTTY)
+export const isInteractive = () => Boolean(process.stdin.isTTY && process.stdout.isTTY)
 
 // Render a clickable terminal hyperlink (OSC 8) when stdout is a TTY, so a long
 // URL doesn't sit there as an unclickable wrapped string. Falls back to the raw
@@ -67,10 +66,7 @@ export const promptText = async (query: string, def = ""): Promise<string> => {
 // Yes/No confirm rendered as an arrow-key selector: the default option is
 // pre-highlighted (Enter keeps it), ↑/↓ flips it. Falls back to a [y/N] text
 // reader when stdin isn't an interactive TTY (pipes, --yes flows, tests).
-export const promptConfirm = async (
-  query: string,
-  def = false,
-): Promise<boolean> => {
+export const promptConfirm = async (query: string, def = false): Promise<boolean> => {
   if (!isInteractive()) {
     const answer = await readLine(`${query} [${def ? "Y/n" : "y/N"}]: `)
     const a = answer.trim().toLowerCase()
@@ -116,11 +112,7 @@ const RESET = "\x1b[0m"
 
 // Arrow-key single select. Falls back to the first/initial choice when stdin
 // isn't an interactive TTY (callers gate on isInteractive() before prompting).
-export const selectOne = <T>(
-  message: string,
-  choices: Choice<T>[],
-  initial = 0,
-): Promise<T> =>
+export const selectOne = <T>(message: string, choices: Choice<T>[], initial = 0): Promise<T> =>
   new Promise((resolve) => {
     if (!isInteractive() || choices.length === 0) {
       resolve(choices[Math.min(initial, choices.length - 1)]?.value)
@@ -172,8 +164,7 @@ export const selectMany = (
 ): Promise<string[]> =>
   new Promise((resolve) => {
     const checked = choices.map((c) => !!c.checked)
-    const collect = () =>
-      choices.filter((_, i) => checked[i]).map((c) => c.value)
+    const collect = () => choices.filter((_, i) => checked[i]).map((c) => c.value)
     if (!isInteractive() || choices.length === 0) {
       resolve(collect())
       return

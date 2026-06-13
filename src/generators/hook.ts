@@ -8,8 +8,7 @@ const pathPattern = (p: string) => {
   return `"${t}/"*`
 }
 
-const slackService = (ws: Workspace) =>
-  ws.servers.slack ? ws.servers.slack.keychain : ""
+const slackService = (ws: Workspace) => (ws.servers.slack ? ws.servers.slack.keychain : "")
 
 export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 # Source of truth: ~/.config/inscope/inscope.json
@@ -24,9 +23,8 @@ export const renderHook = (cfg: Config): string => {
   const wss = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
 
   const dirArms =
-    wss
-      .map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`)
-      .join("\n") || "    # no workspaces configured"
+    wss.map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`).join("\n") ||
+    "    # no workspaces configured"
 
   const idArms =
     wss

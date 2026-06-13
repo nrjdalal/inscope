@@ -3,8 +3,7 @@ import path from "node:path"
 
 export const home = () => os.homedir()
 
-export const configHome = () =>
-  process.env.XDG_CONFIG_HOME?.trim() || path.join(home(), ".config")
+export const configHome = () => process.env.XDG_CONFIG_HOME?.trim() || path.join(home(), ".config")
 
 export const expandTilde = (p: string) => {
   if (p === "~") return home()

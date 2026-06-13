@@ -1,6 +1,8 @@
+import { expect, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+
 import { renderZshrcSource } from "@/apply"
 import {
   findWorkspace,
@@ -16,20 +18,12 @@ import {
 } from "@/config"
 import { currentWorkspace } from "@/doctor"
 import { configPath, gitIncludeDir, hookPath } from "@/env"
-import {
-  renderGitInclude,
-  renderPerWorkspaceGitconfig,
-} from "@/generators/gitconfig"
+import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { applyMcp, removeMcp, renderServers } from "@/generators/mcp"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
-import {
-  buildServers,
-  enabledServers,
-  slackKeychainFor,
-} from "~/bin/commands/_workspace"
-import { expect, test } from "bun:test"
+import { buildServers, enabledServers, slackKeychainFor } from "~/bin/commands/_workspace"
 
 const blogConfig = (): Config => ({
   version: 1,
@@ -98,9 +92,7 @@ test("renderHook wires both workspaces and is deterministic", () => {
   const hook = renderHook(blogConfig())
   expect(hook).toContain(`"$HOME/acme/"*) ws="acme" ;;`)
   expect(hook).toContain(`"$HOME/nrjdalal/"*) ws="nrjdalal" ;;`)
-  expect(hook).toContain(
-    `acme) gh_user="acme"; slack_svc="SLACK_MCP_XOXP_TOKEN_ACME" ;;`,
-  )
+  expect(hook).toContain(`acme) gh_user="acme"; slack_svc="SLACK_MCP_XOXP_TOKEN_ACME" ;;`)
   expect(hook).toContain(
     `nrjdalal) gh_user="nrjdalal"; slack_svc="SLACK_MCP_XOXP_TOKEN_NRJDALAL" ;;`,
   )
@@ -114,9 +106,7 @@ test("renderHook wires both workspaces and is deterministic", () => {
 test("a workspace without gh or slack produces a no-op hook arm", () => {
   const cfg: Config = {
     version: 1,
-    workspaces: [
-      { name: "docs", path: "~/docs", git: { email: "me@x.dev" }, servers: {} },
-    ],
+    workspaces: [{ name: "docs", path: "~/docs", git: { email: "me@x.dev" }, servers: {} }],
   }
   expect(renderHook(cfg)).toContain(`docs) : ;;`)
 })
@@ -278,9 +268,10 @@ test("renderServers emits each OAuth http server at its endpoint", () => {
 })
 
 test("enabledServers lists only enabled servers, in order", () => {
-  expect(
-    enabledServers({ github: true, linear: false, notion: true, slack: false }),
-  ).toEqual(["github", "notion"])
+  expect(enabledServers({ github: true, linear: false, notion: true, slack: false })).toEqual([
+    "github",
+    "notion",
+  ])
   expect(
     enabledServers({
       github: true,
@@ -329,10 +320,7 @@ test("currentWorkspace matches the enclosing workspace by path", () => {
 test("applyMcp merges with, and removeMcp prunes, only inscope's servers", () => {
   const dir = tmpDir()
   const file = path.join(dir, ".mcp.json")
-  fs.writeFileSync(
-    file,
-    JSON.stringify({ mcpServers: { custom: { type: "http", url: "x" } } }),
-  )
+  fs.writeFileSync(file, JSON.stringify({ mcpServers: { custom: { type: "http", url: "x" } } }))
 
   const ws = { name: "acme", path: dir, servers: { github: true } }
   applyMcp(ws)
@@ -434,9 +422,7 @@ test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-e
   expect(() =>
     validateConfig({
       version: 1,
-      workspaces: [
-        { name: "ok", path: "~/x", gh: "$(id)", servers: { github: true } },
-      ],
+      workspaces: [{ name: "ok", path: "~/x", gh: "$(id)", servers: { github: true } }],
     }),
   ).toThrow(/gh account .* is invalid/)
 

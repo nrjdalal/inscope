@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+
 import type { HttpServer, SlackServer, Workspace } from "@/config"
 import { resolveAbsolute } from "@/env"
 
@@ -44,11 +45,9 @@ export const SERVER_TYPES = [
   "webflow",
 ] as const
 
-export const managedKeys = (name: string) =>
-  SERVER_TYPES.map((t) => `${t}-${name}`)
+export const managedKeys = (name: string) => SERVER_TYPES.map((t) => `${t}-${name}`)
 
-export const mcpFilePath = (ws: Workspace) =>
-  path.join(resolveAbsolute(ws.path), ".mcp.json")
+export const mcpFilePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".mcp.json")
 
 const httpUrl = (v: boolean | HttpServer | undefined, fallback: string) =>
   v && typeof v === "object" && v.url ? v.url : fallback
@@ -75,12 +74,7 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       out[name] = {
         type: "stdio",
         command: "npx",
-        args: [
-          "-y",
-          `slack-mcp-server@${SLACK_MCP_VERSION}`,
-          "--transport",
-          "stdio",
-        ],
+        args: ["-y", `slack-mcp-server@${SLACK_MCP_VERSION}`, "--transport", "stdio"],
         env,
       }
     } else {
@@ -127,9 +121,7 @@ export const applyMcp = (ws: Workspace) => {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const doc = readDocOrThrow(file)
   const servers: Record<string, unknown> =
-    doc.mcpServers && typeof doc.mcpServers === "object"
-      ? { ...doc.mcpServers }
-      : {}
+    doc.mcpServers && typeof doc.mcpServers === "object" ? { ...doc.mcpServers } : {}
   for (const key of managedKeys(ws.name)) delete servers[key]
   Object.assign(servers, renderServers(ws))
   doc.mcpServers = servers

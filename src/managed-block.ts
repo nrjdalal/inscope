@@ -49,8 +49,6 @@ export const removeBlock = (file: string, id: string) => {
 
 export const readBlock = (file: string, id: string): string | null => {
   const current = readOrEmpty(file)
-  const m = current.match(
-    new RegExp(`${escape(begin(id))}\\n([\\s\\S]*?)\\n${escape(end(id))}`),
-  )
+  const m = current.match(new RegExp(`${escape(begin(id))}\\n([\\s\\S]*?)\\n${escape(end(id))}`))
   return m ? m[1] : null
 }

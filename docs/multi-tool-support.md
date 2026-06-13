@@ -33,11 +33,11 @@ config file cannot switch identity on `cd`.
 
 In scope (project-rooted):
 
-| Client            | Config path (relative to workspace root) | Root key      | Env-var syntax     |
-| ----------------- | ---------------------------------------- | ------------- | ------------------ |
-| Claude Code       | `.mcp.json`                              | `mcpServers`  | `${VAR}`           |
-| Cursor            | `.cursor/mcp.json`                       | `mcpServers`  | `${VAR}`           |
-| VS Code / Copilot | `.vscode/mcp.json`                       | `servers`     | `${env:VAR}`       |
+| Client            | Config path (relative to workspace root) | Root key     | Env-var syntax |
+| ----------------- | ---------------------------------------- | ------------ | -------------- |
+| Claude Code       | `.mcp.json`                              | `mcpServers` | `${VAR}`       |
+| Cursor            | `.cursor/mcp.json`                       | `mcpServers` | `${VAR}`       |
+| VS Code / Copilot | `.vscode/mcp.json`                       | `servers`    | `${env:VAR}`   |
 
 Out of scope (global-only config, no project override): Windsurf
 (`~/.codeium/windsurf/mcp_config.json`), Codex (`~/.codex/config.toml`, and
@@ -58,15 +58,25 @@ export type ToolId = "claude" | "cursor" | "vscode"
 
 export type McpDialect = {
   id: ToolId
-  relPath: string                  // joined onto the workspace root
+  relPath: string // joined onto the workspace root
   rootKey: "mcpServers" | "servers"
   envRef: (name: string) => string // how this client interpolates an env var
 }
 
 export const DIALECTS: Record<ToolId, McpDialect> = {
-  claude: { id: "claude", relPath: ".mcp.json",        rootKey: "mcpServers", envRef: (n) => `\${${n}}` },
-  cursor: { id: "cursor", relPath: ".cursor/mcp.json", rootKey: "mcpServers", envRef: (n) => `\${${n}}` },
-  vscode: { id: "vscode", relPath: ".vscode/mcp.json", rootKey: "servers",    envRef: (n) => `\${env:${n}}` },
+  claude: { id: "claude", relPath: ".mcp.json", rootKey: "mcpServers", envRef: (n) => `\${${n}}` },
+  cursor: {
+    id: "cursor",
+    relPath: ".cursor/mcp.json",
+    rootKey: "mcpServers",
+    envRef: (n) => `\${${n}}`,
+  },
+  vscode: {
+    id: "vscode",
+    relPath: ".vscode/mcp.json",
+    rootKey: "servers",
+    envRef: (n) => `\${env:${n}}`,
+  },
 }
 ```
 
@@ -89,12 +99,17 @@ export const renderServers = (ws: Workspace, d: McpDialect): Record<string, unkn
   // ...everything else (urls, stdio command/args) is identical across dialects
 }
 
-export const renderDoc = (ws: Workspace, d: McpDialect) =>
-  ({ [d.rootKey]: renderServers(ws, d) })
+export const renderDoc = (ws: Workspace, d: McpDialect) => ({ [d.rootKey]: renderServers(ws, d) })
 
-export const applyMcp  = (ws: Workspace, d: McpDialect) => { /* read doc[d.rootKey], prune managedKeys, merge, write */ }
-export const removeMcp = (ws: Workspace, d: McpDialect) => { /* prune managedKeys from doc[d.rootKey] */ }
-export const readMcp   = (ws: Workspace, d: McpDialect) => { /* ... */ }
+export const applyMcp = (ws: Workspace, d: McpDialect) => {
+  /* read doc[d.rootKey], prune managedKeys, merge, write */
+}
+export const removeMcp = (ws: Workspace, d: McpDialect) => {
+  /* prune managedKeys from doc[d.rootKey] */
+}
+export const readMcp = (ws: Workspace, d: McpDialect) => {
+  /* ... */
+}
 ```
 
 `renderMcp` (the current `{ mcpServers }` wrapper) becomes `renderDoc(ws, d)`.
@@ -112,7 +127,7 @@ export type Workspace = {
   gh?: string
   git?: { email?: string; name?: string }
   servers: Servers
-  tools?: ToolId[]   // NEW — defaults to ["claude"]
+  tools?: ToolId[] // NEW — defaults to ["claude"]
 }
 
 export const workspaceTargets = (ws: Workspace): McpDialect[] =>

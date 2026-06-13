@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+
 import { configPath, contractTilde, resolveAbsolute } from "@/env"
 
 export type SlackServer = { keychain: string; addMessageTool?: boolean }
@@ -87,9 +88,7 @@ export const workspaceNameError = (name: string): string | null => {
 const HOOK_UNSAFE = /["`$\n]/
 
 export const hookValueError = (value: string): string | null =>
-  HOOK_UNSAFE.test(value)
-    ? 'must not contain a quote ("), backtick (`), $, or newline'
-    : null
+  HOOK_UNSAFE.test(value) ? 'must not contain a quote ("), backtick (`), $, or newline' : null
 
 // The path is interpolated into the hook's `case` pattern; spaces are fine
 // (the pattern is quoted) but the breakout set above is not.
@@ -105,28 +104,20 @@ export const slugify = (s: string): string =>
     .replace(/^[-.]+|[-.]+$/g, "")
 
 export const validateConfig = (cfg: Config) => {
-  if (!cfg || typeof cfg !== "object")
-    throw new Error("config is not an object")
-  if (!Array.isArray(cfg.workspaces))
-    throw new Error("config.workspaces must be an array")
+  if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
+  if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")
     const nameErr = workspaceNameError(ws.name)
-    if (nameErr)
-      throw new Error(`workspace name "${ws.name}" is invalid: ${nameErr}`)
+    if (nameErr) throw new Error(`workspace name "${ws.name}" is invalid: ${nameErr}`)
     if (!ws.path) throw new Error(`workspace "${ws.name}" is missing a path`)
     const pathErr = workspacePathError(ws.path)
-    if (pathErr)
-      throw new Error(
-        `workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`,
-      )
+    if (pathErr) throw new Error(`workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`)
     if (ws.gh) {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
-        throw new Error(
-          `workspace "${ws.name}" gh account "${ws.gh}" is invalid: ${ghErr}`,
-        )
+        throw new Error(`workspace "${ws.name}" gh account "${ws.gh}" is invalid: ${ghErr}`)
     }
     const slack = ws.servers?.slack
     if (slack && slack.keychain) {
@@ -136,8 +127,7 @@ export const validateConfig = (cfg: Config) => {
           `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
         )
     }
-    if (seen.has(ws.name))
-      throw new Error(`duplicate workspace name "${ws.name}"`)
+    if (seen.has(ws.name)) throw new Error(`duplicate workspace name "${ws.name}"`)
     seen.add(ws.name)
   }
 }
@@ -145,10 +135,7 @@ export const validateConfig = (cfg: Config) => {
 export const labelFromPath = (p: string) =>
   slugify(path.basename(resolveAbsolute(p))) || "workspace"
 
-export const findWorkspace = (
-  cfg: Config,
-  key: string,
-): Workspace | undefined => {
+export const findWorkspace = (cfg: Config, key: string): Workspace | undefined => {
   const byName = cfg.workspaces.find((w) => w.name === key)
   if (byName) return byName
   const target = resolveAbsolute(key)
@@ -162,10 +149,7 @@ export const upsertWorkspace = (cfg: Config, ws: Workspace): Config => {
   return { ...cfg, workspaces: next }
 }
 
-export const removeWorkspace = (
-  cfg: Config,
-  key: string,
-): { cfg: Config; removed?: Workspace } => {
+export const removeWorkspace = (cfg: Config, key: string): { cfg: Config; removed?: Workspace } => {
   const removed = findWorkspace(cfg, key)
   if (!removed) return { cfg }
   return {
