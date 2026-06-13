@@ -1,0 +1,78 @@
+name: auto-release
+
+# When a manually-bumped version lands on main (package.json version has no
+# matching git tag yet), generate the CHANGELOG.md section with changelogen,
+# tag it, and cut the GitHub release. release.yml handles the npm publish.
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # the changelog commit this job pushes is mechanical; never act on it
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(changelog)') }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Generate changelog, tag, and release on version drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          VERSION="$(bunx json -f package.json -a version)"
+          TAG="v$VERSION"
+
+          # drift = the bumped version is not yet tagged. otherwise nothing to do.
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already tagged; no release."
+            exit 0
+          fi
+
+          bun install --frozen-lockfile --ignore-scripts
+          LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo '')"
+
+          # changelogen writes the section (and bumps to ITS computed version);
+          # we restore the manually-chosen version and restamp the heading/compare
+          # link to it, since changelogen cannot be told a target version.
+          if [ -n "$LAST_TAG" ]; then
+            bunx changelogen --bump --from "$LAST_TAG" --no-commit
+          else
+            bunx changelogen --bump --no-commit
+          fi
+          GEN="$(bunx json -f package.json -a version)"
+          bunx json -I -f package.json -e "this.version=\"$VERSION\""
+          if [ "$GEN" != "$VERSION" ]; then
+            sed -i "s|## v$GEN|## v$VERSION|; s|\.\.\.v$GEN)|...$TAG)|" CHANGELOG.md
+          fi
+          bunx oxfmt CHANGELOG.md
+
+          if [ -z "$(git status --porcelain CHANGELOG.md)" ]; then
+            echo "no changelog content for $TAG; skipping."
+            exit 0
+          fi
+
+          git add CHANGELOG.md package.json
+          git commit -m "ci(changelog): $TAG [skip ci]"
+          git tag "$TAG"
+          git push origin HEAD:main --follow-tags
+
+          NOTES="$(awk -v t="## $TAG" '$0==t{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md | awk 'NF{p=1} p')"
+          gh release create "$TAG" --title "$TAG" --notes "${NOTES:-$TAG}" --latest
