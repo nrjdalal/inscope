@@ -65,12 +65,12 @@ export const diff = (args: string[]) => {
   if (values.adopt) {
     const { cfg: next, changes } = adoptable(cfg)
     if (!changes.length) {
-      console.log("Nothing to adopt: the config already covers your .mcp.json settings.")
+      console.log("\nNothing to adopt: the config already covers your .mcp.json settings.")
       process.exit(0)
     }
     validateConfig(next)
     saveConfig(next)
-    console.log("Adopted into config:")
+    console.log("\nAdopted into config:")
     for (const c of changes) console.log(`  ${c}`)
     console.log(`\nRun ${orange(`${name} apply`)} to regenerate from the updated config.`)
     process.exit(0)
@@ -78,7 +78,7 @@ export const diff = (args: string[]) => {
 
   const drifts = computeDrift(cfg)
   if (!drifts.length) {
-    console.log("In sync. `apply` would change nothing.")
+    console.log("\nIn sync. `apply` would change nothing.")
     process.exit(0)
   }
 
