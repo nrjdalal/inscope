@@ -1,6 +1,7 @@
 export * from "@/config"
 export * from "@/apply"
 export * from "@/doctor"
+export * from "@/drift"
 export * from "@/secrets"
 export { renderHook } from "@/generators/hook"
 export {

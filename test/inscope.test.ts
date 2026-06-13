@@ -17,6 +17,7 @@ import {
   type Config,
 } from "@/config"
 import { currentWorkspace } from "@/doctor"
+import { adoptable, diffLines, mcpError, mcpTarget } from "@/drift"
 import { configPath, gitIncludeDir, hookPath } from "@/env"
 import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
@@ -438,4 +439,120 @@ test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-e
       ],
     }),
   ).toThrow(/Slack keychain .* is invalid/)
+})
+
+test("diffLines marks unchanged, removed, and added lines", () => {
+  const d = diffLines("a\nb\nc", "a\nB\nc\nd")
+  expect(d).toContain("  a")
+  expect(d).toContain("- b")
+  expect(d).toContain("+ B")
+  expect(d).toContain("  c")
+  expect(d).toContain("+ d")
+})
+
+test("mcpTarget previews apply: keeps custom keys, refreshes managed, no write", () => {
+  const dir = tmpDir()
+  const file = path.join(dir, ".mcp.json")
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      mcpServers: {
+        custom: { type: "http", url: "x" },
+        "github-acme": { type: "http", url: "STALE" },
+      },
+    }),
+  )
+
+  const out = JSON.parse(mcpTarget({ name: "acme", path: dir, servers: { github: true } }))
+  expect(out.mcpServers.custom).toEqual({ type: "http", url: "x" })
+  expect(out.mcpServers["github-acme"].url).toBe("https://api.githubcopilot.com/mcp/")
+  // pure: the on-disk file is untouched
+  expect(JSON.parse(fs.readFileSync(file, "utf8")).mcpServers["github-acme"].url).toBe("STALE")
+})
+
+test("adoptable back-syncs a config-expressible on-disk setting, idempotently", () => {
+  const dir = tmpDir()
+  fs.writeFileSync(
+    path.join(dir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        "slack-acme": {
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "slack-mcp-server@1.3.0", "--transport", "stdio"],
+          env: {
+            SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}",
+            SLACK_MCP_ADD_MESSAGE_TOOL: "true",
+          },
+        },
+      },
+    }),
+  )
+
+  const cfg: Config = {
+    version: 1,
+    workspaces: [{ name: "acme", path: dir, servers: { slack: { keychain: "K" } } }],
+  }
+
+  const { cfg: next, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: slack.addMessageTool = true")
+  expect(next.workspaces[0].servers.slack).toEqual({ keychain: "K", addMessageTool: true })
+
+  // once the config covers it, there is nothing left to adopt
+  expect(adoptable(next).changes).toHaveLength(0)
+})
+
+test("adoptable adopts a custom remote URL but leaves a default one alone", () => {
+  const dir = tmpDir()
+  fs.writeFileSync(
+    path.join(dir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        "linear-acme": { type: "http", url: "https://mcp.linear.app/custom" },
+        "notion-acme": { type: "http", url: "https://mcp.notion.com/mcp" },
+      },
+    }),
+  )
+
+  const cfg: Config = {
+    version: 1,
+    workspaces: [{ name: "acme", path: dir, servers: { linear: true, notion: true } }],
+  }
+
+  const { cfg: next, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: linear.url = https://mcp.linear.app/custom")
+  expect(changes.some((c) => c.startsWith("acme: notion"))).toBe(false)
+  expect(next.workspaces[0].servers.linear).toEqual({ url: "https://mcp.linear.app/custom" })
+  expect(next.workspaces[0].servers.notion).toBe(true)
+})
+
+test("adoptable adopts a remote server present only on disk", () => {
+  const dir = tmpDir()
+  fs.writeFileSync(
+    path.join(dir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: { "notion-acme": { type: "http", url: "https://mcp.notion.com/mcp" } },
+    }),
+  )
+
+  const cfg: Config = {
+    version: 1,
+    workspaces: [{ name: "acme", path: dir, servers: { github: true } }],
+  }
+
+  const { cfg: next, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: notion = enabled")
+  expect(next.workspaces[0].servers.notion).toBe(true)
+})
+
+test("mcpError flags a malformed .mcp.json and clears once valid", () => {
+  const dir = tmpDir()
+  const file = path.join(dir, ".mcp.json")
+  const ws = { name: "acme", path: dir, servers: { github: true } }
+
+  fs.writeFileSync(file, '{ "mcpServers": {')
+  expect(mcpError(ws)).toContain("invalid JSON")
+
+  fs.writeFileSync(file, '{ "mcpServers": {} }')
+  expect(mcpError(ws)).toBeNull()
 })

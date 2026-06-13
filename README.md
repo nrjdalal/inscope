@@ -130,6 +130,7 @@ inscope add [path]     Map a directory to a GitHub account, git email, and MCP s
 inscope edit [path]    Edit a workspace interactively, then re-apply
 inscope rm [path]      Remove a workspace mapping (alias: remove)
 inscope list           List configured workspaces (alias: ls)
+inscope diff           Preview what apply would change; --adopt pulls on-disk extras back
 inscope apply          Regenerate the hook, git includes, and .mcp.json (alias: sync)
 inscope doctor         Verify tokens, identities, and the hook resolve correctly
 
@@ -138,6 +139,10 @@ inscope doctor         Verify tokens, identities, and the hook resolve correctly
 ```
 
 Run any command with `-h` for its options.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-diff.gif" alt="inscope diff: preview drift as a colored diff, then --adopt back-syncs an on-disk setting into the config" width="900" />
+</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/demo-kit/main/inscope/demo-manage.gif" alt="inscope edit and rm with type-to-confirm" width="900" />

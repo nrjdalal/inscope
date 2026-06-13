@@ -10,7 +10,7 @@ const GITHUB_URL = "https://api.githubcopilot.com/mcp/"
 
 // Remote servers Claude Code authenticates via OAuth over streamable HTTP
 // (just a URL each).
-const REMOTE: Record<string, string> = {
+export const REMOTE: Record<string, string> = {
   atlassian: "https://mcp.atlassian.com/v1/mcp",
   canva: "https://mcp.canva.com/mcp",
   clickup: "https://mcp.clickup.com/mcp",
