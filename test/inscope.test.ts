@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test"
+import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-import { renderZshrcSource } from "@/apply"
+import { applyAll, renderZshrcSource } from "@/apply"
 import {
   CONFIG_VERSION,
   findWorkspace,
@@ -24,9 +25,15 @@ import {
 import { currentWorkspace } from "@/doctor"
 import { adoptable, diffLines, mcpError, mcpTarget } from "@/drift"
 import { configPath, gitIncludeDir, hookPath } from "@/env"
-import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
+import {
+  applyGitconfig,
+  perWorkspaceGitconfigPath,
+  renderGitInclude,
+  renderPerWorkspaceGitconfig,
+} from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { applyMcp, removeMcp, renderServers } from "@/generators/mcp"
+import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
 import {
@@ -717,4 +724,168 @@ test("mcpError flags a malformed .mcp.json and clears once valid", () => {
 
   fs.writeFileSync(file, '{ "mcpServers": {} }')
   expect(mcpError(ws)).toBeNull()
+})
+
+// Run a block with HOME and XDG_CONFIG_HOME pointed at a throwaway sandbox, so a
+// test can exercise the real on-disk apply paths without touching the dev box.
+const withSandbox = (fn: (sb: string) => void) => {
+  const prevHome = process.env.HOME
+  const prevXdg = process.env.XDG_CONFIG_HOME
+  const sb = tmpDir()
+  process.env.HOME = sb
+  process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
+  try {
+    fn(sb)
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevXdg
+  }
+}
+
+test("applyAll is all-or-nothing: a malformed .mcp.json aborts before any write", () => {
+  withSandbox((sb) => {
+    const good = path.join(sb, "good")
+    const bad = path.join(sb, "bad")
+    fs.mkdirSync(good, { recursive: true })
+    fs.mkdirSync(bad, { recursive: true })
+    fs.writeFileSync(path.join(bad, ".mcp.json"), '{ "mcpServers": {')
+
+    const cfg: Config = {
+      version: 1,
+      workspaces: [
+        { name: "good", path: good, servers: { github: true } },
+        { name: "bad", path: bad, servers: { github: true } },
+      ],
+    }
+    expect(() => applyAll(cfg)).toThrow(/not valid JSON/)
+    // pre-flight threw before any write: no hook, and the parseable workspace's
+    // .mcp.json was never created (no half-applied state).
+    expect(fs.existsSync(hookPath())).toBe(false)
+    expect(fs.existsSync(path.join(good, ".mcp.json"))).toBe(false)
+  })
+})
+
+test("writeFileAtomic writes through a symlink, preserving the link", () => {
+  const dir = tmpDir()
+  const real = path.join(dir, "real.txt")
+  const link = path.join(dir, "link.txt")
+  fs.writeFileSync(real, "old\n")
+  fs.symlinkSync(real, link)
+
+  writeFileAtomic(link, "new\n")
+
+  // a dotfile manager's symlink survives (we replaced the target, not the link)
+  expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+  expect(fs.readFileSync(real, "utf8")).toBe("new\n")
+  expect(fs.readFileSync(link, "utf8")).toBe("new\n")
+})
+
+test("loadConfig gives a friendly, path-hinted error on malformed JSON", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = tmpDir()
+  try {
+    const file = configPath()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, '{ "version": 1, "workspaces": [')
+    let message = ""
+    try {
+      loadConfig()
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err)
+    }
+    expect(message).toContain("is not valid JSON")
+    expect(message).not.toMatch(/Unexpected|EOF|JSON Parse/)
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
+})
+
+test("removeBlock keeps surrounding content and collapses the gap it leaves", () => {
+  const file = path.join(tmpDir(), ".zshrc")
+  upsertBlock(file, "x", "managed line")
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8") + "\nexport AFTER=1\n")
+  expect(readBlock(file, "x")).toBe("managed line")
+
+  removeBlock(file, "x")
+  const out = fs.readFileSync(file, "utf8")
+  expect(readBlock(file, "x")).toBeNull()
+  expect(out).toContain("export AFTER=1")
+  expect(out).not.toMatch(/\n{3,}/)
+})
+
+// zsh availability: the hook is the security-critical artifact and the whole
+// safety story rests on it staying well-formed zsh after the name/path/keychain
+// quoting. `zsh -n` parses without executing, so a quoting regression fails here
+// directly. Skipped where zsh is absent (some dev boxes); CI's macos-latest has it.
+const hasZsh = (() => {
+  try {
+    return spawnSync("zsh", ["--version"]).status === 0
+  } catch {
+    return false
+  }
+})()
+
+test.skipIf(!hasZsh)("the rendered hook parses as valid zsh (zsh -n)", () => {
+  // every pathPattern branch and idArm shape, plus a path with spaces and a
+  // dotted/dashed/underscored name, mirroring the golden coverage config.
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "home", path: "~", gh: "acct", servers: { github: true } },
+      { name: "opt", path: "/opt/work", gh: "acct", servers: { github: true } },
+      {
+        name: "my-project-work",
+        path: "~/My Project (work)",
+        gh: "acme-org",
+        servers: { github: true, slack: { keychain: "SLACK_MCP_XOXP_TOKEN_MYPROJECT" } },
+      },
+      { name: "slackonly", path: "~/slackonly", servers: { slack: { keychain: "K" } } },
+      { name: "web.app-2_x", path: "~/webapp", gh: "acct", servers: { github: true } },
+    ],
+  }
+  const file = path.join(tmpDir(), "inscope.zsh")
+  fs.writeFileSync(file, renderHook(cfg))
+  const res = spawnSync("zsh", ["-n", file], { encoding: "utf8" })
+  expect(res.stderr).toBe("")
+  expect(res.status).toBe(0)
+})
+
+test("mcpTarget preview is byte-identical to what applyMcp writes", () => {
+  const dir = tmpDir()
+  const file = path.join(dir, ".mcp.json")
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      mcpServers: { custom: { type: "http", url: "x" }, "github-acme": { url: "STALE" } },
+    }),
+  )
+  const ws = { name: "acme", path: dir, servers: { github: true, linear: true } }
+
+  // the diff preview and the apply share one merge, so the preview must equal
+  // the exact bytes apply writes — that is the whole point of sharing it.
+  const preview = mcpTarget(ws)
+  applyMcp(ws)
+  expect(fs.readFileSync(file, "utf8")).toBe(preview)
+})
+
+test("applyGitconfig prunes a per-workspace gitconfig when identity is dropped", () => {
+  withSandbox(() => {
+    const withId: Config = {
+      version: 1,
+      workspaces: [{ name: "acme", path: "~/acme", git: { email: "a@b.com" }, servers: {} }],
+    }
+    applyGitconfig(withId)
+    const file = perWorkspaceGitconfigPath("acme")
+    expect(fs.existsSync(file)).toBe(true)
+
+    const noId: Config = {
+      version: 1,
+      workspaces: [{ name: "acme", path: "~/acme", servers: {} }],
+    }
+    applyGitconfig(noId)
+    expect(fs.existsSync(file)).toBe(false) // stale file pruned, not left orphaned
+  })
 })
