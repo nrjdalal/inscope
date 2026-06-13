@@ -61,6 +61,10 @@ export const loadConfig = (): Config => {
 }
 
 export const saveConfig = (cfg: Config) => {
+  // Validate at the write boundary so every path that persists config (add,
+  // edit, init, remove, diff --adopt) is guarded by construction, not by each
+  // caller remembering to validate first.
+  validateConfig(cfg)
   const file = configPath()
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n")
@@ -97,6 +101,14 @@ export const workspacePathError = (p: string): string | null => {
   return hookValueError(p)
 }
 
+// git.email / git.name are written verbatim into the per-workspace gitconfig,
+// which is pulled into every repo under the path via `includeIf gitdir:`. A
+// newline lets a value inject arbitrary git config (e.g. `[core] sshCommand =`,
+// which runs on git network ops), so reject CR/LF. Other characters are fine:
+// gitconfig is line-based, so only a real line break can start a new key.
+export const gitValueError = (value: string): string | null =>
+  /[\n\r]/.test(value) ? "must not contain a newline" : null
+
 export const slugify = (s: string): string =>
   s
     .toLowerCase()
@@ -118,6 +130,20 @@ export const validateConfig = (cfg: Config) => {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
         throw new Error(`workspace "${ws.name}" gh account "${ws.gh}" is invalid: ${ghErr}`)
+    }
+    if (ws.git?.email) {
+      const emailErr = gitValueError(ws.git.email)
+      if (emailErr)
+        throw new Error(
+          `workspace "${ws.name}" git email "${ws.git.email}" is invalid: ${emailErr}`,
+        )
+    }
+    if (ws.git?.name) {
+      const gitNameErr = gitValueError(ws.git.name)
+      if (gitNameErr)
+        throw new Error(
+          `workspace "${ws.name}" git name "${ws.git.name}" is invalid: ${gitNameErr}`,
+        )
     }
     const slack = ws.servers?.slack
     if (slack && slack.keychain) {

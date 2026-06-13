@@ -55,10 +55,19 @@ export const currentWorkspace = (
   cwd: string = process.cwd(),
 ): Workspace | undefined => {
   const abs = path.resolve(cwd)
-  return cfg.workspaces.find((w) => {
+  // Longest-prefix-wins, mirroring the hook's most-specific-first `case` order:
+  // a nested workspace must win over the parent whose path it sits under, or
+  // doctor would agree with a mis-resolution instead of catching it.
+  let best: Workspace | undefined
+  let bestLen = -1
+  for (const w of cfg.workspaces) {
     const root = resolveAbsolute(w.path)
-    return abs === root || abs.startsWith(root + path.sep)
-  })
+    if ((abs === root || abs.startsWith(root + path.sep)) && root.length > bestLen) {
+      best = w
+      bestLen = root.length
+    }
+  }
+  return best
 }
 
 export const liveSnapshot = (run: Runner = defaultRunner) => {

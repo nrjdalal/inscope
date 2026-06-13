@@ -140,10 +140,11 @@ test("golden: chpwd hook arm for a workspace with neither gh nor slack", () => {
 // values are double-quoted. This locks the output the name/path/keychain
 // hardening produces.
 //
-// NOTE: this synthetic config also makes a known hazard visible. "home" maps to
-// "$HOME/"* and sorts first, so it shadows ~/slackonly and ~/webapp at match
-// time. That is the unfixed nested-path resolution issue (arms are name-sorted,
-// not most-specific-first); documented here, not endorsed.
+// NOTE: this synthetic config also locks the nested-path resolution order.
+// "home" maps to "$HOME/"* and would shadow ~/slackonly and ~/webapp if the
+// arms were name-sorted, so the dir arms are emitted most-specific-first
+// (longest path wins): ~/My Project (work), ~/slackonly, /opt/work, ~/webapp,
+// then ~. The id arms below stay name-sorted (they key on the exact $ws).
 test("golden: chpwd hook covers tricky paths and every arm shape", () => {
   expect(
     renderHook({
