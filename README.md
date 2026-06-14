@@ -7,6 +7,8 @@
 [![downloads](https://img.shields.io/npm/dt/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
 [![stars](https://img.shields.io/github/stars/nrjdalal/inscope?color=blue)](https://github.com/nrjdalal/inscope)
 
+🔐 `Zero dependencies` / `Nothing sensitive on disk` / `One zsh hook` / `Race-free across concurrent sessions`
+
 📖 **The why behind the design:** [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace), aka multiple gh, linear, notion, slack and other accounts.
 
 > #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
@@ -27,6 +29,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 
 ### Table of Contents
 
+- [Features](#-features)
 - [Quick Usage](#-quick-usage)
 - [Requirements](#-requirements)
 - [Commands](#-commands)
@@ -43,6 +46,20 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 - [Config File](#-config-file)
 - [Install Globally (Optional)](#-install-globally-optional)
 - [Contributing](#-contributing)
+- [More Tools](#-more-tools)
+
+---
+
+## ✨ Features
+
+- 🪪 Per-directory identity: GitHub token, git commit email, and MCP servers scoped to `$PWD`
+- 🧵 Race-free across concurrent shells and Claude Code sessions, with no global toggles
+- 🔐 No secrets on disk: GitHub tokens from the `gh` keyring, Slack tokens from the macOS Keychain
+- 🤖 One `.mcp.json` per workspace with uniquely named servers: GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel, and Webflow
+- ✉️ Git `includeIf` rules so every commit lands with the right author email per path
+- 🪝 A single zsh `chpwd` hook does all the resolution; nothing else touches your shell
+- 🩺 `inscope doctor` verifies tokens, identities, and the hook before you trust them
+- ♻️ Idempotent and surgical: only the managed blocks in `.zshrc`, `.gitconfig`, and `.mcp.json` are touched
 
 ---
 
@@ -277,6 +294,15 @@ inscope <command> [options]
 ## 🤝 Contributing
 
 Issues and pull requests are welcome. Run the tests with `bun test` and the type checks with `bun run typecheck` before opening a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the toolchain and architecture.
+
+---
+
+## 🛠 More Tools
+
+- [gitpick](https://github.com/nrjdalal/gitpick) - clone exactly the files, folders, or branches you need from any repo
+- [zerostarter](https://github.com/nrjdalal/zerostarter) - the tooling and practices inscope is built on
+
+More at [github.com/nrjdalal](https://github.com/nrjdalal).
 
 ---
 
