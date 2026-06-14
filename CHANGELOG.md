@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.6
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.5...v0.8.6)
+
+### 📖 Documentation
+
+- **readme:** Make the global install optional, lead with npx ([aac5fc6](https://github.com/nrjdalal/inscope/commit/aac5fc6))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.5
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.4...v0.8.5)
