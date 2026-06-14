@@ -27,7 +27,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 
 ### Table of Contents
 
-- [Install](#-install)
+- [Quick Usage](#-quick-usage)
 - [Requirements](#-requirements)
 - [Commands](#-commands)
   - [`inscope init`](#inscope-init)
@@ -41,40 +41,39 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 - [What It Manages](#-what-it-manages)
 - [MCP Servers](#-mcp-servers)
 - [Config File](#-config-file)
+- [Install Globally (Optional)](#-install-globally-optional)
 - [Contributing](#-contributing)
 
 ---
 
-## 🚀 Install
+## 🚀 Quick Usage
 
-Install globally (the CLI manages your shell hook, so a global install is expected):
-
-```sh
-npm i -g inscope
-```
-
-Scoping GitHub accounts? Sign each one into `gh` once with `gh auth login` (that is gh's own command, not inscope); inscope reads tokens from the accounts you have signed in. Then:
+No install required, just prefix any command with `npx`:
 
 ```sh
 # set up the config + hook, and source it from ~/.zshrc
-inscope init
+npx inscope init
 
 # map a workspace - inscope walks you through gh account, git identity, and servers
-inscope add ~/acme
-inscope add ~/personal
+npx inscope add ~/acme
+npx inscope add ~/personal
 
 # reload your shell, then verify
 source ~/.zshrc
-inscope doctor
+npx inscope doctor
 ```
+
+Scoping GitHub accounts? Sign each one into `gh` once with `gh auth login` (that is gh's own command, not inscope); inscope reads tokens from the accounts you have signed in.
 
 `cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you. Launch `claude` from inside a mapped directory (or relaunch) to pick up the identity.
 
 Prefer flags or CI? Every prompt has a flag, and `-y` takes the defaults non-interactively:
 
 ```sh
-inscope add ~/acme --gh <account> --email you@work.com --servers github,linear -y
+npx inscope add ~/acme --gh <account> --email you@work.com --servers github,linear -y
 ```
+
+Running these a lot? Drop the `npx` with a [global install](#-install-globally-optional).
 
 ---
 
@@ -224,7 +223,7 @@ Each enabled server is written into the workspace `.mcp.json` with a name suffix
 Slack is opt-in. Enable it during `add` (shown above), or with flags, then store the token once:
 
 ```sh
-inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
+npx inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
 ```
 
 `--seed-slack` prompts for the `xoxp` token and writes it to the Keychain. Pass `--slack-message` to allow the Slack MCP server to post messages.
@@ -261,6 +260,17 @@ The source of truth is `~/.config/inscope/inscope.json`:
 ```
 
 Edit it directly, then run `inscope apply` to regenerate the hook, git includes, and every `.mcp.json`. `inscope doctor` will tell you if anything no longer resolves.
+
+---
+
+## 📦 Install Globally (Optional)
+
+Reaching for inscope often? Install it once and drop the `npx`:
+
+```sh
+npm i -g inscope
+inscope <command> [options]
+```
 
 ---
 
