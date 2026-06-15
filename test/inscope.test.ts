@@ -92,10 +92,9 @@ test("renderServers matches the blog's acme .mcp.json", () => {
     "slack-acme": {
       type: "stdio",
       command: "npx",
-      args: ["-y", "slack-mcp-server@1.3.0", "--transport", "stdio"],
+      args: ["-y", "@nrjdalal/slack-mcp-server@latest"],
       env: {
         SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}",
-        SLACK_MCP_ADD_MESSAGE_TOOL: "true",
       },
     },
   })
@@ -227,32 +226,33 @@ test("buildServers reflects the enabled list and slack details", () => {
 })
 
 test("buildServers omits the default slack package but keeps a non-default one", () => {
-  // default package -> no `package` key, so existing configs stay byte-identical
+  // default package (@nrjdalal) -> no `package` key, so default configs stay byte-identical
   const def = buildServers(["slack"], {
+    keychain: "K",
+    addMessageTool: false,
+    package: "@nrjdalal/slack-mcp-server",
+  })
+  expect(def.slack).toEqual({ keychain: "K", addMessageTool: false })
+
+  const koro = buildServers(["slack"], {
     keychain: "K",
     addMessageTool: false,
     package: "slack-mcp-server",
   })
-  expect(def.slack).toEqual({ keychain: "K", addMessageTool: false })
-
-  const nrj = buildServers(["slack"], {
+  expect(koro.slack).toEqual({
     keychain: "K",
     addMessageTool: false,
-    package: "@nrjdalal/slack-mcp-server",
-  })
-  expect(nrj.slack).toEqual({
-    keychain: "K",
-    addMessageTool: false,
-    package: "@nrjdalal/slack-mcp-server",
+    package: "slack-mcp-server",
   })
 })
 
 test("resolveSlackPackage accepts aliases and rejects the unknown", () => {
-  expect(resolveSlackPackage(undefined)).toBe("slack-mcp-server")
-  expect(resolveSlackPackage("")).toBe("slack-mcp-server")
-  expect(resolveSlackPackage("default")).toBe("slack-mcp-server")
+  expect(resolveSlackPackage(undefined)).toBe("@nrjdalal/slack-mcp-server")
+  expect(resolveSlackPackage("")).toBe("@nrjdalal/slack-mcp-server")
+  expect(resolveSlackPackage("default")).toBe("@nrjdalal/slack-mcp-server")
   expect(resolveSlackPackage("nrjdalal")).toBe("@nrjdalal/slack-mcp-server")
   expect(resolveSlackPackage("@nrjdalal/slack-mcp-server")).toBe("@nrjdalal/slack-mcp-server")
+  expect(resolveSlackPackage("korotovsky")).toBe("slack-mcp-server")
   expect(resolveSlackPackage("some-other-pkg")).toBeNull()
 })
 
@@ -271,8 +271,8 @@ test("renderServers shapes the @nrjdalal slack fork per its own CLI", () => {
   const ro = fork({ keychain: "K", package: "@nrjdalal/slack-mcp-server" })
   expect(ro.env.SLACK_MCP_ALLOW_WRITE).toBe("false")
 
-  // korotovsky keeps --transport stdio and the add-message-tool env
-  const koro = fork({ keychain: "K", addMessageTool: true })
+  // korotovsky (explicit, non-default) keeps --transport stdio and the add-message-tool env
+  const koro = fork({ keychain: "K", package: "slack-mcp-server", addMessageTool: true })
   expect(koro.args).toContain("--transport")
   expect(koro.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBe("true")
   expect(koro.env.SLACK_MCP_ALLOW_WRITE).toBeUndefined()
@@ -731,10 +731,9 @@ test("adoptable back-syncs a config-expressible on-disk setting, idempotently", 
         "slack-acme": {
           type: "stdio",
           command: "npx",
-          args: ["-y", "slack-mcp-server@1.3.0", "--transport", "stdio"],
+          args: ["-y", "@nrjdalal/slack-mcp-server@latest"],
           env: {
             SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}",
-            SLACK_MCP_ADD_MESSAGE_TOOL: "true",
           },
         },
       },
@@ -789,26 +788,26 @@ const writeSlackMcp = (dir: string, args: string[], env: Record<string, string> 
 test("adoptable back-syncs a hand-edited slack package, both ways, idempotently", () => {
   const dir = tmpDir()
   // hold write intent constant (read-only on both sides) to isolate the package adopt
-  // on-disk @nrjdalal, config on the default -> adopt the fork into config
-  writeSlackMcp(dir, ["-y", "@nrjdalal/slack-mcp-server@latest"], {
-    SLACK_MCP_ALLOW_WRITE: "false",
-  })
+  // on-disk korotovsky (non-default), config on the default -> adopt the pinned pkg into config
+  writeSlackMcp(dir, ["-y", "slack-mcp-server@1.3.0", "--transport", "stdio"])
   const cfg: Config = {
     version: 1,
     workspaces: [{ name: "acme", path: dir, servers: { slack: { keychain: "K" } } }],
   }
-  const { cfg: forked, changes } = adoptable(cfg)
-  expect(changes).toContain("acme: slack.package = @nrjdalal/slack-mcp-server")
-  expect(forked.workspaces[0].servers.slack).toEqual({
+  const { cfg: pinned, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: slack.package = slack-mcp-server")
+  expect(pinned.workspaces[0].servers.slack).toEqual({
     keychain: "K",
-    package: "@nrjdalal/slack-mcp-server",
+    package: "slack-mcp-server",
   })
-  expect(adoptable(forked).changes).toHaveLength(0)
+  expect(adoptable(pinned).changes).toHaveLength(0)
 
-  // on-disk reverted to the default, config on the fork -> drop the redundant key
-  writeSlackMcp(dir, ["-y", "slack-mcp-server@1.3.0"])
-  const { cfg: reverted, changes: revertChanges } = adoptable(forked)
-  expect(revertChanges).toContain("acme: slack.package = slack-mcp-server")
+  // on-disk reverted to the default (@nrjdalal), config on the pinned pkg -> drop the redundant key
+  writeSlackMcp(dir, ["-y", "@nrjdalal/slack-mcp-server@latest"], {
+    SLACK_MCP_ALLOW_WRITE: "false",
+  })
+  const { cfg: reverted, changes: revertChanges } = adoptable(pinned)
+  expect(revertChanges).toContain("acme: slack.package = @nrjdalal/slack-mcp-server")
   expect(reverted.workspaces[0].servers.slack).toEqual({ keychain: "K" })
   expect(adoptable(reverted).changes).toHaveLength(0)
 })

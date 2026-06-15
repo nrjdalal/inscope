@@ -53,13 +53,10 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
     "slack-acme": {
       "args": [
         "-y",
-        "slack-mcp-server@1.3.0",
-        "--transport",
-        "stdio",
+        "@nrjdalal/slack-mcp-server@latest",
       ],
       "command": "npx",
       "env": {
-        "SLACK_MCP_ADD_MESSAGE_TOOL": "true",
         "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
       },
       "type": "stdio",
@@ -100,12 +97,11 @@ exports[`golden: Slack server, read-only vs post-enabled: read-only 1`] = `
     "slack-acme": {
       "args": [
         "-y",
-        "slack-mcp-server@1.3.0",
-        "--transport",
-        "stdio",
+        "@nrjdalal/slack-mcp-server@latest",
       ],
       "command": "npx",
       "env": {
+        "SLACK_MCP_ALLOW_WRITE": "false",
         "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
       },
       "type": "stdio",
@@ -120,13 +116,10 @@ exports[`golden: Slack server, read-only vs post-enabled: post-enabled 1`] = `
     "slack-acme": {
       "args": [
         "-y",
-        "slack-mcp-server@1.3.0",
-        "--transport",
-        "stdio",
+        "@nrjdalal/slack-mcp-server@latest",
       ],
       "command": "npx",
       "env": {
-        "SLACK_MCP_ADD_MESSAGE_TOOL": "true",
         "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
       },
       "type": "stdio",

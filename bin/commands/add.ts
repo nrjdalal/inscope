@@ -52,8 +52,8 @@ Options:
                         (default: github)
   --slack-keychain <s>  keychain service for the Slack token
                         (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
-  --slack-package <p>   Slack MCP server package: slack-mcp-server (default,
-                        pinned) or @nrjdalal/slack-mcp-server (latest)
+  --slack-package <p>   Slack MCP server package: @nrjdalal/slack-mcp-server
+                        (default, kept on latest) or slack-mcp-server (pinned)
   --slack-message       allow the Slack MCP server to post messages
   --seed-slack          prompt for the Slack token and store it in the keychain
   -y, --yes             accept defaults, skip all prompts (non-interactive)

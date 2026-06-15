@@ -4,15 +4,16 @@ import path from "node:path"
 import { configPath, contractTilde, resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
 
-// The Slack MCP server package a workspace runs. The original (korotovsky) is
-// pinned for reproducibility; the @nrjdalal fork floats on @latest by request
-// (see slackPackageSpec in generators/mcp.ts). Omitting `package` means the
-// default, so existing configs keep rendering the original pinned server.
+// The Slack MCP server package a workspace runs. The @nrjdalal fork is the
+// default and floats on @latest; the original (korotovsky) is pinned for
+// reproducibility and selectable via `package: "slack-mcp-server"` (see
+// slackPackageSpec in generators/mcp.ts). Omitting `package` means the default,
+// so configs without it render the @nrjdalal fork on @latest.
 export const SLACK_PACKAGES = ["slack-mcp-server", "@nrjdalal/slack-mcp-server"] as const
 
 export type SlackPackage = (typeof SLACK_PACKAGES)[number]
 
-export const DEFAULT_SLACK_PACKAGE: SlackPackage = "slack-mcp-server"
+export const DEFAULT_SLACK_PACKAGE: SlackPackage = "@nrjdalal/slack-mcp-server"
 
 export type SlackServer = { keychain: string; addMessageTool?: boolean; package?: SlackPackage }
 
