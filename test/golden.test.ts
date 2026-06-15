@@ -94,6 +94,20 @@ test("golden: Slack server, read-only vs post-enabled", () => {
 })
 
 test("golden: Slack server on the @nrjdalal package (kept latest)", () => {
+  // write-enabled (addMessageTool): the fork's default, so no --transport flag and
+  // no write env, just the token.
+  expect(
+    renderMcp({
+      name: "acme",
+      path: "~/acme",
+      servers: {
+        slack: { keychain: "K", package: "@nrjdalal/slack-mcp-server", addMessageTool: true },
+      },
+    }),
+  ).toMatchSnapshot()
+})
+
+test("golden: @nrjdalal Slack fork read-only sets SLACK_MCP_ALLOW_WRITE=false", () => {
   expect(
     renderMcp({
       name: "acme",

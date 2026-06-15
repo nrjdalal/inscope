@@ -142,11 +142,28 @@ exports[`golden: Slack server on the @nrjdalal package (kept latest) 1`] = `
       "args": [
         "-y",
         "@nrjdalal/slack-mcp-server@latest",
-        "--transport",
-        "stdio",
       ],
       "command": "npx",
       "env": {
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+      },
+      "type": "stdio",
+    },
+  },
+}
+`;
+
+exports[`golden: @nrjdalal Slack fork read-only sets SLACK_MCP_ALLOW_WRITE=false 1`] = `
+{
+  "mcpServers": {
+    "slack-acme": {
+      "args": [
+        "-y",
+        "@nrjdalal/slack-mcp-server@latest",
+      ],
+      "command": "npx",
+      "env": {
+        "SLACK_MCP_ALLOW_WRITE": "false",
         "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
       },
       "type": "stdio",

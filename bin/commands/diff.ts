@@ -33,7 +33,7 @@ artifact (the zsh hook, git includes, and .mcp.json files) against what your
 config would generate. Read-only.
 
 With --adopt, pull settings that exist in your .mcp.json but not your config
-(a Slack add-message tool, a custom server URL) back into the config, so the
+(a Slack add-message tool or package, a custom server URL) back into the config, so the
 next apply keeps them instead of dropping them.
 
 Usage:

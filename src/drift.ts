@@ -1,6 +1,13 @@
 import fs from "node:fs"
 
-import type { Config, HttpServer, Servers, Workspace } from "@/config"
+import {
+  type Config,
+  DEFAULT_SLACK_PACKAGE,
+  type HttpServer,
+  type Servers,
+  type SlackServer,
+  type Workspace,
+} from "@/config"
 import { gitconfigPath, hookPath } from "@/env"
 import {
   GITCONFIG_BLOCK_ID,
@@ -10,7 +17,14 @@ import {
   renderPerWorkspaceGitconfig,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { mcpFilePath, mergeMcpDoc, REMOTE, SERVER_TYPES, serializeMcp } from "@/generators/mcp"
+import {
+  mcpFilePath,
+  mergeMcpDoc,
+  REMOTE,
+  SERVER_TYPES,
+  serializeMcp,
+  slackPackageFromArgs,
+} from "@/generators/mcp"
 import { readFileOrEmpty } from "@/io"
 import { readBlock } from "@/managed-block"
 
@@ -142,6 +156,24 @@ export const adoptable = (cfg: Config): { cfg: Config; changes: string[] } => {
     ) {
       servers = { ...servers, slack: { ...slack, addMessageTool: true } }
       changes.push(`${ws.name}: slack.addMessageTool = true`)
+    }
+
+    // adopt the slack package the on-disk .mcp.json runs when it differs from the
+    // config, so a hand-edited .mcp.json (e.g. switched to the @nrjdalal fork) can
+    // be pulled back into the config instead of being reverted by the next apply.
+    // Reads servers.slack (not ws.servers.slack) to layer on the addMessageTool
+    // adopt above. A diskPkg matching the default drops the redundant key.
+    const curSlack = servers.slack
+    if (curSlack) {
+      const diskPkg = slackPackageFromArgs(onDisk[`slack-${ws.name}`]?.args)
+      const curPkg = curSlack.package ?? DEFAULT_SLACK_PACKAGE
+      if (diskPkg && diskPkg !== curPkg) {
+        const nextSlack: SlackServer = { ...curSlack }
+        if (diskPkg === DEFAULT_SLACK_PACKAGE) delete nextSlack.package
+        else nextSlack.package = diskPkg
+        servers = { ...servers, slack: nextSlack }
+        changes.push(`${ws.name}: slack.package = ${diskPkg}`)
+      }
     }
 
     // remote (URL-only) servers: adopt a custom URL on a configured server, or a

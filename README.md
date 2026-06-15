@@ -180,7 +180,7 @@ List the configured workspaces with their path, gh account, git email, and enabl
 
 ### `inscope diff`
 
-Preview exactly what `apply` would write: a colored diff of the hook, git includes, and each `.mcp.json` against your config. `--adopt` pulls config-expressible on-disk settings (a Slack add-message tool, a custom server URL) back into the config, so the next apply keeps them instead of dropping them. `--exit-code` exits non-zero when anything is out of sync, so it works as a CI or pre-commit gate.
+Preview exactly what `apply` would write: a colored diff of the hook, git includes, and each `.mcp.json` against your config. `--adopt` pulls config-expressible on-disk settings (a Slack add-message tool or package, a custom server URL) back into the config, so the next apply keeps them instead of dropping them. `--exit-code` exits non-zero when anything is out of sync, so it works as a CI or pre-commit gate.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/diff.gif" alt="inscope diff: colored drift, then --adopt back-syncs an on-disk setting into the config" width="900" />
