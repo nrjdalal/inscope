@@ -256,13 +256,26 @@ test("resolveSlackPackage accepts aliases and rejects the unknown", () => {
   expect(resolveSlackPackage("some-other-pkg")).toBeNull()
 })
 
-test("renderServers runs the @nrjdalal slack fork on latest", () => {
-  const out = renderServers({
-    name: "x",
-    path: "~/x",
-    servers: { slack: { keychain: "K", package: "@nrjdalal/slack-mcp-server" } },
-  })
-  expect((out["slack-x"] as any).args).toContain("@nrjdalal/slack-mcp-server@latest")
+test("renderServers shapes the @nrjdalal slack fork per its own CLI", () => {
+  const fork = (s: any) =>
+    renderServers({ name: "x", path: "~/x", servers: { slack: s } })["slack-x"] as any
+
+  // write-enabled (the fork's default): no --transport flag, no write env
+  const write = fork({ keychain: "K", package: "@nrjdalal/slack-mcp-server", addMessageTool: true })
+  expect(write.args).toEqual(["-y", "@nrjdalal/slack-mcp-server@latest"])
+  expect(write.args).not.toContain("--transport")
+  expect(write.env.SLACK_MCP_ALLOW_WRITE).toBeUndefined()
+  expect(write.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBeUndefined()
+
+  // read-only: opt out of write with SLACK_MCP_ALLOW_WRITE=false
+  const ro = fork({ keychain: "K", package: "@nrjdalal/slack-mcp-server" })
+  expect(ro.env.SLACK_MCP_ALLOW_WRITE).toBe("false")
+
+  // korotovsky keeps --transport stdio and the add-message-tool env
+  const koro = fork({ keychain: "K", addMessageTool: true })
+  expect(koro.args).toContain("--transport")
+  expect(koro.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBe("true")
+  expect(koro.env.SLACK_MCP_ALLOW_WRITE).toBeUndefined()
 })
 
 test("validateConfig rejects an unknown slack package", () => {
