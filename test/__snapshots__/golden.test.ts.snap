@@ -135,6 +135,26 @@ exports[`golden: Slack server, read-only vs post-enabled: post-enabled 1`] = `
 }
 `;
 
+exports[`golden: Slack server on the @nrjdalal package (kept latest) 1`] = `
+{
+  "mcpServers": {
+    "slack-acme": {
+      "args": [
+        "-y",
+        "@nrjdalal/slack-mcp-server@latest",
+        "--transport",
+        "stdio",
+      ],
+      "command": "npx",
+      "env": {
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+      },
+      "type": "stdio",
+    },
+  },
+}
+`;
+
 exports[`golden: an http server with a custom url override 1`] = `
 {
   "mcpServers": {
