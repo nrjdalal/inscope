@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.9
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.8...v0.8.9)
+
+### 🩹 Fixes
+
+- **diff:** Round-trip the fork's write toggle through adopt; tighten package parsing ([c07a440](https://github.com/nrjdalal/inscope/commit/c07a440))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.8
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.7...v0.8.8)
