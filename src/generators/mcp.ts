@@ -31,8 +31,11 @@ export const slackPackageFromArgs = (args: unknown): SlackPackage | null => {
     (a): a is string => typeof a === "string" && a.includes("slack-mcp-server"),
   )
   if (!spec) return null
-  if (spec.startsWith("@nrjdalal/slack-mcp-server")) return "@nrjdalal/slack-mcp-server"
-  if (spec.startsWith("slack-mcp-server")) return "slack-mcp-server"
+  // Anchor on a name boundary (exact, or immediately followed by @version) so a
+  // sibling like "slack-mcp-server-fork@x" is not misread as the canonical package.
+  const isPkg = (name: string) => spec === name || spec.startsWith(`${name}@`)
+  if (isPkg("@nrjdalal/slack-mcp-server")) return "@nrjdalal/slack-mcp-server"
+  if (isPkg("slack-mcp-server")) return "slack-mcp-server"
   return null
 }
 
