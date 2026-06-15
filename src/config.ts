@@ -4,7 +4,17 @@ import path from "node:path"
 import { configPath, contractTilde, resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
 
-export type SlackServer = { keychain: string; addMessageTool?: boolean }
+// The Slack MCP server package a workspace runs. The original (korotovsky) is
+// pinned for reproducibility; the @nrjdalal fork floats on @latest by request
+// (see slackPackageSpec in generators/mcp.ts). Omitting `package` means the
+// default, so existing configs keep rendering the original pinned server.
+export const SLACK_PACKAGES = ["slack-mcp-server", "@nrjdalal/slack-mcp-server"] as const
+
+export type SlackPackage = (typeof SLACK_PACKAGES)[number]
+
+export const DEFAULT_SLACK_PACKAGE: SlackPackage = "slack-mcp-server"
+
+export type SlackServer = { keychain: string; addMessageTool?: boolean; package?: SlackPackage }
 
 export type HttpServer = { url?: string }
 
@@ -178,6 +188,14 @@ export const validateConfig = (cfg: Config) => {
         throw new Error(
           `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
         )
+    }
+    // package picks the npm package npx runs, so restrict it to the known set: a
+    // hand-edited config can't point it at an arbitrary (code-executing) package.
+    const slackPkg = slack && (slack as { package?: string }).package
+    if (slackPkg && !(SLACK_PACKAGES as readonly string[]).includes(slackPkg)) {
+      throw new Error(
+        `workspace "${ws.name}" Slack package "${slackPkg}" is invalid: use one of ${SLACK_PACKAGES.join(", ")}`,
+      )
     }
     if (seen.has(ws.name)) throw new Error(`duplicate workspace name "${ws.name}"`)
     seen.add(ws.name)

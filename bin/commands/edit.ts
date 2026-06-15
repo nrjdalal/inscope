@@ -1,6 +1,14 @@
 import { parseArgs } from "node:util"
 
-import { configExists, findWorkspace, hookValueError, loadConfig, type Workspace } from "@/config"
+import {
+  configExists,
+  DEFAULT_SLACK_PACKAGE,
+  findWorkspace,
+  hookValueError,
+  loadConfig,
+  type SlackPackage,
+  type Workspace,
+} from "@/config"
 import { ghAccounts, keychainHas } from "@/secrets"
 import {
   isInteractive,
@@ -15,6 +23,7 @@ import {
   finalizeSlack,
   persist,
   SERVER_LABELS,
+  SLACK_PACKAGE_CHOICES,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
@@ -129,9 +138,17 @@ export const edit = async (args: string[]) => {
   const wantSlack = serverList.includes("slack")
   let slackSvc = ws.servers.slack ? ws.servers.slack.keychain : slackKeychainFor(ws.name)
   let slackMessage = ws.servers.slack ? !!ws.servers.slack.addMessageTool : false
+  let slackPackage: SlackPackage = ws.servers.slack
+    ? (ws.servers.slack.package ?? DEFAULT_SLACK_PACKAGE)
+    : DEFAULT_SLACK_PACKAGE
   let seedSlack = false
   if (wantSlack) {
     console.log(`\nSlack uses a user OAuth (xoxp) token.`)
+    const pkgInitial = Math.max(
+      0,
+      SLACK_PACKAGE_CHOICES.findIndex((c) => c.value === slackPackage),
+    )
+    slackPackage = await selectOne("Slack MCP server package", SLACK_PACKAGE_CHOICES, pkgInitial)
     slackSvc = await promptText("Slack keychain service", slackSvc)
     slackMessage = await promptConfirm("Allow Slack to post messages?", slackMessage)
     if (!keychainHas(slackSvc)) seedSlack = await promptConfirm("Store the Slack token now?", true)
@@ -154,7 +171,9 @@ export const edit = async (args: string[]) => {
     git: email || gitName ? { email, name: gitName } : undefined,
     servers: buildServers(
       serverList,
-      wantSlack ? { keychain: slackSvc, addMessageTool: slackMessage } : null,
+      wantSlack
+        ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
+        : null,
     ),
   }
 

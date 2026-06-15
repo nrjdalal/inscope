@@ -1,11 +1,14 @@
 import { applyAll } from "@/apply"
 import {
   configExists,
+  DEFAULT_SLACK_PACKAGE,
   defaultConfig,
   loadConfig,
   saveConfig,
-  upsertWorkspace,
   type Servers,
+  type SlackPackage,
+  type SlackServer,
+  upsertWorkspace,
   type Workspace,
 } from "@/config"
 import { resolveAbsolute } from "@/env"
@@ -26,18 +29,44 @@ export const enabledServers = (s: Servers): string[] =>
 
 export const buildServers = (
   list: string[],
-  slack: { keychain: string; addMessageTool: boolean } | null,
+  slack: { keychain: string; addMessageTool: boolean; package?: SlackPackage } | null,
 ): Servers => {
   const out: Record<string, unknown> = {}
   for (const t of SERVER_TYPES) {
-    out[t] =
-      t === "slack"
-        ? slack
-          ? { keychain: slack.keychain, addMessageTool: slack.addMessageTool }
-          : false
-        : list.includes(t)
+    if (t === "slack") {
+      if (!slack) {
+        out[t] = false
+        continue
+      }
+      const entry: SlackServer = { keychain: slack.keychain, addMessageTool: slack.addMessageTool }
+      // Only persist a non-default package, so configs that use the original stay
+      // free of a redundant `package` key (and existing configs are unchanged).
+      if (slack.package && slack.package !== DEFAULT_SLACK_PACKAGE) entry.package = slack.package
+      out[t] = entry
+    } else {
+      out[t] = list.includes(t)
+    }
   }
   return out as Servers
+}
+
+// The Slack package picker, shared by `add` and `edit`. The original is listed
+// first so it stays the default selection.
+export const SLACK_PACKAGE_CHOICES: { label: string; value: SlackPackage }[] = [
+  { label: "slack-mcp-server (korotovsky, pinned)", value: "slack-mcp-server" },
+  { label: "@nrjdalal/slack-mcp-server (latest)", value: "@nrjdalal/slack-mcp-server" },
+]
+
+// Resolve a --slack-package flag value to a known package, accepting friendly
+// aliases. Returns null for an unrecognized value so the caller can error out.
+export const resolveSlackPackage = (input?: string): SlackPackage | null => {
+  const v = (input ?? "").trim().toLowerCase()
+  if (!v) return DEFAULT_SLACK_PACKAGE
+  if (["@nrjdalal/slack-mcp-server", "nrjdalal", "nrj"].includes(v))
+    return "@nrjdalal/slack-mcp-server"
+  if (["slack-mcp-server", "default", "original", "korotovsky"].includes(v))
+    return "slack-mcp-server"
+  return null
 }
 
 // The hint shown next to the interactive git email/name prompts. Pressing enter

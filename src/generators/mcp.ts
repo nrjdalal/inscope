@@ -1,11 +1,25 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import type { HttpServer, SlackServer, Workspace } from "@/config"
+import {
+  DEFAULT_SLACK_PACKAGE,
+  type HttpServer,
+  type SlackPackage,
+  type SlackServer,
+  type Workspace,
+} from "@/config"
 import { resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
 
 export const SLACK_MCP_VERSION = "1.3.0"
+
+// The npx package spec for a workspace's chosen Slack server. The original is
+// pinned to a known-good version; the @nrjdalal fork is kept on @latest by
+// request (and doctor's unpinned check exempts it, see src/doctor.ts).
+export const slackPackageSpec = (pkg: SlackPackage = DEFAULT_SLACK_PACKAGE): string =>
+  pkg === "@nrjdalal/slack-mcp-server"
+    ? "@nrjdalal/slack-mcp-server@latest"
+    : `slack-mcp-server@${SLACK_MCP_VERSION}`
 
 const GITHUB_URL = "https://api.githubcopilot.com/mcp/"
 
@@ -75,7 +89,7 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       out[name] = {
         type: "stdio",
         command: "npx",
-        args: ["-y", `slack-mcp-server@${SLACK_MCP_VERSION}`, "--transport", "stdio"],
+        args: ["-y", slackPackageSpec(slack.package), "--transport", "stdio"],
         env,
       }
     } else {

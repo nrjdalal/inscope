@@ -93,6 +93,16 @@ test("golden: Slack server, read-only vs post-enabled", () => {
   ).toMatchSnapshot("post-enabled")
 })
 
+test("golden: Slack server on the @nrjdalal package (kept latest)", () => {
+  expect(
+    renderMcp({
+      name: "acme",
+      path: "~/acme",
+      servers: { slack: { keychain: "K", package: "@nrjdalal/slack-mcp-server" } },
+    }),
+  ).toMatchSnapshot()
+})
+
 test("golden: an http server with a custom url override", () => {
   expect(
     renderMcp({

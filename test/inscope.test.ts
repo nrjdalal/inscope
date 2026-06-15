@@ -24,7 +24,7 @@ import {
 } from "@/config"
 import { currentWorkspace } from "@/doctor"
 import { adoptable, diffLines, mcpError, mcpTarget } from "@/drift"
-import { configPath, gitIncludeDir, hookPath } from "@/env"
+import { configPath, gitIncludeDir, home, hookPath, zshrcPath } from "@/env"
 import {
   applyGitconfig,
   perWorkspaceGitconfigPath,
@@ -41,6 +41,7 @@ import {
   enabledServers,
   gitGlobalHint,
   persist,
+  resolveSlackPackage,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
 
@@ -225,6 +226,60 @@ test("buildServers reflects the enabled list and slack details", () => {
   expect(withSlack.slack).toEqual({ keychain: "K", addMessageTool: true })
 })
 
+test("buildServers omits the default slack package but keeps a non-default one", () => {
+  // default package -> no `package` key, so existing configs stay byte-identical
+  const def = buildServers(["slack"], {
+    keychain: "K",
+    addMessageTool: false,
+    package: "slack-mcp-server",
+  })
+  expect(def.slack).toEqual({ keychain: "K", addMessageTool: false })
+
+  const nrj = buildServers(["slack"], {
+    keychain: "K",
+    addMessageTool: false,
+    package: "@nrjdalal/slack-mcp-server",
+  })
+  expect(nrj.slack).toEqual({
+    keychain: "K",
+    addMessageTool: false,
+    package: "@nrjdalal/slack-mcp-server",
+  })
+})
+
+test("resolveSlackPackage accepts aliases and rejects the unknown", () => {
+  expect(resolveSlackPackage(undefined)).toBe("slack-mcp-server")
+  expect(resolveSlackPackage("")).toBe("slack-mcp-server")
+  expect(resolveSlackPackage("default")).toBe("slack-mcp-server")
+  expect(resolveSlackPackage("nrjdalal")).toBe("@nrjdalal/slack-mcp-server")
+  expect(resolveSlackPackage("@nrjdalal/slack-mcp-server")).toBe("@nrjdalal/slack-mcp-server")
+  expect(resolveSlackPackage("some-other-pkg")).toBeNull()
+})
+
+test("renderServers runs the @nrjdalal slack fork on latest", () => {
+  const out = renderServers({
+    name: "x",
+    path: "~/x",
+    servers: { slack: { keychain: "K", package: "@nrjdalal/slack-mcp-server" } },
+  })
+  expect((out["slack-x"] as any).args).toContain("@nrjdalal/slack-mcp-server@latest")
+})
+
+test("validateConfig rejects an unknown slack package", () => {
+  expect(() =>
+    validateConfig({
+      version: CONFIG_VERSION,
+      workspaces: [
+        {
+          name: "ok",
+          path: "~/x",
+          servers: { slack: { keychain: "K", package: "evil-pkg" } } as never,
+        },
+      ],
+    }),
+  ).toThrow(/Slack package .* is invalid/)
+})
+
 test("renderServers emits each OAuth http server at its endpoint", () => {
   const out = renderServers({
     name: "x",
@@ -349,6 +404,21 @@ test("pathConflict flags a different-named workspace already at a path", () => {
 test("gitGlobalHint surfaces the global value, or notes there is none", () => {
   expect(gitGlobalHint("me@acme.org")).toBe("global: me@acme.org")
   expect(gitGlobalHint(null)).toBe("no global set")
+})
+
+test("home() honors process.env.HOME so apply writes stay in the sandbox", () => {
+  // Regression: os.homedir() ignores a runtime process.env.HOME change (under
+  // Bun especially), so without honoring $HOME the zshrc/gitconfig writes
+  // escaped the test sandbox and appended dead source lines to the real ~/.zshrc.
+  const prev = process.env.HOME
+  try {
+    process.env.HOME = "/tmp/inscope-home-probe"
+    expect(home()).toBe("/tmp/inscope-home-probe")
+    expect(zshrcPath()).toBe("/tmp/inscope-home-probe/.zshrc")
+  } finally {
+    if (prev === undefined) delete process.env.HOME
+    else process.env.HOME = prev
+  }
 })
 
 test("relocating a workspace to a new path prunes the old path's managed block", () => {

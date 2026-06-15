@@ -11,7 +11,7 @@ import {
   perWorkspaceGitconfigPath,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { managedKeys, mcpFilePath, readMcp } from "@/generators/mcp"
+import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
 import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
 import {
@@ -27,13 +27,19 @@ import {
 export type CheckStatus = "ok" | "warn" | "fail"
 export type Check = { status: CheckStatus; label: string; detail?: string }
 
+// The @nrjdalal Slack fork is rendered on @latest on purpose, so it is not an
+// accidental unpin; doctor skips it rather than nagging about it every run.
+const INTENTIONALLY_FLOATING = slackPackageSpec("@nrjdalal/slack-mcp-server")
+
 const unpinnedServers = (doc: Record<string, any> | null): string[] => {
   const out: string[] = []
   const servers = doc?.mcpServers
   if (!servers || typeof servers !== "object") return out
   for (const [name, def] of Object.entries<any>(servers)) {
     const args: string[] = Array.isArray(def?.args) ? def.args : []
-    if (args.some((a) => typeof a === "string" && a.endsWith("@latest"))) {
+    if (args.includes(INTENTIONALLY_FLOATING)) {
+      continue
+    } else if (args.some((a) => typeof a === "string" && a.endsWith("@latest"))) {
       out.push(name)
     } else if (def?.command === "npx") {
       const pkg = args.find((a) => typeof a === "string" && !a.startsWith("-"))

@@ -1,7 +1,12 @@
 import os from "node:os"
 import path from "node:path"
 
-export const home = () => os.homedir()
+// Honor $HOME (the POSIX home, and what shells use) before falling back to the
+// OS lookup. This mirrors configHome() trusting $XDG_CONFIG_HOME, and is what
+// lets a test point HOME at a sandbox: os.homedir() ignores a runtime
+// process.env.HOME change (notably under Bun), so without this the zshrc and
+// gitconfig writes would escape the sandbox onto the real dotfiles.
+export const home = () => process.env.HOME?.trim() || os.homedir()
 
 export const configHome = () => process.env.XDG_CONFIG_HOME?.trim() || path.join(home(), ".config")
 
