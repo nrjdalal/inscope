@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.8
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.7...v0.8.8)
+
+### 🚀 Enhancements
+
+- **diff:** Adopt the Slack package from .mcp.json ([3bb4622](https://github.com/nrjdalal/inscope/commit/3bb4622))
+
+### 🩹 Fixes
+
+- **mcp:** Render the @nrjdalal Slack fork per its own CLI ([b6d66bd](https://github.com/nrjdalal/inscope/commit/b6d66bd))
+
+### 📖 Documentation
+
+- **demo:** Re-record add/edit tapes for the Slack package picker ([110fc69](https://github.com/nrjdalal/inscope/commit/110fc69))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.7
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.6...v0.8.7)
