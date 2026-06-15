@@ -5,6 +5,7 @@ import {
   DEFAULT_SLACK_PACKAGE,
   type HttpServer,
   type Servers,
+  type SlackPackage,
   type SlackServer,
   type Workspace,
 } from "@/config"
@@ -137,6 +138,17 @@ export const diffLines = (a: string, b: string): string => {
   return out.join("\n")
 }
 
+// The on-disk write/post intent of a slack server def, normalized to inscope's
+// addMessageTool, per each package's CLI: korotovsky opts IN to posting via
+// SLACK_MCP_ADD_MESSAGE_TOOL=true; the @nrjdalal fork is write-enabled by default
+// and opts OUT via SLACK_MCP_ALLOW_WRITE=false.
+const onDiskSlackWrite = (def: any, pkg: SlackPackage): boolean => {
+  const env = (def?.env ?? {}) as Record<string, unknown>
+  return pkg === "@nrjdalal/slack-mcp-server"
+    ? env.SLACK_MCP_ALLOW_WRITE !== "false"
+    : env.SLACK_MCP_ADD_MESSAGE_TOOL === "true"
+}
+
 // Back-sync: settings present in a workspace's on-disk .mcp.json that the config
 // can express but does not yet, so `apply` would otherwise drop them. Returns a
 // patched config and a human-readable list of what would be adopted.
@@ -148,32 +160,33 @@ export const adoptable = (cfg: Config): { cfg: Config; changes: string[] } => {
 
     let servers: Servers = ws.servers
 
+    // Slack: adopt the on-disk package and write/post intent so a hand-edited
+    // .mcp.json (fork vs default, read-only vs write) survives the next apply
+    // instead of being reverted. Write is read per the on-disk package, since the
+    // two packages express it differently (see onDiskSlackWrite). Adopting the
+    // default package or read-only drops the redundant key to keep config minimal.
     const slack = ws.servers.slack
-    if (
-      slack &&
-      !slack.addMessageTool &&
-      onDisk[`slack-${ws.name}`]?.env?.SLACK_MCP_ADD_MESSAGE_TOOL === "true"
-    ) {
-      servers = { ...servers, slack: { ...slack, addMessageTool: true } }
-      changes.push(`${ws.name}: slack.addMessageTool = true`)
-    }
+    const diskSlack = onDisk[`slack-${ws.name}`]
+    if (slack && diskSlack && typeof diskSlack === "object") {
+      const curPkg = slack.package ?? DEFAULT_SLACK_PACKAGE
+      const diskPkg = slackPackageFromArgs(diskSlack.args) ?? curPkg
+      const diskWrite = onDiskSlackWrite(diskSlack, diskPkg)
 
-    // adopt the slack package the on-disk .mcp.json runs when it differs from the
-    // config, so a hand-edited .mcp.json (e.g. switched to the @nrjdalal fork) can
-    // be pulled back into the config instead of being reverted by the next apply.
-    // Reads servers.slack (not ws.servers.slack) to layer on the addMessageTool
-    // adopt above. A diskPkg matching the default drops the redundant key.
-    const curSlack = servers.slack
-    if (curSlack) {
-      const diskPkg = slackPackageFromArgs(onDisk[`slack-${ws.name}`]?.args)
-      const curPkg = curSlack.package ?? DEFAULT_SLACK_PACKAGE
-      if (diskPkg && diskPkg !== curPkg) {
-        const nextSlack: SlackServer = { ...curSlack }
-        if (diskPkg === DEFAULT_SLACK_PACKAGE) delete nextSlack.package
-        else nextSlack.package = diskPkg
-        servers = { ...servers, slack: nextSlack }
+      const next: SlackServer = { ...slack }
+      let changed = false
+      if (diskPkg !== curPkg) {
+        if (diskPkg === DEFAULT_SLACK_PACKAGE) delete next.package
+        else next.package = diskPkg
         changes.push(`${ws.name}: slack.package = ${diskPkg}`)
+        changed = true
       }
+      if (diskWrite !== Boolean(slack.addMessageTool)) {
+        if (diskWrite) next.addMessageTool = true
+        else delete next.addMessageTool
+        changes.push(`${ws.name}: slack.addMessageTool = ${diskWrite}`)
+        changed = true
+      }
+      if (changed) servers = { ...servers, slack: next }
     }
 
     // remote (URL-only) servers: adopt a custom URL on a configured server, or a

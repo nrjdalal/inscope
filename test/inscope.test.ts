@@ -764,29 +764,35 @@ test("slackPackageFromArgs detects the package, ignoring the version suffix", ()
   expect(slackPackageFromArgs(["-y", "@nrjdalal/slack-mcp-server"])).toBe(
     "@nrjdalal/slack-mcp-server",
   )
+  expect(slackPackageFromArgs(["-y", "slack-mcp-server"])).toBe("slack-mcp-server")
   expect(slackPackageFromArgs(["-y", "some-other-mcp@1.0.0"])).toBeNull()
+  // a sibling name that merely contains the package name is not the package
+  expect(slackPackageFromArgs(["-y", "slack-mcp-server-fork@1.0.0"])).toBeNull()
   expect(slackPackageFromArgs(undefined)).toBeNull()
 })
 
+const writeSlackMcp = (dir: string, args: string[], env: Record<string, string> = {}) =>
+  fs.writeFileSync(
+    path.join(dir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        "slack-acme": {
+          type: "stdio",
+          command: "npx",
+          args,
+          env: { SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}", ...env },
+        },
+      },
+    }),
+  )
+
 test("adoptable back-syncs a hand-edited slack package, both ways, idempotently", () => {
   const dir = tmpDir()
-  const writeArgs = (spec: string) =>
-    fs.writeFileSync(
-      path.join(dir, ".mcp.json"),
-      JSON.stringify({
-        mcpServers: {
-          "slack-acme": {
-            type: "stdio",
-            command: "npx",
-            args: ["-y", spec, "--transport", "stdio"],
-            env: { SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}" },
-          },
-        },
-      }),
-    )
-
+  // hold write intent constant (read-only on both sides) to isolate the package adopt
   // on-disk @nrjdalal, config on the default -> adopt the fork into config
-  writeArgs("@nrjdalal/slack-mcp-server@latest")
+  writeSlackMcp(dir, ["-y", "@nrjdalal/slack-mcp-server@latest"], {
+    SLACK_MCP_ALLOW_WRITE: "false",
+  })
   const cfg: Config = {
     version: 1,
     workspaces: [{ name: "acme", path: dir, servers: { slack: { keychain: "K" } } }],
@@ -800,11 +806,50 @@ test("adoptable back-syncs a hand-edited slack package, both ways, idempotently"
   expect(adoptable(forked).changes).toHaveLength(0)
 
   // on-disk reverted to the default, config on the fork -> drop the redundant key
-  writeArgs("slack-mcp-server@1.3.0")
+  writeSlackMcp(dir, ["-y", "slack-mcp-server@1.3.0"])
   const { cfg: reverted, changes: revertChanges } = adoptable(forked)
   expect(revertChanges).toContain("acme: slack.package = slack-mcp-server")
   expect(reverted.workspaces[0].servers.slack).toEqual({ keychain: "K" })
   expect(adoptable(reverted).changes).toHaveLength(0)
+})
+
+test("adoptable back-syncs the fork's read-only/write toggle, both ways", () => {
+  const dir = tmpDir()
+  const forkArgs = ["-y", "@nrjdalal/slack-mcp-server@latest"]
+
+  // config: fork, write-enabled. disk hand-edited to read-only (ALLOW_WRITE=false)
+  writeSlackMcp(dir, forkArgs, { SLACK_MCP_ALLOW_WRITE: "false" })
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      {
+        name: "acme",
+        path: dir,
+        servers: {
+          slack: { keychain: "K", package: "@nrjdalal/slack-mcp-server", addMessageTool: true },
+        },
+      },
+    ],
+  }
+  const { cfg: ro, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: slack.addMessageTool = false")
+  // read-only is the default, so the key is dropped
+  expect(ro.workspaces[0].servers.slack).toEqual({
+    keychain: "K",
+    package: "@nrjdalal/slack-mcp-server",
+  })
+  expect(adoptable(ro).changes).toHaveLength(0)
+
+  // disk hand-edited back to write (no ALLOW_WRITE, the fork's default) -> adopt true
+  writeSlackMcp(dir, forkArgs)
+  const { cfg: rw, changes: c2 } = adoptable(ro)
+  expect(c2).toContain("acme: slack.addMessageTool = true")
+  expect(rw.workspaces[0].servers.slack).toEqual({
+    keychain: "K",
+    package: "@nrjdalal/slack-mcp-server",
+    addMessageTool: true,
+  })
+  expect(adoptable(rw).changes).toHaveLength(0)
 })
 
 test("adoptable adopts a custom remote URL but leaves a default one alone", () => {
