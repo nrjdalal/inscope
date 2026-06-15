@@ -31,6 +31,9 @@ Enter
 Sleep 1200ms
 Up Sleep 200ms Up Sleep 200ms Up Sleep 200ms Up Sleep 500ms Space Sleep 900ms Enter
 Sleep 1600ms
+# Slack MCP server package: pick @nrjdalal/slack-mcp-server (the second option)
+Down Sleep 500ms Enter
+Sleep 1500ms
 Enter
 Sleep 1400ms
 Up Sleep 800ms Enter
