@@ -21,6 +21,21 @@ export const slackPackageSpec = (pkg: SlackPackage = DEFAULT_SLACK_PACKAGE): str
     ? "@nrjdalal/slack-mcp-server@latest"
     : `slack-mcp-server@${SLACK_MCP_VERSION}`
 
+// Inverse of slackPackageSpec: which known package an on-disk slack server's
+// npx args run, for `diff --adopt`. Matches by package name, ignoring the
+// version/tag suffix, so it recognizes any pin (@latest, @1.3.0, bare). Returns
+// null when no known slack package is found.
+export const slackPackageFromArgs = (args: unknown): SlackPackage | null => {
+  if (!Array.isArray(args)) return null
+  const spec = args.find(
+    (a): a is string => typeof a === "string" && a.includes("slack-mcp-server"),
+  )
+  if (!spec) return null
+  if (spec.startsWith("@nrjdalal/slack-mcp-server")) return "@nrjdalal/slack-mcp-server"
+  if (spec.startsWith("slack-mcp-server")) return "slack-mcp-server"
+  return null
+}
+
 const GITHUB_URL = "https://api.githubcopilot.com/mcp/"
 
 // Remote servers Claude Code authenticates via OAuth over streamable HTTP

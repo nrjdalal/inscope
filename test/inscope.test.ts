@@ -32,7 +32,7 @@ import {
   renderPerWorkspaceGitconfig,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { applyMcp, removeMcp, renderServers } from "@/generators/mcp"
+import { applyMcp, removeMcp, renderServers, slackPackageFromArgs } from "@/generators/mcp"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
@@ -739,6 +739,59 @@ test("adoptable back-syncs a config-expressible on-disk setting, idempotently", 
 
   // once the config covers it, there is nothing left to adopt
   expect(adoptable(next).changes).toHaveLength(0)
+})
+
+test("slackPackageFromArgs detects the package, ignoring the version suffix", () => {
+  expect(slackPackageFromArgs(["-y", "slack-mcp-server@1.3.0", "--transport", "stdio"])).toBe(
+    "slack-mcp-server",
+  )
+  expect(slackPackageFromArgs(["-y", "@nrjdalal/slack-mcp-server@latest"])).toBe(
+    "@nrjdalal/slack-mcp-server",
+  )
+  expect(slackPackageFromArgs(["-y", "@nrjdalal/slack-mcp-server"])).toBe(
+    "@nrjdalal/slack-mcp-server",
+  )
+  expect(slackPackageFromArgs(["-y", "some-other-mcp@1.0.0"])).toBeNull()
+  expect(slackPackageFromArgs(undefined)).toBeNull()
+})
+
+test("adoptable back-syncs a hand-edited slack package, both ways, idempotently", () => {
+  const dir = tmpDir()
+  const writeArgs = (spec: string) =>
+    fs.writeFileSync(
+      path.join(dir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          "slack-acme": {
+            type: "stdio",
+            command: "npx",
+            args: ["-y", spec, "--transport", "stdio"],
+            env: { SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}" },
+          },
+        },
+      }),
+    )
+
+  // on-disk @nrjdalal, config on the default -> adopt the fork into config
+  writeArgs("@nrjdalal/slack-mcp-server@latest")
+  const cfg: Config = {
+    version: 1,
+    workspaces: [{ name: "acme", path: dir, servers: { slack: { keychain: "K" } } }],
+  }
+  const { cfg: forked, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: slack.package = @nrjdalal/slack-mcp-server")
+  expect(forked.workspaces[0].servers.slack).toEqual({
+    keychain: "K",
+    package: "@nrjdalal/slack-mcp-server",
+  })
+  expect(adoptable(forked).changes).toHaveLength(0)
+
+  // on-disk reverted to the default, config on the fork -> drop the redundant key
+  writeArgs("slack-mcp-server@1.3.0")
+  const { cfg: reverted, changes: revertChanges } = adoptable(forked)
+  expect(revertChanges).toContain("acme: slack.package = slack-mcp-server")
+  expect(reverted.workspaces[0].servers.slack).toEqual({ keychain: "K" })
+  expect(adoptable(reverted).changes).toHaveLength(0)
 })
 
 test("adoptable adopts a custom remote URL but leaves a default one alone", () => {
