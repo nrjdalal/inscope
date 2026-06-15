@@ -133,7 +133,7 @@ Create the config, generate the chpwd hook, and add a source line to `~/.zshrc`.
 Map a directory. Run it bare and it walks you through everything: pick the GitHub account from your signed-in `gh` accounts, accept your global git identity or set a per-workspace one, and toggle which MCP servers to enable. Enabling Slack adds a keychain prompt and a Yes/No for posting messages. Pass any flag to skip its prompt, or `-y` to take the defaults non-interactively (for scripts and CI).
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/add.gif" alt="inscope add: gh picker, git identity, server multiselect, and the Slack prompts" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/add.gif" alt="inscope add: gh picker, git identity, server multiselect, the Slack package picker, and the Slack prompts" width="900" />
 </p>
 
 ```
