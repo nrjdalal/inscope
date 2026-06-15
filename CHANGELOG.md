@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.8.7
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.6...v0.8.7)
+
+### 🚀 Enhancements
+
+- **mcp:** Let Slack setup pick the server package ([0bf3feb](https://github.com/nrjdalal/inscope/commit/0bf3feb))
+- **add:** Treat --slack-package as a Slack-enabling flag ([994f3ce](https://github.com/nrjdalal/inscope/commit/994f3ce))
+
+### 🩹 Fixes
+
+- **env:** Honor $HOME so apply and tests don't pollute the real ~/.zshrc ([9fc48a8](https://github.com/nrjdalal/inscope/commit/9fc48a8))
+
+### 📖 Documentation
+
+- **readme:** Add a zero-dep highlight, features list, and more-tools footer ([fb2d0f0](https://github.com/nrjdalal/inscope/commit/fb2d0f0))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.6
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.5...v0.8.6)
