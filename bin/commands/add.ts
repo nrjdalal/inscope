@@ -179,7 +179,10 @@ export const add = async (args: string[]) => {
 
   // --- slack details ---
   const wantSlack =
-    serverList.includes("slack") || !!values["slack-keychain"] || !!values["seed-slack"]
+    serverList.includes("slack") ||
+    !!values["slack-keychain"] ||
+    !!values["slack-package"] ||
+    !!values["seed-slack"]
   let slackSvc = values["slack-keychain"] || slackKeychainFor(label)
   let slackMessage = !!values["slack-message"]
   let seedSlack = !!values["seed-slack"]
