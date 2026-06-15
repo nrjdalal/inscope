@@ -147,8 +147,8 @@ Map a directory. Run it bare and it walks you through everything: pick the GitHu
                         (default: github)
   --slack-keychain <s>  keychain service for the Slack token
                         (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
-  --slack-package <p>   Slack MCP server package: slack-mcp-server (default,
-                        pinned) or @nrjdalal/slack-mcp-server (kept on latest)
+  --slack-package <p>   Slack MCP server package: @nrjdalal/slack-mcp-server
+                        (default, kept on latest) or slack-mcp-server (pinned)
   --slack-message       allow the Slack MCP server to post messages
   --seed-slack          prompt for the Slack token and store it in the keychain
   -y, --yes             accept defaults, skip all prompts (non-interactive)
@@ -247,7 +247,7 @@ npx inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
 
 `--seed-slack` prompts for the `xoxp` token and writes it to the Keychain. Pass `--slack-message` to allow the Slack MCP server to post messages.
 
-The Slack setup also lets you pick the server package: the original [`slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server) (pinned to a known-good version, the default) or [`@nrjdalal/slack-mcp-server`](https://www.npmjs.com/package/@nrjdalal/slack-mcp-server) (kept on `latest`). Choose it in the prompt, or pass `--slack-package @nrjdalal/slack-mcp-server`.
+The Slack setup also lets you pick the server package: [`@nrjdalal/slack-mcp-server`](https://www.npmjs.com/package/@nrjdalal/slack-mcp-server) (kept on `latest`, the default) or the original [`slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server) (pinned to a known-good version). Choose it in the prompt, or pass `--slack-package slack-mcp-server`.
 
 You need a Slack app with a user OAuth (`xoxp`) token first. If you don't have one, follow the [slack-mcp-server authentication guide](https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth). inscope points you there during `add` when Slack is enabled.
 

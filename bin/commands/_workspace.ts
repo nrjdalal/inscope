@@ -39,8 +39,9 @@ export const buildServers = (
         continue
       }
       const entry: SlackServer = { keychain: slack.keychain, addMessageTool: slack.addMessageTool }
-      // Only persist a non-default package, so configs that use the original stay
-      // free of a redundant `package` key (and existing configs are unchanged).
+      // Only persist a non-default package, so configs on the @nrjdalal default
+      // stay free of a redundant `package` key; the pinned original persists as
+      // package: "slack-mcp-server".
       if (slack.package && slack.package !== DEFAULT_SLACK_PACKAGE) entry.package = slack.package
       out[t] = entry
     } else {
@@ -50,22 +51,22 @@ export const buildServers = (
   return out as Servers
 }
 
-// The Slack package picker, shared by `add` and `edit`. The original is listed
-// first so it stays the default selection.
+// The Slack package picker, shared by `add` and `edit`. The default (@nrjdalal
+// fork) is listed first so it is the default selection.
 export const SLACK_PACKAGE_CHOICES: { label: string; value: SlackPackage }[] = [
+  { label: "@nrjdalal/slack-mcp-server (default, latest)", value: "@nrjdalal/slack-mcp-server" },
   { label: "slack-mcp-server (korotovsky, pinned)", value: "slack-mcp-server" },
-  { label: "@nrjdalal/slack-mcp-server (latest)", value: "@nrjdalal/slack-mcp-server" },
 ]
 
 // Resolve a --slack-package flag value to a known package, accepting friendly
 // aliases. Returns null for an unrecognized value so the caller can error out.
 export const resolveSlackPackage = (input?: string): SlackPackage | null => {
   const v = (input ?? "").trim().toLowerCase()
-  if (!v) return DEFAULT_SLACK_PACKAGE
+  // empty or the literal "default" tracks DEFAULT_SLACK_PACKAGE (now the @nrjdalal fork)
+  if (!v || v === "default") return DEFAULT_SLACK_PACKAGE
   if (["@nrjdalal/slack-mcp-server", "nrjdalal", "nrj"].includes(v))
     return "@nrjdalal/slack-mcp-server"
-  if (["slack-mcp-server", "default", "original", "korotovsky"].includes(v))
-    return "slack-mcp-server"
+  if (["slack-mcp-server", "original", "korotovsky"].includes(v)) return "slack-mcp-server"
   return null
 }
 
