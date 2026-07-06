@@ -196,6 +196,65 @@ test("golden: chpwd hook covers tricky paths and every arm shape", () => {
   ).toMatchSnapshot()
 })
 
+// Claude Code config-dir scoping. CLAUDE_CONFIG_DIR is resolved in the launch
+// wrapper from $PWD (the token resolver above is untouched). Exercises every arm
+// shape: a named profile (~/.claude-acme), the reserved `claude` name (base
+// ~/.claude), and a workspace with no profile (no wrapper arm; it keeps the base
+// like any unmapped dir). Locks the wrapper's $PWD case and the per-launch
+// CLAUDE_CONFIG_DIR.
+test("golden: chpwd hook with Claude config-dir profiles", () => {
+  expect(
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/acme", gh: "acme-bot", claude: "acme", servers: { github: true } },
+        { name: "oss", path: "~/oss", claude: "claude", servers: { github: true } },
+        { name: "side", path: "~/side", gh: "nrjdalal", servers: { github: true } },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
+// A single profiled workspace: the wrapper carries one $PWD arm; the other
+// workspace and every unmapped dir keep the base ~/.claude.
+test("golden: chpwd hook with a single Claude override and no default", () => {
+  expect(
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/acme", claude: "acme", servers: { github: true } },
+        { name: "personal", path: "~/personal", gh: "nrjdalal", servers: { github: true } },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
+// wrapClaude `true` plus a profile: the wrapper resolves the config dir from
+// $PWD, runs `claude update` first, then launches --dangerously-skip-permissions
+// carrying CLAUDE_CONFIG_DIR for that launch.
+test("golden: chpwd hook with wrapClaude enabled (both flags)", () => {
+  expect(
+    renderHook({
+      version: 1,
+      wrapClaude: true,
+      workspaces: [{ name: "acme", path: "~/acme", claude: "acme", servers: { github: true } }],
+    }),
+  ).toMatchSnapshot()
+})
+
+// Object form toggles flags individually: skip-permissions only, no auto-update.
+// No workspace sets a profile, so the wrapper stays a one-liner with no $PWD case
+// (wrapClaude is independent of profiles).
+test("golden: chpwd hook with wrapClaude object, skip-permissions only", () => {
+  expect(
+    renderHook({
+      version: 1,
+      wrapClaude: { dangerouslySkipPermissions: true },
+      workspaces: [{ name: "acme", path: "~/acme", gh: "acme", servers: { github: true } }],
+    }),
+  ).toMatchSnapshot()
+})
+
 // --- git config ---
 
 test("golden: gitconfig includeIf block", () => {

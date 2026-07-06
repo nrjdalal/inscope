@@ -6,7 +6,10 @@ import path from "node:path"
 
 import { applyAll, renderZshrcSource } from "@/apply"
 import {
+  claudeConfigDirName,
+  claudeProfileError,
   CONFIG_VERSION,
+  resolveClaudeWrapper,
   findWorkspace,
   gitValueError,
   hookValueError,
@@ -121,6 +124,35 @@ test("renderHook wires both workspaces and is deterministic", () => {
   expect(hook).toContain(`add-zsh-hook chpwd __inscope_resolve_identity`)
   expect(hook).toContain(`__inscope_ws="__init__"`)
   expect(renderHook(blogConfig())).toBe(hook)
+})
+
+test("renderHook omits CLAUDE_CONFIG_DIR entirely when no claude profile is set", () => {
+  expect(renderHook(blogConfig())).not.toContain("CLAUDE_CONFIG_DIR")
+})
+
+test("renderHook resolves the Claude config dir in the launch wrapper, from $PWD", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "acme", path: "~/acme", claude: "acme", servers: { github: true } },
+      { name: "oss", path: "~/oss", claude: "claude", servers: { github: true } },
+      { name: "side", path: "~/side", gh: "nrjdalal", servers: { github: true } },
+    ],
+  }
+  const hook = renderHook(cfg)
+  // the token resolver is untouched: no CLAUDE_CONFIG_DIR, and it still returns
+  // early for an unmapped dir (the config dir lives in the wrapper, not the hook)
+  const resolver = hook.slice(0, hook.indexOf("claude() {"))
+  expect(resolver).not.toContain("CLAUDE_CONFIG_DIR")
+  expect(resolver).toContain(`*) return ;;`)
+  // the wrapper resolves the dir from $PWD at launch: base default, one arm per
+  // profile, and the dir set for that launch only
+  expect(hook).toContain(`local dir="$HOME/.claude"`)
+  expect(hook).toContain(`"$HOME/acme/"*) dir="$HOME/.claude-acme" ;;`)
+  expect(hook).toContain(`"$HOME/oss/"*) dir="$HOME/.claude" ;;`)
+  // a workspace without a profile contributes no arm
+  expect(hook).not.toContain(`"$HOME/side/"*) dir=`)
+  expect(hook).toContain(`CLAUDE_CONFIG_DIR="$dir" command claude "$@"`)
 })
 
 test("a workspace without gh or slack produces a no-op hook arm", () => {
@@ -693,6 +725,113 @@ test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-e
   ).toThrow(/Slack keychain .* is invalid/)
 })
 
+test("claudeProfileError accepts slugs and rejects shell metacharacters", () => {
+  expect(claudeProfileError("acme")).toBeNull()
+  expect(claudeProfileError("claude")).toBeNull()
+  expect(claudeProfileError("a.b-c_1")).toBeNull()
+  expect(claudeProfileError("")).not.toBeNull()
+  expect(claudeProfileError("my profile")).not.toBeNull()
+  expect(claudeProfileError("$(id)")).not.toBeNull()
+  expect(claudeProfileError("a/b")).not.toBeNull()
+})
+
+test("claudeConfigDirName maps the reserved name to the base dir, others to siblings", () => {
+  expect(claudeConfigDirName("claude")).toBe(".claude")
+  expect(claudeConfigDirName("acme")).toBe(".claude-acme")
+  expect(claudeConfigDirName("personal")).toBe(".claude-personal")
+})
+
+test("validateConfig rejects an unsafe per-workspace claude profile", () => {
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "ok", path: "~/x", claude: "$(id)", servers: {} }],
+    }),
+  ).toThrow(/claude profile .* is invalid/)
+
+  // a valid per-workspace override passes
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "ok", path: "~/x", claude: "acme", servers: {} }],
+    }),
+  ).not.toThrow()
+})
+
+test("resolveClaudeWrapper normalizes boolean shorthand and object form", () => {
+  expect(resolveClaudeWrapper({ version: 1, workspaces: [] })).toBeNull()
+  expect(resolveClaudeWrapper({ version: 1, wrapClaude: false, workspaces: [] })).toBeNull()
+  expect(resolveClaudeWrapper({ version: 1, wrapClaude: true, workspaces: [] })).toEqual({
+    update: true,
+    dangerouslySkipPermissions: true,
+  })
+  // object opts each flag in individually; an omitted flag is off
+  expect(
+    resolveClaudeWrapper({
+      version: 1,
+      wrapClaude: { dangerouslySkipPermissions: true },
+      workspaces: [],
+    }),
+  ).toEqual({ update: false, dangerouslySkipPermissions: true })
+  expect(resolveClaudeWrapper({ version: 1, wrapClaude: {}, workspaces: [] })).toEqual({
+    update: false,
+    dangerouslySkipPermissions: false,
+  })
+})
+
+test("renderHook emits the claude() wrapper for a profile or wrapClaude, else nothing", () => {
+  const bare: Config = { version: 1, workspaces: [{ name: "a", path: "~/a", servers: {} }] }
+  expect(renderHook(bare)).not.toContain("claude()")
+
+  // a profile alone emits the wrapper: it is how the per-directory config dir is
+  // delivered, so no wrapClaude is required
+  const profiled = renderHook({
+    version: 1,
+    workspaces: [{ name: "a", path: "~/a", claude: "acme", servers: {} }],
+  })
+  expect(profiled).toContain(`claude() {`)
+  expect(profiled).toContain(`"$HOME/a/"*) dir="$HOME/.claude-acme" ;;`)
+  expect(profiled).toContain(`CLAUDE_CONFIG_DIR="$dir" command claude "$@"`)
+
+  // wrapClaude flags ride on the same wrapper; with no profile it stays a one-liner
+  const wrapped = renderHook({ ...bare, wrapClaude: true })
+  expect(wrapped).toContain(
+    `claude() { command claude update && command claude --dangerously-skip-permissions "$@"; }`,
+  )
+  const skipOnly = renderHook({ ...bare, wrapClaude: { dangerouslySkipPermissions: true } })
+  expect(skipOnly).toContain(`claude() { command claude --dangerously-skip-permissions "$@"; }`)
+
+  // both together: the config-dir case plus the flags, with update running first
+  const both = renderHook({
+    version: 1,
+    wrapClaude: true,
+    workspaces: [{ name: "a", path: "~/a", claude: "acme", servers: {} }],
+  })
+  expect(both).toContain(
+    `command claude update && CLAUDE_CONFIG_DIR="$dir" command claude --dangerously-skip-permissions "$@"`,
+  )
+})
+
+test("validateConfig rejects a malformed wrapClaude", () => {
+  expect(() =>
+    validateConfig({ version: 1, wrapClaude: "yes" as unknown as boolean, workspaces: [] }),
+  ).toThrow(/wrapClaude must be a boolean or an object/)
+  expect(() =>
+    validateConfig({
+      version: 1,
+      wrapClaude: { bogus: true } as unknown as boolean,
+      workspaces: [],
+    }),
+  ).toThrow(/wrapClaude has unknown key/)
+  expect(() =>
+    validateConfig({
+      version: 1,
+      wrapClaude: { update: "x" } as unknown as boolean,
+      workspaces: [],
+    }),
+  ).toThrow(/wrapClaude.update must be a boolean/)
+})
+
 test("diffLines marks unchanged, removed, and added lines", () => {
   const d = diffLines("a\nb\nc", "a\nB\nc\nd")
   expect(d).toContain("  a")
@@ -1025,16 +1164,21 @@ const hasZsh = (() => {
 
 test.skipIf(!hasZsh)("the rendered hook parses as valid zsh (zsh -n)", () => {
   // every pathPattern branch and idArm shape, plus a path with spaces and a
-  // dotted/dashed/underscored name, mirroring the golden coverage config.
+  // dotted/dashed/underscored name, mirroring the golden coverage config. Also
+  // sets Claude profiles and wrapClaude so the launch wrapper is parse-checked
+  // too: a config-dir arm on the home-root pattern, another on a spaced path, and
+  // the update + skip-permissions launch carrying CLAUDE_CONFIG_DIR.
   const cfg: Config = {
     version: 1,
+    wrapClaude: true,
     workspaces: [
-      { name: "home", path: "~", gh: "acct", servers: { github: true } },
+      { name: "home", path: "~", gh: "acct", claude: "claude", servers: { github: true } },
       { name: "opt", path: "/opt/work", gh: "acct", servers: { github: true } },
       {
         name: "my-project-work",
         path: "~/My Project (work)",
         gh: "acme-org",
+        claude: "work",
         servers: { github: true, slack: { keychain: "SLACK_MCP_XOXP_TOKEN_MYPROJECT" } },
       },
       { name: "slackonly", path: "~/slackonly", servers: { slack: { keychain: "K" } } },

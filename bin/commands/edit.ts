@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util"
 
 import {
+  claudeProfileError,
   configExists,
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
@@ -104,6 +105,21 @@ export const edit = async (args: string[]) => {
   )
   const gh = (await selectOne("GitHub account", ghChoices, ghInitial)) || undefined
 
+  // --- claude config profile: enter keeps current, "-" resets to the base ~/.claude ---
+  const curClaude = ws.claude
+  const claudeAns = await promptText(
+    curClaude
+      ? `Claude config profile (enter keeps ${curClaude}, "-" for the base ~/.claude)`
+      : "Claude config profile (enter for the base ~/.claude)",
+    curClaude ?? "",
+  )
+  const claude = claudeAns === "-" ? undefined : claudeAns || undefined
+  const claudeErr = claude ? claudeProfileError(claude) : null
+  if (claudeErr) {
+    console.error(`\nInvalid Claude profile "${claude}": ${claudeErr}`)
+    process.exit(1)
+  }
+
   // --- git identity: enter keeps current, "-" inherits the global config ---
   const curEmail = ws.git?.email
   const emailAns = await promptText(
@@ -168,6 +184,7 @@ export const edit = async (args: string[]) => {
     name: ws.name,
     path: ws.path,
     gh,
+    claude,
     git: email || gitName ? { email, name: gitName } : undefined,
     servers: buildServers(
       serverList,

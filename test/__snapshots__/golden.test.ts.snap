@@ -395,6 +395,248 @@ __inscope_resolve_identity
 "
 `;
 
+exports[`golden: chpwd hook with Claude config-dir profiles 1`] = `
+"# Managed by inscope. Do not edit by hand.
+# Source of truth: ~/.config/inscope/inscope.json
+# Edit there, then run \`inscope apply\` to regenerate this file.
+#
+# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
+# the current directory to a workspace, then pulls that workspace's GitHub token
+# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# is written to disk, and there is no shared mutable state for sessions to race.
+__inscope_resolve_identity() {
+  local ws
+  case "\${PWD}/" in
+    "$HOME/acme/"*) ws="acme" ;;
+    "$HOME/side/"*) ws="side" ;;
+    "$HOME/oss/"*) ws="oss" ;;
+    *) ws="" ;;
+  esac
+  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
+  __inscope_ws="$ws"
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
+
+  local gh_user="" slack_svc=""
+  case "$ws" in
+    acme) gh_user="acme-bot" ;;
+    oss) : ;;
+    side) gh_user="nrjdalal" ;;
+    *) return ;;                                     # outside a mapped workspace: nothing set
+  esac
+
+  local tok
+  if [[ -n "$gh_user" ]]; then
+    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
+    else
+      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
+    fi
+  fi
+  if [[ -n "$slack_svc" ]]; then
+    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export SLACK_MCP_XOXP_TOKEN="$tok"
+    else
+      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
+    fi
+  fi
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
+__inscope_resolve_identity
+
+# Managed by inscope: pick the Claude config dir for $PWD at launch, so each
+# workspace's \`claude\` profile runs on its own login (unmapped dirs keep the
+# base). Set "claude" per workspace, and launch flags via "wrapClaude", in
+# inscope.json.
+claude() {
+  local dir="$HOME/.claude"
+  case "\${PWD}/" in
+    "$HOME/acme/"*) dir="$HOME/.claude-acme" ;;
+    "$HOME/oss/"*) dir="$HOME/.claude" ;;
+  esac
+  CLAUDE_CONFIG_DIR="$dir" command claude "$@"
+}
+"
+`;
+
+exports[`golden: chpwd hook with a single Claude override and no default 1`] = `
+"# Managed by inscope. Do not edit by hand.
+# Source of truth: ~/.config/inscope/inscope.json
+# Edit there, then run \`inscope apply\` to regenerate this file.
+#
+# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
+# the current directory to a workspace, then pulls that workspace's GitHub token
+# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# is written to disk, and there is no shared mutable state for sessions to race.
+__inscope_resolve_identity() {
+  local ws
+  case "\${PWD}/" in
+    "$HOME/personal/"*) ws="personal" ;;
+    "$HOME/acme/"*) ws="acme" ;;
+    *) ws="" ;;
+  esac
+  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
+  __inscope_ws="$ws"
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
+
+  local gh_user="" slack_svc=""
+  case "$ws" in
+    acme) : ;;
+    personal) gh_user="nrjdalal" ;;
+    *) return ;;                                     # outside a mapped workspace: nothing set
+  esac
+
+  local tok
+  if [[ -n "$gh_user" ]]; then
+    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
+    else
+      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
+    fi
+  fi
+  if [[ -n "$slack_svc" ]]; then
+    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export SLACK_MCP_XOXP_TOKEN="$tok"
+    else
+      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
+    fi
+  fi
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
+__inscope_resolve_identity
+
+# Managed by inscope: pick the Claude config dir for $PWD at launch, so each
+# workspace's \`claude\` profile runs on its own login (unmapped dirs keep the
+# base). Set "claude" per workspace, and launch flags via "wrapClaude", in
+# inscope.json.
+claude() {
+  local dir="$HOME/.claude"
+  case "\${PWD}/" in
+    "$HOME/acme/"*) dir="$HOME/.claude-acme" ;;
+  esac
+  CLAUDE_CONFIG_DIR="$dir" command claude "$@"
+}
+"
+`;
+
+exports[`golden: chpwd hook with wrapClaude enabled (both flags) 1`] = `
+"# Managed by inscope. Do not edit by hand.
+# Source of truth: ~/.config/inscope/inscope.json
+# Edit there, then run \`inscope apply\` to regenerate this file.
+#
+# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
+# the current directory to a workspace, then pulls that workspace's GitHub token
+# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# is written to disk, and there is no shared mutable state for sessions to race.
+__inscope_resolve_identity() {
+  local ws
+  case "\${PWD}/" in
+    "$HOME/acme/"*) ws="acme" ;;
+    *) ws="" ;;
+  esac
+  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
+  __inscope_ws="$ws"
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
+
+  local gh_user="" slack_svc=""
+  case "$ws" in
+    acme) : ;;
+    *) return ;;                                     # outside a mapped workspace: nothing set
+  esac
+
+  local tok
+  if [[ -n "$gh_user" ]]; then
+    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
+    else
+      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
+    fi
+  fi
+  if [[ -n "$slack_svc" ]]; then
+    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export SLACK_MCP_XOXP_TOKEN="$tok"
+    else
+      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
+    fi
+  fi
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
+__inscope_resolve_identity
+
+# Managed by inscope: pick the Claude config dir for $PWD at launch, so each
+# workspace's \`claude\` profile runs on its own login (unmapped dirs keep the
+# base). Set "claude" per workspace, and launch flags via "wrapClaude", in
+# inscope.json.
+claude() {
+  local dir="$HOME/.claude"
+  case "\${PWD}/" in
+    "$HOME/acme/"*) dir="$HOME/.claude-acme" ;;
+  esac
+  command claude update && CLAUDE_CONFIG_DIR="$dir" command claude --dangerously-skip-permissions "$@"
+}
+"
+`;
+
+exports[`golden: chpwd hook with wrapClaude object, skip-permissions only 1`] = `
+"# Managed by inscope. Do not edit by hand.
+# Source of truth: ~/.config/inscope/inscope.json
+# Edit there, then run \`inscope apply\` to regenerate this file.
+#
+# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
+# the current directory to a workspace, then pulls that workspace's GitHub token
+# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# is written to disk, and there is no shared mutable state for sessions to race.
+__inscope_resolve_identity() {
+  local ws
+  case "\${PWD}/" in
+    "$HOME/acme/"*) ws="acme" ;;
+    *) ws="" ;;
+  esac
+  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
+  __inscope_ws="$ws"
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
+
+  local gh_user="" slack_svc=""
+  case "$ws" in
+    acme) gh_user="acme" ;;
+    *) return ;;                                     # outside a mapped workspace: nothing set
+  esac
+
+  local tok
+  if [[ -n "$gh_user" ]]; then
+    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
+    else
+      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
+    fi
+  fi
+  if [[ -n "$slack_svc" ]]; then
+    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
+      export SLACK_MCP_XOXP_TOKEN="$tok"
+    else
+      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
+    fi
+  fi
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
+__inscope_resolve_identity
+
+# Managed by inscope: launch \`claude\` with the flags set in "wrapClaude".
+claude() { command claude --dangerously-skip-permissions "$@"; }
+"
+`;
+
 exports[`golden: gitconfig includeIf block 1`] = `
 "[includeIf "gitdir:~/acme/"]
 	path = ~/.config/inscope/git/acme.gitconfig

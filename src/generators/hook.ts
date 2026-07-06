@@ -1,4 +1,4 @@
-import type { Config, Workspace } from "@/config"
+import { claudeConfigDirName, type Config, resolveClaudeWrapper, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
 
 const pathPattern = (p: string) => {
@@ -10,6 +10,13 @@ const pathPattern = (p: string) => {
 
 const slackService = (ws: Workspace) => (ws.servers.slack ? ws.servers.slack.keychain : "")
 
+// Order path arms most-specific-first: a nested workspace must be tested before
+// the parent whose path prefix it shares, or the parent's arm shadows it (a
+// longer path can only be a prefix of a shorter one, so longest-path-first is
+// correct). Stable sort keeps name order on ties, so the output is deterministic.
+const bySpecificity = <T extends Workspace>(workspaces: T[]): T[] =>
+  [...workspaces].sort((a, b) => contractTilde(b.path).length - contractTilde(a.path).length)
+
 export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 # Source of truth: ~/.config/inscope/inscope.json
 # Edit there, then run \`inscope apply\` to regenerate this file.
@@ -19,21 +26,69 @@ export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 # from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.`
 
+// The `claude()` launch wrapper. CLAUDE_CONFIG_DIR is a launch-time setting (Claude
+// reads it once, at startup, to pick its config dir and login), so a workspace's
+// `claude` profile is resolved from $PWD here, in the wrapper, rather than exported
+// on every cd. That keeps the token hook above untouched and sets CLAUDE_CONFIG_DIR
+// only for the launch it belongs to (no persistent env change). Unmapped dirs keep
+// the base ~/.claude.
+//
+// Emitted when any workspace sets a profile (the wrapper is how that profile is
+// delivered) or when `wrapClaude` requests launch flags; otherwise "" (byte-for-byte
+// identical hook). The `wrapClaude` update / skip-permissions flags ride on the same
+// wrapper. The profile arms are the only user strings, and they are plain slugs
+// (validated like a workspace name) interpolated into a quoted path token; the flags
+// are fixed literals gated on booleans. Nothing reaches the shell unquoted.
+const renderClaudeWrapper = (cfg: Config): string => {
+  const wrap = resolveClaudeWrapper(cfg)
+  const profiled = bySpecificity(
+    cfg.workspaces.filter((w): w is Workspace & { claude: string } => w.claude !== undefined),
+  )
+  if (!wrap && profiled.length === 0) return ""
+
+  const flags = wrap?.dangerouslySkipPermissions ? " --dangerously-skip-permissions" : ""
+  const launch = `command claude${flags} "$@"`
+  // With a profile, prefix the launch with the resolved dir (env for that command
+  // only). `claude update` refreshes the global CLI, so it runs without the prefix.
+  const dirPrefix = profiled.length ? `CLAUDE_CONFIG_DIR="$dir" ` : ""
+  const run = wrap?.update
+    ? `command claude update && ${dirPrefix}${launch}`
+    : `${dirPrefix}${launch}`
+
+  // No profile means the config dir never changes, so skip the resolver and emit
+  // the one-line wrapper (a pure `wrapClaude` config).
+  if (profiled.length === 0) {
+    return `
+# Managed by inscope: launch \`claude\` with the flags set in "wrapClaude".
+claude() { ${run}; }
+`
+  }
+
+  const arms = profiled
+    .map((w) => `    ${pathPattern(w.path)}) dir="$HOME/${claudeConfigDirName(w.claude)}" ;;`)
+    .join("\n")
+  return `
+# Managed by inscope: pick the Claude config dir for $PWD at launch, so each
+# workspace's \`claude\` profile runs on its own login (unmapped dirs keep the
+# base). Set "claude" per workspace, and launch flags via "wrapClaude", in
+# inscope.json.
+claude() {
+  local dir="$HOME/${claudeConfigDirName("claude")}"
+  case "\${PWD}/" in
+${arms}
+  esac
+  ${run}
+}
+`
+}
+
 export const renderHook = (cfg: Config): string => {
   const byName = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
 
-  // zsh `case` runs the FIRST matching pattern, so emit the dir arms
-  // most-specific-first: a nested workspace must be tested before the parent
-  // whose path prefix it shares, or the parent's arm shadows it (a longer path
-  // can only be a prefix of a shorter one, so longest-path-first is correct).
-  // Stable sort keeps name order on ties, so the output stays deterministic.
-  const bySpecificity = [...byName].sort(
-    (a, b) => contractTilde(b.path).length - contractTilde(a.path).length,
-  )
-
   const dirArms =
-    bySpecificity.map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`).join("\n") ||
-    "    # no workspaces configured"
+    bySpecificity(byName)
+      .map((w) => `    ${pathPattern(w.path)}) ws="${w.name}" ;;`)
+      .join("\n") || "    # no workspaces configured"
 
   // The id arms key on the exact `$ws` value, so their order is cosmetic; keep
   // them name-sorted for a stable, readable artifact.
@@ -86,5 +141,5 @@ autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
-`
+${renderClaudeWrapper(cfg)}`
 }

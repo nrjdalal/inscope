@@ -2,9 +2,9 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { zshrcSourcesHook } from "@/apply"
-import type { Config, Workspace } from "@/config"
+import { claudeConfigDirName, type Config, type Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
-import { gitconfigPath, hookPath, resolveAbsolute } from "@/env"
+import { contractTilde, gitconfigPath, home, hookPath, resolveAbsolute } from "@/env"
 import {
   GITCONFIG_BLOCK_ID,
   hasGitIdentity,
@@ -78,6 +78,20 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
     gitEmail: email.status === 0 ? email.stdout.trim() : "none",
     tokenSet: Boolean(process.env.GITHUB_TOKEN),
   }
+}
+
+// A Claude profile is only usable once its config dir exists and is signed in;
+// the dir is created by `claude` on first launch under that CLAUDE_CONFIG_DIR, so
+// a missing one is a warn (you have not launched/logged in there yet), not a fail.
+const claudeDirCheck = (profile: string, label: string): Check => {
+  const dir = path.join(home(), claudeConfigDirName(profile))
+  return fs.existsSync(dir)
+    ? { status: "ok", label, detail: contractTilde(dir) }
+    : {
+        status: "warn",
+        label,
+        detail: `${contractTilde(dir)} does not exist yet; launch \`claude\` there once to sign in`,
+      }
 }
 
 export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => {
@@ -161,6 +175,8 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
             },
       )
     }
+
+    if (ws.claude !== undefined) checks.push(claudeDirCheck(ws.claude, `${tag} claude`))
 
     if (ws.servers.slack) {
       const svc = ws.servers.slack.keychain

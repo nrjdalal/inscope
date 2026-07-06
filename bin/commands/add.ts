@@ -2,6 +2,7 @@ import fs from "node:fs"
 import { parseArgs } from "node:util"
 
 import {
+  claudeProfileError,
   configExists,
   hookValueError,
   labelFromPath,
@@ -43,6 +44,9 @@ Usage:
 
 Options:
   --gh <account>        gh account whose token this workspace uses
+  --claude <profile>    Claude Code config profile: sets CLAUDE_CONFIG_DIR to
+                        ~/.claude-<profile> in this subtree (use "claude" or omit
+                        for the base ~/.claude, where unmapped dirs also resolve)
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -72,6 +76,7 @@ export const add = async (args: string[]) => {
       help: { type: "boolean", short: "h" },
       yes: { type: "boolean", short: "y" },
       gh: { type: "string" },
+      claude: { type: "string" },
       email: { type: "string" },
       "git-name": { type: "string" },
       label: { type: "string" },
@@ -142,6 +147,13 @@ export const add = async (args: string[]) => {
       { label: "(none)", value: "" },
     ]
     gh = (await selectOne("\nGitHub account for this workspace", choices)) || undefined
+  }
+
+  // --- claude config profile (blank leaves this subtree on the base ~/.claude) ---
+  let claude = values.claude
+  if (claude === undefined && interactive) {
+    claude =
+      (await promptText("\nClaude config profile (blank for the base ~/.claude)")) || undefined
   }
 
   // --- git identity (blank inherits the global config, or leaves it unset when
@@ -217,6 +229,11 @@ export const add = async (args: string[]) => {
     console.error(`\nInvalid gh account "${gh}": ${ghErr}`)
     process.exit(1)
   }
+  const claudeErr = claude ? claudeProfileError(claude) : null
+  if (claudeErr) {
+    console.error(`\nInvalid Claude profile "${claude}": ${claudeErr}`)
+    process.exit(1)
+  }
   if (wantSlack) {
     const svcErr = hookValueError(slackSvc)
     if (svcErr) {
@@ -229,6 +246,7 @@ export const add = async (args: string[]) => {
     name: label,
     path: contractTilde(target),
     gh,
+    claude,
     git: email || gitName ? { email, name: gitName } : undefined,
     servers: buildServers(
       serverList,

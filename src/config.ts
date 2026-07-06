@@ -40,12 +40,24 @@ export type Workspace = {
   name: string
   path: string
   gh?: string
+  // Claude Code config profile for this subtree: names the CLAUDE_CONFIG_DIR the
+  // chpwd hook exports (see claudeConfigDirName). Omit to leave this subtree on
+  // the base ~/.claude, which is also where every unmapped directory resolves.
+  claude?: string
   git?: { email?: string; name?: string }
   servers: Servers
 }
 
+// Opt-in launch wrapper emitted into the generated hook so `claude` picks up the
+// per-directory CLAUDE_CONFIG_DIR without a hand-written function in ~/.zshrc.
+// `true` is shorthand for both flags on; an object toggles them individually
+// (an omitted flag is off). Absent/false emits no wrapper.
+export type ClaudeWrapper = boolean | { update?: boolean; dangerouslySkipPermissions?: boolean }
+
 export type Config = {
   version: number
+  // Emit a `claude()` launch wrapper into the hook (see ClaudeWrapper).
+  wrapClaude?: ClaudeWrapper
   workspaces: Workspace[]
 }
 
@@ -104,6 +116,40 @@ export const workspaceNameError = (name: string): string | null => {
   return null
 }
 
+// A Claude profile name is interpolated into the hook as part of a path token
+// (`"$HOME/.claude-<name>"`) and used to derive a config-dir basename, so hold
+// it to the same plain-slug rule as a workspace name: no whitespace, shell
+// metacharacters, or path separators.
+export const claudeProfileError = (profile: string): string | null => {
+  if (!profile) return "must not be empty"
+  if (!WORKSPACE_NAME_RE.test(profile))
+    return "use only letters, digits, dot (.), dash (-), or underscore (_)"
+  return null
+}
+
+// The Claude Code config-dir basename a profile resolves to. The reserved name
+// `claude` means the base `~/.claude` (Claude Code's own default); any other
+// name gets its own sibling dir `~/.claude-<name>`. This is the single source
+// of truth shared by the hook generator (renders `$HOME/<name>`) and doctor
+// (checks the dir exists).
+export const claudeConfigDirName = (profile: string): string =>
+  profile === "claude" ? ".claude" : `.claude-${profile}`
+
+// Normalize the `wrapClaude` config into concrete flags, or null when no wrapper
+// should be emitted. `true` turns both flags on; an object opts each flag in
+// individually (omitted = off). Shared by the hook generator and validation.
+export const resolveClaudeWrapper = (
+  cfg: Config,
+): { update: boolean; dangerouslySkipPermissions: boolean } | null => {
+  const w = cfg.wrapClaude
+  if (w === undefined || w === false) return null
+  if (w === true) return { update: true, dangerouslySkipPermissions: true }
+  return {
+    update: w.update ?? false,
+    dangerouslySkipPermissions: w.dangerouslySkipPermissions ?? false,
+  }
+}
+
 // Every value interpolated into the generated zsh hook is double-quoted, but
 // zsh still treats several characters as significant inside double quotes:
 // $-expansion, $(...)/`...` command substitution, and a backslash, which
@@ -153,6 +199,20 @@ export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)
   if (versionErr) throw new Error(versionErr)
+  if (cfg.wrapClaude !== undefined && typeof cfg.wrapClaude !== "boolean") {
+    const w = cfg.wrapClaude
+    if (w === null || typeof w !== "object" || Array.isArray(w))
+      throw new Error("config wrapClaude must be a boolean or an object")
+    for (const k of Object.keys(w)) {
+      if (k !== "update" && k !== "dangerouslySkipPermissions")
+        throw new Error(`config wrapClaude has unknown key "${k}"`)
+      if (
+        (w as Record<string, unknown>)[k] !== undefined &&
+        typeof (w as Record<string, unknown>)[k] !== "boolean"
+      )
+        throw new Error(`config wrapClaude.${k} must be a boolean`)
+    }
+  }
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
@@ -166,6 +226,13 @@ export const validateConfig = (cfg: Config) => {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
         throw new Error(`workspace "${ws.name}" gh account "${ws.gh}" is invalid: ${ghErr}`)
+    }
+    if (ws.claude !== undefined) {
+      const claudeErr = claudeProfileError(ws.claude)
+      if (claudeErr)
+        throw new Error(
+          `workspace "${ws.name}" claude profile "${ws.claude}" is invalid: ${claudeErr}`,
+        )
     }
     if (ws.git?.email) {
       const emailErr = gitValueError(ws.git.email)

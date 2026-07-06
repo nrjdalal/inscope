@@ -42,6 +42,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
   - [`inscope apply`](#inscope-apply)
   - [`inscope doctor`](#inscope-doctor)
 - [What It Manages](#-what-it-manages)
+- [Claude Code subscriptions: config dir per workspace](#-claude-code-subscriptions-config-dir-per-workspace)
 - [MCP Servers](#-mcp-servers)
 - [Config File](#-config-file)
 - [Install Globally (Optional)](#-install-globally-optional)
@@ -53,6 +54,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 ## ✨ Features
 
 - 🪪 Per-directory identity: GitHub token, git commit email, and MCP servers scoped to `$PWD`
+- 🎫 Per-directory Claude Code config dir: point work and personal directories at different `~/.claude*` profiles (and different subscriptions) with no wrapper functions
 - 🧵 Race-free across concurrent shells and Claude Code sessions, with no global toggles
 - 🔐 No secrets on disk: GitHub tokens from the `gh` keyring, Slack tokens from the macOS Keychain
 - 🤖 One `.mcp.json` per workspace with uniquely named servers: GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel, and Webflow
@@ -124,6 +126,8 @@ Run any command with `-h` for its full options.
 
 Create the config, generate the chpwd hook, and add a source line to `~/.zshrc`. Safe to run again; it never overwrites your config.
 
+Pass `--wrap-claude` to emit the optional [`claude()` launch wrapper](#-claude-code-subscriptions-config-dir-per-workspace) into the hook.
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/init.gif" alt="inscope init creating the config and hook" width="900" />
 </p>
@@ -138,6 +142,9 @@ Map a directory. Run it bare and it walks you through everything: pick the GitHu
 
 ```
   --gh <account>        gh account whose token this workspace uses
+  --claude <profile>    Claude Code config profile for this subtree: sets
+                        CLAUDE_CONFIG_DIR to ~/.claude-<profile> (use "claude" or
+                        omit for the base ~/.claude, where unmapped dirs resolve)
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -217,6 +224,55 @@ Verify that tokens, identities, the hook, and each `.mcp.json` resolve correctly
 
 ---
 
+## 🎫 Claude Code subscriptions: config dir per workspace
+
+Claude Code reads `CLAUDE_CONFIG_DIR` to decide which config dir it runs from, and each dir carries its own login (and therefore its own subscription). `CLAUDE_CONFIG_DIR` is read **once, at launch**, so instead of juggling wrapper functions like `claude` vs `wlaude`, inscope generates a single `claude()` wrapper that resolves the config dir from `$PWD` at the moment you launch: `cd` into a workspace and the next `claude` runs on the right subscription.
+
+You set a per-workspace `claude` **profile**; inscope maps it to a config dir:
+
+- the reserved name `claude` means the base `~/.claude` (Claude Code's own default)
+- any other name `<x>` means the sibling dir `~/.claude-<x>` (for example `acme` -> `~/.claude-acme`)
+
+Set it with `inscope add --claude <profile>` (or `inscope edit`). Setting a profile on any workspace makes inscope emit the `claude()` wrapper into the generated hook (just as enabling a server writes a `.mcp.json`); the token `chpwd` hook is left untouched. The wrapper resolves like this:
+
+```zsh
+claude() {
+  local dir="$HOME/.claude"                     # base ~/.claude is the global home
+  case "${PWD}/" in
+    "$HOME/acme/"*) dir="$HOME/.claude-acme" ;;  # a workspace with claude: acme
+  esac
+  CLAUDE_CONFIG_DIR="$dir" command claude "$@"   # set for this launch only
+}
+```
+
+So the base `~/.claude` is where every unmapped directory (and any workspace without a profile) resolves; only a workspace that names a profile is pointed elsewhere. Your everyday login stays put and you opt specific subtrees into their own config dir. `CLAUDE_CONFIG_DIR` is never left set in your shell; it applies only to the `claude` you launch.
+
+If no workspace names a profile (and `wrapClaude` is unset), inscope emits no wrapper at all, so nothing changes for existing setups. Migrating from a wrapper is a one-liner that preserves the login: `mv ~/.claude-max ~/.claude-acme`, then point that work directory at the `acme` profile. `inscope doctor` warns if a profile's config dir does not exist yet (launch `claude` there once to sign in).
+
+> One caveat: because the dir is resolved when the wrapper runs, this only applies to launches through the shell's `claude` function. Launching Claude from an IDE or GUI (which does not go through the wrapper) uses the base `~/.claude`.
+
+### Launch flags (`wrapClaude`)
+
+The same wrapper can carry launch flags. Set `wrapClaude` to run `claude update` before each launch and pass `--dangerously-skip-permissions`:
+
+```jsonc
+{
+  "version": 1,
+  "wrapClaude": true,            // shorthand: claude update + --dangerously-skip-permissions
+  "workspaces": [ … ]
+}
+```
+
+`true` turns both flags on. For finer control use the object form and toggle each flag (an omitted flag is off):
+
+```jsonc
+"wrapClaude": { "dangerouslySkipPermissions": true }   // skip-permissions only, no auto-update
+```
+
+`wrapClaude` is independent of profiles: set it alone and you get the `claude()` wrapper with just the flags (no config-dir resolution); set both and the flags ride on the same wrapper that resolves the dir. Enable it during setup with `inscope init --wrap-claude`. The `claude()` function lives in the managed `inscope.zsh`, regenerated on every `inscope apply`. With neither a profile nor `wrapClaude`, no wrapper is emitted, leaving any `claude()` you define yourself untouched.
+
+---
+
 ## 🤖 MCP Servers
 
 Each enabled server is written into the workspace `.mcp.json` with a name suffixed by the workspace label (for example `github-acme`), so servers from different workspaces never collide.
@@ -260,11 +316,16 @@ The source of truth is `~/.config/inscope/inscope.json`:
 ```jsonc
 {
   "version": 1,
+  // optional: emit a claude() launch wrapper into the hook (see above)
+  "wrapClaude": true,
   "workspaces": [
     {
       "name": "acme",
       "path": "~/acme",
       "gh": "neeraj-acme-org",
+      // this subtree gets its own config dir: CLAUDE_CONFIG_DIR -> ~/.claude-acme
+      // (omit to stay on the base ~/.claude, where unmapped dirs also resolve)
+      "claude": "acme",
       "git": { "email": "neeraj@acme.org" },
       "servers": {
         "github": true,
