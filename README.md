@@ -1,36 +1,28 @@
 # Inscope
 
-**Per-workspace identity for [Claude Code](https://claude.com/claude-code): scope MCP servers, GitHub auth, and git commit identity to the directory you are in.**
+**Per-workspace identity for [Claude Code](https://claude.com/claude-code): scope the Claude login, MCP servers, GitHub token, and git commit email to the directory you are in.**
 
 [![Twitter](https://img.shields.io/twitter/follow/nrjdalal_dev?label=%40nrjdalal_dev)](https://twitter.com/nrjdalal_dev)
 [![npm](https://img.shields.io/npm/v/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
 [![downloads](https://img.shields.io/npm/dt/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
 [![stars](https://img.shields.io/github/stars/nrjdalal/inscope?color=blue)](https://github.com/nrjdalal/inscope)
 
-🔐 `Zero dependencies` / `Nothing sensitive on disk` / `One zsh hook` / `Race-free across concurrent sessions`
-
-📖 **The why behind the design:** [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace), aka multiple gh, linear, notion, slack and other accounts.
-
-> #### `cd` into a project and you are the right person: the right GitHub token, the right MCP servers, the right git commit email, all resolved live from `$PWD`. No toggles, no profile switching, and it holds up with several Claude Code sessions open at once.
+`cd` into a workspace and inscope makes you the right person for it: your work GitHub account, MCP servers, and commit email in `~/acme`, your personal ones in `~/personal`, and, if you want, each with its own Claude Code login. Everything resolves live from `$PWD` when you launch `claude`, so there are no profiles to switch, no global toggles, and it holds up with several Claude Code sessions open at once.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/demo.gif" alt="inscope flips git identity and the GitHub token per directory on cd" width="900" />
 </p>
 
-You describe each workspace once; `inscope` owns the moving parts and keeps them in sync from a single source of truth:
+You describe each workspace once, and inscope keeps the moving parts in sync from that single config. Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring and Slack tokens from the macOS Keychain, both resolved live by one zsh hook. It only edits the blocks it manages inside `.zshrc`, `.gitconfig`, and `.mcp.json`, so the rest of those files is left alone.
 
-- a `.mcp.json` at each workspace root, with uniquely named servers
-- one zsh `chpwd` hook that resolves the right tokens from `$PWD`
-- git `includeIf` rules so commits land with the right author email per path
-
-Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring and Slack tokens from the macOS Keychain, resolved live by the hook. It is race-free across concurrent shells and Claude Code sessions, with no global toggles, and idempotent: only the blocks it owns inside `.zshrc`, `.gitconfig`, and `.mcp.json` are ever touched.
+📖 The reasoning behind the design: [Race-Free Identity in Claude Code](https://zerostarter.dev/blog/mcp-per-workspace).
 
 ---
 
 ### Table of Contents
 
 - [Features](#-features)
-- [Quick Usage](#-quick-usage)
+- [Quick Start](#-quick-start)
 - [Requirements](#-requirements)
 - [Commands](#-commands)
   - [`inscope init`](#inscope-init)
@@ -45,7 +37,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 - [Isolated Workspaces](#-isolated-workspaces)
 - [MCP Servers](#-mcp-servers)
 - [Config File](#-config-file)
-- [Install Globally (Optional)](#-install-globally-optional)
+- [Install Globally](#-install-globally)
 - [Contributing](#-contributing)
 - [More Tools](#-more-tools)
 
@@ -53,27 +45,27 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 
 ## ✨ Features
 
-- 🪪 Per-directory identity: GitHub token, git commit email, and MCP servers scoped to `$PWD`
-- 🎫 Optional per-workspace Claude login: mark a workspace `isolate` and it runs `claude` on its own `.inscope` config dir (its own account), picked up automatically when you launch from the directory
-- 🧵 Race-free across concurrent shells and Claude Code sessions, with no global toggles
-- 🔐 No secrets on disk: GitHub tokens from the `gh` keyring, Slack tokens from the macOS Keychain
-- 🤖 One `.mcp.json` per workspace with uniquely named servers: GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel, and Webflow
-- ✉️ Git `includeIf` rules so every commit lands with the right author email per path
-- 🪝 A single zsh `chpwd` hook does all the resolution; nothing else touches your shell
-- 🩺 `inscope doctor` verifies tokens, identities, and the hook before you trust them
-- ♻️ Idempotent and surgical: only the managed blocks in `.zshrc`, `.gitconfig`, and `.mcp.json` are touched
+- 🪪 **Per-directory identity**: the right GitHub token, git commit email, and MCP servers, all resolved from `$PWD`.
+- 🎫 **Isolated Claude logins**: mark a workspace `isolate` and `claude` runs on its own account from a workspace-local `.inscope` dir, picked up automatically when you launch from the directory.
+- 🧵 **Race-free**: correct across concurrent shells and Claude Code sessions, with no global toggles.
+- 🔐 **Nothing sensitive on disk**: GitHub tokens come from the `gh` keyring, Slack tokens from the macOS Keychain.
+- 🤖 **One `.mcp.json` per workspace**: uniquely named servers so nothing collides: GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel, and Webflow.
+- ✉️ **Git `includeIf` per path**: every commit lands with the right author email.
+- 🪝 **One zsh `chpwd` hook** does all the resolving; nothing else touches your shell.
+- 🩺 **`inscope doctor`** verifies tokens, identities, and the hook before you trust them.
+- ♻️ **Idempotent and surgical**: only the managed blocks in `.zshrc`, `.gitconfig`, and `.mcp.json` are ever touched.
 
 ---
 
-## 🚀 Quick Usage
+## 🚀 Quick Start
 
-No install required, just prefix any command with `npx`:
+No install required. Prefix any command with `npx`:
 
 ```sh
 # set up the config + hook, and source it from ~/.zshrc
 npx inscope init
 
-# map a workspace - inscope walks you through gh account, git identity, and servers
+# map a workspace: inscope walks you through gh account, git identity, and servers
 npx inscope add ~/acme
 npx inscope add ~/personal
 
@@ -82,9 +74,9 @@ source ~/.zshrc
 npx inscope doctor
 ```
 
-Scoping GitHub accounts? Sign each one into `gh` once with `gh auth login` (that is gh's own command, not inscope); inscope reads tokens from the accounts you have signed in.
+To scope GitHub accounts, sign each one into `gh` once with `gh auth login` (that is gh's own command, not inscope's); inscope reads tokens from the accounts you have signed in.
 
-`cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you. Launch `claude` from inside a mapped directory (or relaunch) to pick up the identity.
+Now `cd ~/acme/api` and you are the work account, with work MCP servers and your work commit email. `cd ~/personal/blog` and you are you. Launch `claude` from inside a mapped directory (or relaunch it) to pick up the identity.
 
 Prefer flags or CI? Every prompt has a flag, and `-y` takes the defaults non-interactively:
 
@@ -92,7 +84,7 @@ Prefer flags or CI? Every prompt has a flag, and `-y` takes the defaults non-int
 npx inscope add ~/acme --gh <account> --email you@work.com --servers github,linear -y
 ```
 
-Running these a lot? Drop the `npx` with a [global install](#-install-globally-optional).
+Running these a lot? Drop the `npx` with a [global install](#-install-globally).
 
 ---
 
@@ -132,14 +124,16 @@ Create the config, generate the chpwd hook, and add a source line to `~/.zshrc`.
 
 ### `inscope add`
 
-Map a directory. Run it bare and it walks you through everything: pick the GitHub account from your signed-in `gh` accounts, accept your global git identity or set a per-workspace one, and toggle which MCP servers to enable. Enabling Slack adds a keychain prompt and a Yes/No for posting messages. Pass any flag to skip its prompt, or `-y` to take the defaults non-interactively (for scripts and CI).
+Map a directory. Run it bare and it walks you through everything: pick the GitHub account from your signed-in `gh` accounts, accept your global git identity or set a per-workspace one, toggle which MCP servers to enable, and choose whether this workspace gets its own Claude login. Enabling Slack adds a package pick, a keychain prompt, and Yes/No prompts for posting messages and storing the token. Pass any flag to skip its prompt, or `-y` to take the defaults non-interactively.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/add.gif" alt="inscope add: gh picker, git identity, server multiselect, the Slack package picker, and the Slack prompts" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/add.gif" alt="inscope add: gh picker, git identity, server multiselect, the Slack prompts, and the dedicated-login prompt" width="900" />
 </p>
 
 ```
   --gh <account>        gh account whose token this workspace uses
+  --isolate             give this workspace its own Claude login, in a local,
+                        gitignored <path>/.inscope config dir
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -161,7 +155,7 @@ Map a directory. Run it bare and it walks you through everything: pick the GitHu
 Step through a workspace's prompts pre-filled with its current values (pick it, or pass its path/label), then inscope re-applies on save.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/edit.gif" alt="inscope edit: prompts pre-filled with the workspace's current values" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/edit.gif" alt="inscope edit: prompts pre-filled with the workspace's current values, here enabling Slack and a dedicated Claude login" width="900" />
 </p>
 
 ### `inscope rm`
@@ -216,7 +210,7 @@ Verify that tokens, identities, the hook, and each `.mcp.json` resolve correctly
 | Git identity | `~/.gitconfig` includeIf + `~/.config/inscope/git/<name>.gitconfig` |
 | Claude login | `<workspace>/.inscope` (isolated workspaces only, gitignored)       |
 
-`inscope` only touches the blocks it owns; your other `.zshrc`, `.gitconfig`, and `.mcp.json` content is left alone. Edit `inscope.json` by hand if you like, then run `inscope apply`.
+inscope only touches the blocks it owns; your other `.zshrc`, `.gitconfig`, and `.mcp.json` content is left alone. Edit `inscope.json` by hand if you like, then run `inscope apply`.
 
 ---
 
@@ -256,7 +250,7 @@ Each enabled server is written into the workspace `.mcp.json` with a name suffix
 | `vercel`    | http      | OAuth                                          |
 | `webflow`   | http      | OAuth                                          |
 
-Slack is opt-in. Enable it during `add` (shown above), or with flags, then store the token once:
+Slack is opt-in. Enable it during `add`, or with flags, then store the token once:
 
 ```sh
 npx inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
@@ -303,7 +297,7 @@ Edit it directly, then run `inscope apply` to regenerate the hook, git includes,
 
 ---
 
-## 📦 Install Globally (Optional)
+## 📦 Install Globally
 
 Reaching for inscope often? Install it once and drop the `npx`:
 
