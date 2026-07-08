@@ -13,6 +13,7 @@ import {
 import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
+import { hasBypassSetting } from "@/generators/settings"
 import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
 import {
@@ -85,7 +86,7 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
 // can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
 // which Claude fills on first login), and the dir, which holds that login, could
 // be committed. Warn on both; neither is a hard failure.
-const isolateChecks = (ws: Workspace, run: Runner): Check[] => {
+const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => {
   const tag = `[${ws.name}] claude`
   const dir = inscopeDirPath(ws)
   const out: Check[] = []
@@ -98,6 +99,13 @@ const isolateChecks = (ws: Workspace, run: Runner): Check[] => {
           detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
         },
   )
+  // bypass is on but this isolated login's settings.json does not carry it yet
+  if (bypass && !hasBypassSetting(ws))
+    out.push({
+      status: "warn",
+      label: tag,
+      detail: "bypass configured but not applied to this login; run `inscope apply`",
+    })
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
   const tracked = run("git", [
@@ -198,7 +206,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       )
     }
 
-    if (ws.isolate) checks.push(...isolateChecks(ws, run))
+    if (ws.isolate) checks.push(...isolateChecks(ws, run, cfg.bypass ?? false))
 
     if (ws.servers.slack) {
       const svc = ws.servers.slack.keychain

@@ -6,6 +6,7 @@ import { applyGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { applyIsolation } from "@/generators/isolate"
 import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
+import { applyBypass } from "@/generators/settings"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 const homeVar = (abs: string) => {
@@ -64,6 +65,9 @@ export const applyAll = (cfg: Config): ApplyResult => {
   for (const ws of cfg.workspaces) {
     applyMcp(ws)
     applyIsolation(ws)
+    // After applyIsolation has scaffolded the .inscope dir, write (or clear) the
+    // bypass setting in that isolated login. A no-op for a non-isolated workspace.
+    applyBypass(ws, cfg.bypass ?? false)
     mcp.push(mcpFilePath(ws))
   }
 

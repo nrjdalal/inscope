@@ -7,8 +7,9 @@ import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 // The workspace-local Claude config dir an isolated workspace runs from. Named
 // `.inscope` (not `.claude`) so it never collides with Claude Code's own
-// project-scoped `.claude/` for settings/commands. The generated `claude()`
-// wrapper points CLAUDE_CONFIG_DIR here (see generators/hook.ts).
+// project-scoped `.claude/` for settings/commands. The chpwd hook exports
+// CLAUDE_CONFIG_DIR pointing here whenever $PWD is under the workspace (see
+// generators/hook.ts).
 export const INSCOPE_DIR = ".inscope"
 
 export const inscopeDirPath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), INSCOPE_DIR)

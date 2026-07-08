@@ -41,6 +41,21 @@ export const slackPackageFromArgs = (args: unknown): SlackPackage | null => {
 
 const GITHUB_URL = "https://api.githubcopilot.com/mcp/"
 
+// A single-quoted shell literal: wrap in '...' and escape an embedded quote as
+// '\'' so an arbitrary (already hook-validated) value can never break out of the
+// command the headersHelper runs.
+const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
+
+// Fetch the workspace's gh token at MCP-connect time and emit it as the auth
+// header, so github auth works under ANY launcher (a shell, cmux, an IDE,
+// `--resume`), not only one that inherited GITHUB_TOKEN from the chpwd hook. Claude
+// Code runs this fresh on each connect (and re-runs it on a 401/403, retrying
+// once). An offline/failed fetch yields an empty bearer, which fails just this
+// server, not the whole .mcp.json (unlike a bare `${GITHUB_TOKEN}`, which makes
+// Claude fail to parse the file when the var is unset).
+export const githubHeadersHelper = (account: string) =>
+  `printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u ${shSingleQuote(account)} 2>/dev/null)"`
+
 // Remote servers Claude Code authenticates via OAuth over streamable HTTP
 // (just a URL each).
 export const REMOTE: Record<string, string> = {
@@ -93,16 +108,21 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
     if (!v) continue
     const name = `${key}-${ws.name}`
     if (key === "github") {
-      out[name] = {
-        type: "http",
-        url: GITHUB_URL,
-        headers: { Authorization: "Bearer ${GITHUB_TOKEN}" },
-      }
+      // With a gh account, fetch its token at connect via headersHelper (launcher
+      // -agnostic). Without one, fall back to the ambient GITHUB_TOKEN, defaulted so
+      // an unset var degrades this server instead of breaking the whole file.
+      out[name] = ws.gh
+        ? { type: "http", url: GITHUB_URL, headersHelper: githubHeadersHelper(ws.gh) }
+        : { type: "http", url: GITHUB_URL, headers: { Authorization: "Bearer ${GITHUB_TOKEN:-}" } }
     } else if (key === "slack") {
       const slack = v as SlackServer
       const pkg = slack.package ?? DEFAULT_SLACK_PACKAGE
+      // Defaulted (`:-`) so a launcher that never ran the chpwd hook (a shell-less
+      // cmux/IDE launch) gets an empty token and a degraded slack server, rather
+      // than an unset-var parse error that would take down every server in the file.
+      // A shell launch still gets the real token, which the hook exports on cd.
       const env: Record<string, string> = {
-        SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN}",
+        SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN:-}",
       }
       const args = ["-y", slackPackageSpec(pkg)]
       if (pkg === "@nrjdalal/slack-mcp-server") {
