@@ -196,6 +196,55 @@ test("golden: chpwd hook covers tricky paths and every arm shape", () => {
   ).toMatchSnapshot()
 })
 
+// Project-local Claude isolation: the token resolver is untouched, and a `claude()`
+// launch wrapper is appended that resolves CLAUDE_CONFIG_DIR from $PWD to each
+// isolated workspace's own `<path>/.inscope` (base ~/.claude everywhere else). Arms
+// are most-specific-first and cover a ~/sub path, a spaced path, and a non-home
+// absolute path. A non-isolated workspace (personal) contributes no arm.
+test("golden: chpwd hook with isolated workspaces (claude wrapper)", () => {
+  expect(
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/acme", gh: "acct", isolate: true, servers: { github: true } },
+        { name: "client", path: "~/My Client (x)", isolate: true, servers: { github: true } },
+        { name: "srv", path: "/opt/srv", isolate: true, servers: { github: true } },
+        { name: "personal", path: "~/personal", gh: "nrjdalal", servers: { github: true } },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
+// A non-isolated workspace nested under an isolated one: the wrapper must emit a
+// no-op shadow arm for the child BEFORE the parent's arm, so the child keeps the
+// base login. Pinned here so the shadow-arm shape cannot silently regress.
+test("golden: claude wrapper shadows a nested non-isolated workspace", () => {
+  expect(
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/acme", isolate: true, servers: { github: true } },
+        { name: "sub", path: "~/acme/sub", gh: "nrjdalal", servers: { github: true } },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
+// Top-level launch flags ride on the isolate wrapper: the launch line gains
+// `claude update &&` and `--dangerously-skip-permissions`, resolved dir unchanged.
+test("golden: claude wrapper with top-level launch flags", () => {
+  expect(
+    renderHook({
+      version: 1,
+      claude: { update: true, dangerouslySkipPermissions: true },
+      workspaces: [
+        { name: "acme", path: "~/acme", isolate: true, servers: { github: true } },
+        { name: "personal", path: "~/personal", gh: "nrjdalal", servers: { github: true } },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
 // --- git config ---
 
 test("golden: gitconfig includeIf block", () => {

@@ -4,13 +4,14 @@ import path from "node:path"
 import { zshrcSourcesHook } from "@/apply"
 import type { Config, Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
-import { gitconfigPath, hookPath, resolveAbsolute } from "@/env"
+import { contractTilde, gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
   GITCONFIG_BLOCK_ID,
   hasGitIdentity,
   perWorkspaceGitconfigPath,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
+import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
 import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
@@ -78,6 +79,41 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
     gitEmail: email.status === 0 ? email.stdout.trim() : "none",
     tokenSet: Boolean(process.env.GITHUB_TOKEN),
   }
+}
+
+// An isolated workspace runs Claude from a workspace-local `.inscope`. Two things
+// can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
+// which Claude fills on first login), and the dir, which holds that login, could
+// be committed. Warn on both; neither is a hard failure.
+const isolateChecks = (ws: Workspace, run: Runner): Check[] => {
+  const tag = `[${ws.name}] claude`
+  const dir = inscopeDirPath(ws)
+  const out: Check[] = []
+  out.push(
+    inscopeSignedIn(dir)
+      ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
+      : {
+          status: "warn",
+          label: tag,
+          detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
+        },
+  )
+  // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
+  // (status 128) or a clean, ignored dir does not warn.
+  const tracked = run("git", [
+    "-C",
+    resolveAbsolute(ws.path),
+    "ls-files",
+    "--error-unmatch",
+    INSCOPE_DIR,
+  ])
+  if (tracked.status === 0)
+    out.push({
+      status: "warn",
+      label: tag,
+      detail: `${INSCOPE_DIR} holds a login and is tracked by git; run \`git rm -r --cached ${INSCOPE_DIR}\``,
+    })
+  return out
 }
 
 export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => {
@@ -161,6 +197,8 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
             },
       )
     }
+
+    if (ws.isolate) checks.push(...isolateChecks(ws, run))
 
     if (ws.servers.slack) {
       const svc = ws.servers.slack.keychain

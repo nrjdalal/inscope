@@ -43,6 +43,9 @@ Usage:
 
 Options:
   --gh <account>        gh account whose token this workspace uses
+  --isolate             give this workspace its own Claude login: scaffold a local
+                        <path>/.inscope config dir (gitignored) and launch claude
+                        there when you run it from this subtree
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -72,6 +75,7 @@ export const add = async (args: string[]) => {
       help: { type: "boolean", short: "h" },
       yes: { type: "boolean", short: "y" },
       gh: { type: "string" },
+      isolate: { type: "boolean" },
       email: { type: "string" },
       "git-name": { type: "string" },
       label: { type: "string" },
@@ -209,6 +213,12 @@ export const add = async (args: string[]) => {
     if (!values["seed-slack"]) seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
+  // --- isolate: give this workspace its own Claude login in a local .inscope ---
+  let isolate = Boolean(values.isolate)
+  if (values.isolate === undefined && interactive) {
+    isolate = await promptConfirm("\nDedicated Claude login for this workspace?", false)
+  }
+
   // gh account and Slack keychain are interpolated into the chpwd hook; reject
   // values that would break out of the quoting (the --gh / --slack-keychain
   // flags and the keychain prompt are otherwise unchecked).
@@ -226,6 +236,7 @@ export const add = async (args: string[]) => {
   }
 
   const ws: Workspace = {
+    isolate: isolate || undefined,
     name: label,
     path: contractTilde(target),
     gh,
@@ -241,7 +252,15 @@ export const add = async (args: string[]) => {
   persist(ws)
   console.log(`\n✓ workspace "${label}" -> ${ws.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
+  if (ws.isolate)
+    console.log(
+      `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
+    )
   await finalizeSlack(ws, seedSlack)
-  console.log(`\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`)
+  console.log(
+    ws.isolate
+      ? `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
+      : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
+  )
   process.exit(0)
 }

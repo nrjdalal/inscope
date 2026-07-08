@@ -40,7 +40,7 @@ const parseDoc = (file: string): Record<string, any> | null => {
 }
 
 // What `inscope apply` would write to a workspace's .mcp.json, via the same
-// merge apply uses — so this preview cannot diverge from what apply writes.
+// merge apply uses, so this preview cannot diverge from what apply writes.
 export const mcpTarget = (ws: Workspace): string =>
   serializeMcp(mergeMcpDoc(parseDoc(mcpFilePath(ws)) ?? {}, ws))
 

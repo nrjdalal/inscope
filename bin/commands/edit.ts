@@ -164,7 +164,14 @@ export const edit = async (args: string[]) => {
     }
   }
 
+  // --- isolate: give this workspace its own Claude login in a local .inscope ---
+  const isolate = await promptConfirm(
+    "Dedicated Claude login for this workspace?",
+    Boolean(ws.isolate),
+  )
+
   const next: Workspace = {
+    isolate: isolate || undefined,
     name: ws.name,
     path: ws.path,
     gh,
@@ -179,6 +186,10 @@ export const edit = async (args: string[]) => {
 
   persist(next)
   console.log(`\n✓ updated "${next.name}" -> ${next.path}`)
+  if (next.isolate && !ws.isolate)
+    console.log(
+      `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude login`,
+    )
   await finalizeSlack(next, seedSlack)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)
   process.exit(0)
