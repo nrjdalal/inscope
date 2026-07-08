@@ -14,6 +14,7 @@ import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
 import { hasBypassSetting } from "@/generators/settings"
+import { desiredSkillLinks, skillLinkTarget } from "@/generators/skills"
 import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
 import {
@@ -51,25 +52,9 @@ const unpinnedServers = (doc: Record<string, any> | null): string[] => {
   return out
 }
 
-export const currentWorkspace = (
-  cfg: Config,
-  cwd: string = process.cwd(),
-): Workspace | undefined => {
-  const abs = path.resolve(cwd)
-  // Longest-prefix-wins, mirroring the hook's most-specific-first `case` order:
-  // a nested workspace must win over the parent whose path it sits under, or
-  // doctor would agree with a mis-resolution instead of catching it.
-  let best: Workspace | undefined
-  let bestLen = -1
-  for (const w of cfg.workspaces) {
-    const root = resolveAbsolute(w.path)
-    if ((abs === root || abs.startsWith(root + path.sep)) && root.length > bestLen) {
-      best = w
-      bestLen = root.length
-    }
-  }
-  return best
-}
+// Lives in config.ts now (shared with `inscope skill`); re-exported here so the
+// doctor command and existing tests keep importing it from @/doctor.
+export { currentWorkspace } from "@/config"
 
 export const liveSnapshot = (run: Runner = defaultRunner) => {
   const gh = run("gh", ["api", "user", "--jq", ".login"])
@@ -129,6 +114,25 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
       detail: `${INSCOPE_DIR} holds a login and is tracked by git; run \`git rm -r --cached ${INSCOPE_DIR}\``,
     })
   return out
+}
+
+// A workspace's skills are symlinks in its personal Claude skills dir (skillsDir).
+// Warn on any the config declares (including the default self-skill) that is not
+// linked, i.e. apply has not run since it was added, or a source went missing. All
+// present is one ok line.
+const skillChecks = (ws: Workspace): Check[] => {
+  const desired = desiredSkillLinks(ws)
+  if (!desired.length) return []
+  const tag = `[${ws.name}] skills`
+  // Stale = missing, pointing at the old source after a re-point, or shadowed by a
+  // user-authored dir (skillLinkTarget returns null for a non-symlink).
+  const stale = desired.filter((d) => skillLinkTarget(ws, d.name) !== d.target)
+  if (!stale.length) return [{ status: "ok", label: tag, detail: `${desired.length} linked` }]
+  return stale.map((d) => ({
+    status: "warn" as const,
+    label: tag,
+    detail: `"${d.name}" not linked to its source; run \`inscope apply\``,
+  }))
 }
 
 export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => {
@@ -289,6 +293,8 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
         }
       }
     }
+
+    checks.push(...skillChecks(ws))
   }
 
   return checks

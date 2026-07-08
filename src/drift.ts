@@ -26,6 +26,12 @@ import {
   serializeMcp,
   slackPackageFromArgs,
 } from "@/generators/mcp"
+import {
+  desiredSkillLinks,
+  ownedSkillNames,
+  skillLinkTargetAt,
+  skillsDir,
+} from "@/generators/skills"
 import { readFileOrEmpty } from "@/io"
 import { readBlock } from "@/managed-block"
 
@@ -98,6 +104,43 @@ export const computeDrift = (cfg: Config): Drift[] => {
       current: readFileOrEmpty(f),
       next: mcpTarget(ws),
     })
+  }
+
+  // Skills materialize into each workspace's personal skills dir: its isolated
+  // `.inscope/skills`, or the shared `~/.claude/skills`. Diff per target dir, because
+  // non-isolated workspaces share one: `current` is what inscope-owned links point at
+  // now, `next` is the union of desired links for the workspaces on that dir. So an
+  // unlinked skill shows as an addition, a pruned one as a removal, and a re-point
+  // (same name, changed source/ref/subdir) as a changed line.
+  const skillDirs = new Map<string, Workspace[]>()
+  for (const ws of cfg.workspaces) {
+    const dir = skillsDir(ws)
+    const g = skillDirs.get(dir)
+    if (g) g.push(ws)
+    else skillDirs.set(dir, [ws])
+  }
+  for (const [dir, workspaces] of skillDirs) {
+    const target = new Map<string, string>()
+    for (const ws of workspaces)
+      for (const d of desiredSkillLinks(ws)) if (!target.has(d.name)) target.set(d.name, d.target)
+    const names = [...new Set([...ownedSkillNames(dir), ...target.keys()])].sort()
+    const current = names
+      .map((n) => {
+        const t = skillLinkTargetAt(dir, n)
+        return t ? `${n} -> ${t}` : null
+      })
+      .filter((l): l is string => l !== null)
+      .join("\n")
+    const next = names
+      .map((n) => {
+        const t = target.get(n)
+        return t ? `${n} -> ${t}` : null
+      })
+      .filter((l): l is string => l !== null)
+      .join("\n")
+    // Label by the single isolated workspace, else "personal" for the shared base dir.
+    const label = workspaces.length === 1 && workspaces[0].isolate ? workspaces[0].name : "personal"
+    drifts.push({ label: `skills:${label}`, path: dir, current, next })
   }
 
   return drifts.filter((d) => d.error != null || d.current !== d.next)

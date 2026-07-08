@@ -7,6 +7,7 @@ import { edit } from "~/bin/commands/edit"
 import { init } from "~/bin/commands/init"
 import { list } from "~/bin/commands/list"
 import { remove } from "~/bin/commands/remove"
+import { skill } from "~/bin/commands/skill"
 import { author, name, version } from "~/package.json"
 
 const helpMessage = `Version:
@@ -24,8 +25,9 @@ Commands:
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
   list           List configured workspaces (alias: ls)
+  skill          Manage a workspace's Claude skills (add, list, rm, update)
   diff           Preview what apply would change; --adopt pulls on-disk extras back
-  apply          Regenerate the hook, git includes, and .mcp.json (alias: sync)
+  apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
   doctor         Verify tokens, identities, and the hook resolve correctly
 
 Options:
@@ -54,6 +56,8 @@ const main = async () => {
       case "ls":
       case "list":
         return list(rest)
+      case "skill":
+        return await skill(rest)
       case "diff":
         return diff(rest)
       case "apply":

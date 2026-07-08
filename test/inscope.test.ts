@@ -6,14 +6,17 @@ import path from "node:path"
 
 import { applyAll, renderZshrcSource } from "@/apply"
 import {
+  absolutizeLocalSource,
   CONFIG_VERSION,
   findWorkspace,
   gitValueError,
   hookValueError,
   labelFromPath,
   loadConfig,
+  normalizeSkill,
   pathConflict,
   removeWorkspace,
+  renameSkillSpec,
   saveConfig,
   slugify,
   upsertWorkspace,
@@ -21,9 +24,11 @@ import {
   workspaceNameError,
   workspacePathError,
   type Config,
+  type SkillSpec,
+  type Workspace,
 } from "@/config"
 import { currentWorkspace, runDoctor } from "@/doctor"
-import { adoptable, diffLines, mcpError, mcpTarget } from "@/drift"
+import { adoptable, computeDrift, diffLines, mcpError, mcpTarget } from "@/drift"
 import { configPath, gitIncludeDir, home, hookPath, zshrcPath } from "@/env"
 import {
   applyGitconfig,
@@ -46,6 +51,18 @@ import {
   inscopeSettingsPath,
   mergeBypassSettings,
 } from "@/generators/settings"
+import {
+  applySkills,
+  cacheDirFor,
+  discoverSkills,
+  removeSkills,
+  resolveSkillDir,
+  SELF_SKILL_NAME,
+  selfSkillSource,
+  skillsCacheRoot,
+  skillsDir,
+  unlinkSkillLink,
+} from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
@@ -57,6 +74,7 @@ import {
   resolveSlackPackage,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
+import { parseAddSource } from "~/bin/commands/skill"
 
 const blogConfig = (): Config => ({
   version: 1,
@@ -191,6 +209,18 @@ test("renderHook exports each isolated workspace's .inscope login, resolved from
   // the launch is no longer a claude() shell function (it collided with cmux's own)
   expect(hook).not.toContain("claude() {")
   expect(hook).not.toContain("command claude")
+})
+
+test("renderHook adds no wrapper for a workspace that only declares skills", () => {
+  // Skills live in a login's personal skills dir, so nothing is added at launch time;
+  // a non-isolated, flag-less config's hook stays byte-identical to a plain one.
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "ws", path: "~/ws", gh: "nrjdalal", servers: {}, skills: ["owner/repo#skills/foo"] },
+    ],
+  }
+  expect(renderHook(cfg)).not.toContain("claude()")
 })
 
 test("renderHook shadows a non-isolated workspace nested under an isolated one", () => {
@@ -1279,9 +1309,14 @@ test("mcpError flags a malformed .mcp.json and clears once valid", () => {
 const withSandbox = (fn: (sb: string) => void) => {
   const prevHome = process.env.HOME
   const prevXdg = process.env.XDG_CONFIG_HOME
+  const prevCcd = process.env.CLAUDE_CONFIG_DIR
   const sb = tmpDir()
   process.env.HOME = sb
   process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
+  // skillsDir's base resolution reads CLAUDE_CONFIG_DIR; clear it so a sandbox run
+  // is deterministic (falls back to the sandbox ~/.claude), and a test that wants to
+  // exercise a base CCD sets it explicitly inside.
+  delete process.env.CLAUDE_CONFIG_DIR
   try {
     fn(sb)
   } finally {
@@ -1289,6 +1324,8 @@ const withSandbox = (fn: (sb: string) => void) => {
     else process.env.HOME = prevHome
     if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
     else process.env.XDG_CONFIG_HOME = prevXdg
+    if (prevCcd === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = prevCcd
   }
 }
 
@@ -1470,5 +1507,703 @@ test("applyGitconfig prunes a per-workspace gitconfig when identity is dropped",
     }
     applyGitconfig(noId)
     expect(fs.existsSync(file)).toBe(false) // stale file pruned, not left orphaned
+  })
+})
+
+test("normalizeSkill classifies sources and derives the command name", () => {
+  expect(normalizeSkill("owner/repo")).toEqual({
+    name: "repo",
+    source: { kind: "github", repo: "owner/repo" },
+  })
+  expect(normalizeSkill("owner/repo#skills/readme-audit")).toEqual({
+    name: "readme-audit",
+    source: { kind: "github", repo: "owner/repo" },
+    subdir: "skills/readme-audit",
+  })
+  expect(normalizeSkill("https://gitlab.com/t/p.git")).toEqual({
+    name: "p",
+    source: { kind: "git", url: "https://gitlab.com/t/p.git" },
+  })
+  expect(normalizeSkill("~/dev/my-skills/deploy")).toEqual({
+    name: "deploy",
+    source: { kind: "local", path: "~/dev/my-skills/deploy" },
+  })
+  // object form: custom name, subdir via `path`, pinned ref
+  expect(
+    normalizeSkill({ name: "triage", source: "owner/repo", path: "slack", ref: "main" }),
+  ).toEqual({
+    name: "triage",
+    source: { kind: "github", repo: "owner/repo" },
+    subdir: "slack",
+    ref: "main",
+  })
+  // an unclassifiable source is rejected, not silently treated as one kind
+  expect(() => normalizeSkill("not a source")).toThrow(/not a github/)
+  // a github URL and owner/repo.git normalize to the github kind (one cache key)
+  expect(normalizeSkill("https://github.com/o/r").source).toEqual({ kind: "github", repo: "o/r" })
+  expect(normalizeSkill("https://github.com/o/r.git").source).toEqual({
+    kind: "github",
+    repo: "o/r",
+  })
+  expect(normalizeSkill("o/r.git").source).toEqual({ kind: "github", repo: "o/r" })
+})
+
+test("renameSkillSpec renames into the object form, preserving the source", () => {
+  // string shorthand with a subdir -> object form with the new name
+  expect(renameSkillSpec("owner/repo#skills/x", "writer")).toEqual({
+    name: "writer",
+    source: "owner/repo",
+    path: "skills/x",
+  })
+  // bare string shorthand -> object form, no path
+  expect(renameSkillSpec("owner/repo", "writer")).toEqual({ name: "writer", source: "owner/repo" })
+  // object form keeps source/path/ref, just swaps the name
+  expect(
+    renameSkillSpec({ name: "editor", source: "o/r", path: "p", ref: "main" }, "writer"),
+  ).toEqual({ name: "writer", source: "o/r", path: "p", ref: "main" })
+})
+
+test("validateConfig accepts valid skills and rejects malformed ones", () => {
+  const base = (skills: unknown): Config => ({
+    version: 1,
+    workspaces: [{ name: "w", path: "~/w", servers: {}, skills } as never],
+  })
+  expect(() => validateConfig(base(["owner/repo#a", { source: "o/r", name: "x" }]))).not.toThrow()
+  expect(() => validateConfig(base("nope"))).toThrow(/skills must be an array/)
+  expect(() => validateConfig(base([{ name: "x" }]))).toThrow(/missing a "source"/)
+  expect(() => validateConfig(base([{ source: "o/r", path: "../escape" }]))).toThrow(
+    /must not contain \.\./,
+  )
+  expect(() => validateConfig(base(["o/r#a", "o/r#a"]))).toThrow(/duplicate skill name "a"/)
+  expect(() => validateConfig(base(["bad source"]))).toThrow(/not a github/)
+})
+
+// A fake cached github skill: a cache-backed source, so a link into it is inscope
+// -owned (its target resolves under the cache) and therefore prunable, with no
+// network clone. Run inside withSandbox so the cache lives under the sandbox.
+const seedCachedSkill = (repo: string): string => {
+  const dir = cacheDirFor(normalizeSkill(repo))
+  fs.mkdirSync(path.join(dir, ".git"), { recursive: true })
+  fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+  return dir
+}
+const stubRunner: Runner = () => ({ status: 0, stdout: "", stderr: "" })
+const one = (ws: Workspace): Config => ({ version: 1, workspaces: [ws] })
+
+test("skillsDir: non-isolated tracks the base CLAUDE_CONFIG_DIR; isolated is always private", () => {
+  withSandbox((sb) => {
+    const ws: Workspace = { name: "w", path: path.join(sb, "w"), servers: {} }
+    const iso: Workspace = { name: "i", path: path.join(sb, "i"), isolate: true, servers: {} }
+    // isolated: always its own login's dir, regardless of the ambient CLAUDE_CONFIG_DIR
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "anything")
+    expect(skillsDir(iso)).toBe(path.join(sb, "i", ".inscope", "skills"))
+    // non-isolated, no base override -> the shared ~/.claude
+    delete process.env.CLAUDE_CONFIG_DIR
+    expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
+    // non-isolated, a global base CCD set -> that dir (matches the hook's base login)
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "global-claude")
+    expect(skillsDir(ws)).toBe(path.join(sb, "global-claude", "skills"))
+    // the shell sits in an isolated workspace (CCD is an inscope .inscope dir): ignore
+    // it so non-isolated skills never land in a sibling isolated login
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "other", ".inscope")
+    expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
+  })
+})
+
+test("applySkills links a non-isolated workspace's skills into the shared ~/.claude/skills, idempotently", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src", "myskill")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    // selfSkill: false keeps this focused on the declared skill (no self-skill write)
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [{ name: "demo", source: src }],
+    }
+    const link = path.join(sb, ".claude", "skills", "demo")
+
+    applySkills(one(ws))
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(fs.existsSync(path.join(link, "SKILL.md"))).toBe(true)
+    // personal scope in the shared base dir, not the workspace dir
+    expect(fs.existsSync(path.join(ws.path, ".claude", "skills", "demo"))).toBe(false)
+
+    applySkills(one(ws)) // idempotent
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+  })
+})
+
+test("applySkills routes an isolated workspace's skills to its private .inscope/skills", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    const isoPath = path.join(sb, "iso")
+    applySkills({
+      version: 1,
+      workspaces: [
+        {
+          name: "iso",
+          path: isoPath,
+          isolate: true,
+          servers: {},
+          selfSkill: false,
+          skills: [{ name: "demo", source: src }],
+        },
+        {
+          name: "open",
+          path: path.join(sb, "open"),
+          servers: {},
+          selfSkill: false,
+          skills: [{ name: "shared", source: src }],
+        },
+      ],
+    })
+    // isolated: private to its own login dir, never in the shared base dir
+    expect(fs.existsSync(path.join(isoPath, ".inscope", "skills", "demo"))).toBe(true)
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "demo"))).toBe(false)
+    // non-isolated: the shared base dir, never in the isolated dir
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "shared"))).toBe(true)
+    expect(fs.existsSync(path.join(isoPath, ".inscope", "skills", "shared"))).toBe(false)
+  })
+})
+
+test("applySkills leaves a user-authored (non-symlink) skill in the shared dir intact, without throwing", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    const real = path.join(sb, ".claude", "skills", "demo")
+    fs.mkdirSync(real, { recursive: true })
+    fs.writeFileSync(path.join(real, "user.txt"), "mine")
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [{ name: "demo", source: src }],
+    }
+
+    // fail-soft: warns and skips a name colliding with a real dir, never clobbers it
+    expect(() => applySkills(one(ws))).not.toThrow()
+    expect(fs.lstatSync(real).isSymbolicLink()).toBe(false)
+    expect(fs.existsSync(path.join(real, "user.txt"))).toBe(true)
+  })
+})
+
+test("applySkills is fail-soft: a bad skill is skipped and does not block the others", () => {
+  withSandbox((sb) => {
+    const good = path.join(sb, "good")
+    fs.mkdirSync(good, { recursive: true })
+    fs.writeFileSync(path.join(good, "SKILL.md"), "---\nname: g\ndescription: d\n---\n")
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [
+        { name: "bad", source: path.join(sb, "does-not-exist") },
+        { name: "good", source: good },
+      ],
+    }
+    expect(() => applySkills(one(ws))).not.toThrow()
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "good"))).toBe(true)
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "bad"))).toBe(false)
+  })
+})
+
+test("the shared ~/.claude/skills is the union of non-isolated workspaces; prune drops only removed cache-backed links, never a user's own skill", () => {
+  withSandbox((sb) => {
+    seedCachedSkill("o/x")
+    seedCachedSkill("o/y")
+    // a hand-authored personal skill inscope does not own
+    const mine = path.join(sb, ".claude", "skills", "mine")
+    fs.mkdirSync(mine, { recursive: true })
+    fs.writeFileSync(path.join(mine, "SKILL.md"), "---\nname: m\ndescription: d\n---\n")
+
+    const wsAB = (bSkills: SkillSpec[]): Config => ({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {}, selfSkill: false, skills: ["o/x"] },
+        { name: "b", path: path.join(sb, "b"), servers: {}, selfSkill: false, skills: bSkills },
+      ],
+    })
+
+    applySkills(wsAB(["o/y"]), stubRunner)
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "x"))).toBe(true)
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "y"))).toBe(true)
+
+    // drop b's skill: y is pruned (union no longer has it), a's x stays, mine untouched
+    applySkills(wsAB([]), stubRunner)
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "x"))).toBe(true)
+    expect(fs.existsSync(path.join(sb, ".claude", "skills", "y"))).toBe(false)
+    expect(fs.existsSync(path.join(mine, "SKILL.md"))).toBe(true)
+  })
+})
+
+test("applySkills migrates out of the old <ws>/.claude/skills and drops its .gitignore block", () => {
+  withSandbox((sb) => {
+    const cacheDir = seedCachedSkill("o/x")
+    const wsPath = path.join(sb, "ws")
+    // simulate an older apply: an owned link + the old managed .gitignore block
+    const oldDir = path.join(wsPath, ".claude", "skills")
+    fs.mkdirSync(oldDir, { recursive: true })
+    fs.symlinkSync(cacheDir, path.join(oldDir, "x"))
+    upsertBlock(path.join(wsPath, ".gitignore"), "skills", "/.claude/skills/x")
+
+    applySkills(one({ name: "ws", path: wsPath, servers: {}, selfSkill: false }))
+    expect(fs.existsSync(path.join(oldDir, "x"))).toBe(false)
+    expect(readBlock(path.join(wsPath, ".gitignore"), "skills")).toBeNull()
+  })
+})
+
+test("removeSkills tears down an isolated workspace's private links, and is a no-op for a non-isolated one", () => {
+  withSandbox((sb) => {
+    seedCachedSkill("o/x")
+    const isoPath = path.join(sb, "iso")
+    const iso: Workspace = {
+      name: "iso",
+      path: isoPath,
+      isolate: true,
+      servers: {},
+      selfSkill: false,
+      skills: ["o/x"],
+    }
+    const open: Workspace = {
+      name: "open",
+      path: path.join(sb, "open"),
+      servers: {},
+      selfSkill: false,
+      skills: ["o/x"],
+    }
+    applySkills({ version: 1, workspaces: [iso, open] }, stubRunner)
+    const isoLink = path.join(isoPath, ".inscope", "skills", "x")
+    const sharedLink = path.join(sb, ".claude", "skills", "x")
+    expect(fs.existsSync(isoLink)).toBe(true)
+    expect(fs.existsSync(sharedLink)).toBe(true)
+
+    removeSkills(iso) // isolated: prunes its private dir
+    expect(fs.existsSync(isoLink)).toBe(false)
+    removeSkills(open) // non-isolated: no-op (a later apply reconciles the shared dir)
+    expect(fs.existsSync(sharedLink)).toBe(true)
+  })
+})
+
+test("unlinkSkillLink drops a managed link (so skill rm removes a local-source skill), never a real dir", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    // a local source: not cache-backed, so apply's ownership-prune would miss it
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [{ name: "demo", source: src }],
+    }
+    applySkills(one(ws))
+    const link = path.join(sb, ".claude", "skills", "demo")
+    expect(fs.existsSync(link)).toBe(true)
+
+    unlinkSkillLink(ws, "demo") // what `skill rm` calls before re-applying
+    expect(fs.existsSync(link)).toBe(false)
+
+    // never removes a real, user-authored dir of the same name
+    fs.mkdirSync(link, { recursive: true })
+    unlinkSkillLink(ws, "demo")
+    expect(fs.existsSync(link)).toBe(true)
+  })
+})
+
+test("applySkills rewrites a custom-named skill's frontmatter so Claude shows the chosen /command", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(
+      path.join(src, "SKILL.md"),
+      "---\nname: upstream-name\ndescription: d\n---\nbody\n",
+    )
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [{ name: "my-alias", source: src }],
+    }
+    applySkills(one(ws))
+    const link = path.join(sb, ".claude", "skills", "my-alias")
+    expect(fs.existsSync(path.join(link, "SKILL.md"))).toBe(true)
+    const md = fs.readFileSync(path.join(link, "SKILL.md"), "utf8")
+    expect(md).toContain("name: my-alias") // rewritten to the inscope name
+    expect(md).not.toContain("upstream-name")
+    expect(md).toContain("body") // body preserved
+    // it is a rewritten copy under the cache, so it stays inscope-owned and prunes
+    expect(fs.readlinkSync(link).startsWith(skillsCacheRoot())).toBe(true)
+    applySkills(one({ ...ws, skills: [] }))
+    expect(fs.existsSync(link)).toBe(false)
+  })
+})
+
+test("applySkills symlinks straight to the source when the name already matches the frontmatter", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: same\ndescription: d\n---\n")
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [{ name: "same", source: src }],
+    }
+    applySkills(one(ws))
+    // no rewritten copy: the link points straight at the source
+    expect(fs.readlinkSync(path.join(sb, ".claude", "skills", "same"))).toBe(src)
+  })
+})
+
+test("the bundled inscope self-skill has parseable frontmatter (no bare colon in a value)", () => {
+  const md = fs.readFileSync(path.join(selfSkillSource(), "SKILL.md"), "utf8")
+  const m = md.match(/^---\n([\s\S]*?)\n---/)
+  expect(m).not.toBeNull()
+  for (const line of m![1].split("\n")) {
+    if (!line.trim()) continue
+    const kv = line.match(/^([A-Za-z0-9_-]+):\s+(.*)$/)
+    expect(kv, `frontmatter line is not "key: value": ${line}`).not.toBeNull()
+    const value = kv![2]
+    const quoted = /^".*"$/.test(value) || /^'.*'$/.test(value)
+    // an unquoted value with ": " reads as a nested mapping and breaks YAML,
+    // which is the exact bug that once broke the description.
+    expect(quoted || !value.includes(": "), `bare colon in a frontmatter value: ${line}`).toBe(true)
+  }
+})
+
+test("absolutizeLocalSource makes a relative local source cwd-independent", () => {
+  const dir = tmpDir()
+  fs.mkdirSync(path.join(dir, "sk"), { recursive: true })
+  const prev = process.cwd()
+  try {
+    process.chdir(dir)
+    const out = absolutizeLocalSource("./sk")
+    expect(out.startsWith(".")).toBe(false) // no longer cwd-relative
+    expect(path.isAbsolute(out) || out.startsWith("~")).toBe(true)
+  } finally {
+    process.chdir(prev)
+  }
+  // github/git and already-absolute or ~-anchored sources pass through unchanged
+  expect(absolutizeLocalSource("owner/repo")).toBe("owner/repo")
+  expect(absolutizeLocalSource("/abs/x")).toBe("/abs/x")
+})
+
+test("validateConfig rejects a workspace skill named inscope (reserved)", () => {
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [
+        { name: "w", path: "~/w", servers: {}, skills: [{ name: "inscope", source: "o/r" }] },
+      ],
+    }),
+  ).toThrow(/reserved for the bundled self-skill/)
+})
+
+test("skill source and ref reject a leading dash (git option-injection guard)", () => {
+  expect(() => normalizeSkill("-x.git")).toThrow(/must not start with "-"/)
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "w", path: "~/w", servers: {}, skills: [{ source: "o/r", ref: "-x" }] }],
+    }),
+  ).toThrow(/must not start with "-"/)
+})
+
+test("cacheDirFor keys git sources under the cache root, with @ref when pinned", () => {
+  withSandbox(() => {
+    expect(cacheDirFor(normalizeSkill("owner/repo"))).toBe(
+      path.join(skillsCacheRoot(), "github.com", "owner", "repo"),
+    )
+    expect(cacheDirFor(normalizeSkill({ source: "owner/repo", ref: "v1" }))).toBe(
+      path.join(skillsCacheRoot(), "github.com", "owner", "repo@v1"),
+    )
+    // distinct non-github git URLs that sanitize identically still get distinct dirs
+    expect(cacheDirFor(normalizeSkill("https://host.com/a-b.git"))).not.toBe(
+      cacheDirFor(normalizeSkill("https://host.com/a/b.git")),
+    )
+  })
+})
+
+test("applySkills caches and links the bundled self-skill by default, and opts out cleanly", () => {
+  withSandbox((sb) => {
+    const ws: Workspace = { name: "ws", path: path.join(sb, "ws"), servers: {} }
+
+    applySkills(one(ws)) // default-on
+    const link = path.join(sb, ".claude", "skills", SELF_SKILL_NAME)
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(fs.existsSync(path.join(link, "SKILL.md"))).toBe(true)
+    // linked into the shared cache, not the package dir, so npx GC cannot dangle it
+    expect(fs.readlinkSync(link).startsWith(skillsCacheRoot())).toBe(true)
+
+    applySkills(one({ ...ws, selfSkill: false })) // opt out: pruned (cache-backed)
+    expect(fs.existsSync(link)).toBe(false)
+  })
+})
+
+test("discoverSkills finds root and nested skills, ignoring dirs without a SKILL.md", () => {
+  const root = tmpDir()
+  fs.writeFileSync(path.join(root, "SKILL.md"), "---\nname: r\ndescription: d\n---\n")
+  for (const n of ["alpha", "beta"]) {
+    fs.mkdirSync(path.join(root, "skills", n), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, "skills", n, "SKILL.md"),
+      `---\nname: ${n}\ndescription: d\n---\n`,
+    )
+  }
+  fs.mkdirSync(path.join(root, "docs"), { recursive: true }) // no SKILL.md: ignored
+
+  const found = discoverSkills(root)
+  const names = found.map((f) => f.name)
+  expect(names).toContain("alpha")
+  expect(names).toContain("beta")
+  expect(found.some((f) => f.subdir === "")).toBe(true) // the root skill
+  expect(found.some((f) => f.name === "docs")).toBe(false)
+  expect(found.find((f) => f.name === "alpha")?.subdir).toBe(path.join("skills", "alpha"))
+})
+
+test("runDoctor warns on a declared skill that is not linked, and is ok once applied", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    const cfg: Config = {
+      version: 1,
+      // selfSkill: false keeps the check focused on the one declared skill
+      workspaces: [
+        {
+          name: "ws",
+          path: path.join(sb, "ws"),
+          servers: {},
+          selfSkill: false,
+          skills: [{ name: "demo", source: src }],
+        },
+      ],
+    }
+    const stub: Runner = () => ({ status: 0, stdout: "", stderr: "" })
+    const skillsOnly = () => runDoctor(cfg, stub).filter((c) => c.label.includes("skills"))
+
+    const before = skillsOnly()
+    expect(before.some((c) => c.status === "warn" && c.detail?.includes("demo"))).toBe(true)
+
+    applySkills(cfg)
+    const after = skillsOnly()
+    expect(after.some((c) => c.status === "ok")).toBe(true)
+    expect(after.some((c) => c.status === "warn")).toBe(false)
+  })
+})
+
+test("computeDrift reports a declared-but-unlinked skill, and none once linked", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    const cfg: Config = {
+      version: 1,
+      workspaces: [
+        {
+          name: "ws",
+          path: path.join(sb, "ws"),
+          servers: {},
+          selfSkill: false,
+          skills: [{ name: "demo", source: src }],
+        },
+      ],
+    }
+    // non-isolated workspaces share ~/.claude/skills, so the diff is labelled "personal"
+    const skillDrift = () => computeDrift(cfg).filter((d) => d.label === "skills:personal")
+
+    const before = skillDrift()
+    expect(before).toHaveLength(1)
+    expect(before[0].next).toContain("demo")
+    expect(before[0].current).toBe("")
+
+    applySkills(cfg)
+    expect(skillDrift()).toHaveLength(0) // linked: no drift
+  })
+})
+
+test("diff and doctor catch a re-pointed skill (same name, changed source)", () => {
+  withSandbox((sb) => {
+    const a = path.join(sb, "a")
+    const b = path.join(sb, "b")
+    for (const d of [a, b]) {
+      fs.mkdirSync(d, { recursive: true })
+      fs.writeFileSync(path.join(d, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    }
+    const at = (src: string): Config => ({
+      version: 1,
+      workspaces: [
+        {
+          name: "ws",
+          path: path.join(sb, "ws"),
+          servers: {},
+          selfSkill: false,
+          skills: [{ name: "demo", source: src }],
+        },
+      ],
+    })
+    applySkills(at(a)) // links demo -> a
+
+    // the config now points demo at b; the on-disk link still points at a
+    const stub: Runner = () => ({ status: 0, stdout: "", stderr: "" })
+    expect(computeDrift(at(b)).filter((d) => d.label === "skills:personal")).toHaveLength(1)
+    expect(
+      runDoctor(at(b), stub).some((c) => c.label.includes("skills") && c.status === "warn"),
+    ).toBe(true)
+  })
+})
+
+test("doctor warns when a declared skill name collides with a user-authored dir", () => {
+  withSandbox((sb) => {
+    const src = path.join(sb, "src")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+    const real = path.join(sb, ".claude", "skills", "demo")
+    fs.mkdirSync(real, { recursive: true })
+    fs.writeFileSync(path.join(real, "SKILL.md"), "---\nname: x\ndescription: y\n---\n")
+    const cfg: Config = {
+      version: 1,
+      workspaces: [
+        {
+          name: "ws",
+          path: path.join(sb, "ws"),
+          servers: {},
+          selfSkill: false,
+          skills: [{ name: "demo", source: src }],
+        },
+      ],
+    }
+    applySkills(cfg) // refuses to overwrite the real dir; leaves it
+
+    const stub: Runner = () => ({ status: 0, stdout: "", stderr: "" })
+    // the real dir has a SKILL.md, so a name-only check would call it "linked"; the
+    // target check sees it is not our symlink and warns instead
+    expect(
+      runDoctor(cfg, stub).some((c) => c.label.includes("skills") && c.status === "warn"),
+    ).toBe(true)
+  })
+})
+
+test("parseAddSource handles a github tree URL and the #subdir shorthand", () => {
+  expect(parseAddSource("https://github.com/o/r/tree/main/skills/foo")).toEqual({
+    source: "o/r",
+    subdir: "skills/foo",
+    ref: "main",
+  })
+  expect(parseAddSource("o/r#skills/foo")).toEqual({ source: "o/r", subdir: "skills/foo" })
+  expect(parseAddSource("o/r")).toEqual({ source: "o/r" })
+  // a blob URL points at a file; the skill is the directory that contains it
+  expect(
+    parseAddSource(
+      "https://github.com/mattpocock/skills/blob/main/skills/productivity/writing-great-skills/SKILL.md",
+    ),
+  ).toEqual({
+    source: "mattpocock/skills",
+    subdir: "skills/productivity/writing-great-skills",
+    ref: "main",
+  })
+})
+
+test("resolveSkillDir pulls an existing floating clone only with --update", () => {
+  withSandbox(() => {
+    const calls: string[][] = []
+    const fakeGit: Runner = (cmd, args) => {
+      calls.push([cmd, ...args])
+      if (args[0] === "clone") {
+        const dir = args[args.length - 1]
+        fs.mkdirSync(path.join(dir, ".git"), { recursive: true })
+        fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+      }
+      return { status: 0, stdout: "", stderr: "" }
+    }
+    const skill = normalizeSkill("owner/repo")
+    resolveSkillDir(skill, fakeGit) // clones
+    resolveSkillDir(skill, fakeGit, { update: true }) // pulls
+    expect(calls.some((c) => c[0] === "git" && c.includes("pull"))).toBe(true)
+  })
+})
+
+test("resolveSkillDir shallow-fetches a pinned sha when the --branch clone fails", () => {
+  withSandbox(() => {
+    const calls: string[][] = []
+    const fakeGit: Runner = (_cmd, args) => {
+      calls.push(args)
+      // a sha is not a branch, so the --branch clone fails...
+      if (args[0] === "clone") return { status: 1, stdout: "", stderr: "not a branch" }
+      // ...and the init/fetch/checkout fallback materializes the commit
+      if (args[0] === "init") {
+        const dir = args[args.length - 1]
+        fs.mkdirSync(path.join(dir, ".git"), { recursive: true })
+        fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+      }
+      return { status: 0, stdout: "", stderr: "" }
+    }
+    const skill = normalizeSkill({ source: "owner/repo", ref: "abc123def" })
+    const dir = resolveSkillDir(skill, fakeGit)
+    expect(fs.existsSync(path.join(dir, "SKILL.md"))).toBe(true)
+    // fell back to a shallow fetch + detached checkout, not a full-history clone
+    expect(calls.some((a) => a.includes("fetch"))).toBe(true)
+    expect(calls.some((a) => a.includes("checkout"))).toBe(true)
+    expect(calls.some((a) => a[0] === "clone" && !a.includes("--branch"))).toBe(false)
+  })
+})
+
+test("resolveSkillDir cleans up the cache dir when a pinned-sha fetch fails", () => {
+  withSandbox(() => {
+    const fakeGit: Runner = (_cmd, args) => {
+      if (args[0] === "clone") return { status: 1, stdout: "", stderr: "not a branch" }
+      if (args[0] === "init")
+        fs.mkdirSync(path.join(args[args.length - 1], ".git"), { recursive: true })
+      if (args.includes("fetch")) return { status: 1, stdout: "", stderr: "could not fetch" }
+      return { status: 0, stdout: "", stderr: "" }
+    }
+    const skill = normalizeSkill({ source: "owner/repo", ref: "deadbeef" })
+    expect(() => resolveSkillDir(skill, fakeGit)).toThrow(/failed to fetch/)
+    // the partial `.git`-only dir must not survive, or the next run's guard would
+    // treat it as a complete clone and never retry the fetch
+    expect(fs.existsSync(cacheDirFor(skill))).toBe(false)
+  })
+})
+
+test("validateConfig rejects a non-boolean selfSkill", () => {
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "w", path: "~/w", servers: {}, selfSkill: "no" as never }],
+    }),
+  ).toThrow(/selfSkill must be a boolean/)
+})
+
+test("resolveSkillDir clones a git source once and does not pull without --update", () => {
+  withSandbox(() => {
+    const calls: string[][] = []
+    const fakeGit: Runner = (cmd, args) => {
+      calls.push([cmd, ...args])
+      if (cmd === "git" && args[0] === "clone") {
+        const dir = args[args.length - 1]
+        fs.mkdirSync(path.join(dir, ".git"), { recursive: true })
+        fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: s\ndescription: d\n---\n")
+      }
+      return { status: 0, stdout: "", stderr: "" }
+    }
+    const skill = normalizeSkill("owner/repo")
+    const dir = resolveSkillDir(skill, fakeGit)
+    expect(fs.existsSync(path.join(dir, "SKILL.md"))).toBe(true)
+    expect(calls.filter((c) => c[1] === "clone")).toHaveLength(1)
+
+    const before = calls.length
+    resolveSkillDir(skill, fakeGit) // clone present, no update: no further git calls
+    expect(calls.length).toBe(before)
   })
 })
