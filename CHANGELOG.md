@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.10.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.9.0...v0.10.0)
+
+### 🚀 Enhancements
+
+- Deliver per-workspace identity to any launcher ([65c7320](https://github.com/nrjdalal/inscope/commit/65c7320))
+- **skills:** Per-workspace Claude skill manager ([a62f25f](https://github.com/nrjdalal/inscope/commit/a62f25f))
+- **skills:** Add `skill rename` to rename a skill and its /command ([906744e](https://github.com/nrjdalal/inscope/commit/906744e))
+
+### 🩹 Fixes
+
+- Flag stale bypass and tidy bypass file handling ([516f9ff](https://github.com/nrjdalal/inscope/commit/516f9ff))
+- **skills:** Route non-isolated skills to the base login dir ([06bc976](https://github.com/nrjdalal/inscope/commit/06bc976))
+
+### 📖 Documentation
+
+- Note the first-run project-MCP trust gate ([1f09ddd](https://github.com/nrjdalal/inscope/commit/1f09ddd))
+- **skills:** Record the global-CCD-in-isolated-cwd base fallback ([2025197](https://github.com/nrjdalal/inscope/commit/2025197))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.9.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.9...v0.9.0)
