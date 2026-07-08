@@ -12,6 +12,7 @@ import {
 import { ghAccounts, keychainHas } from "@/secrets"
 import {
   isInteractive,
+  orange,
   promptConfirm,
   promptText,
   selectMany,
@@ -189,6 +190,11 @@ export const edit = async (args: string[]) => {
   if (next.isolate && !ws.isolate)
     console.log(
       `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude login`,
+    )
+  else if (ws.isolate && !next.isolate)
+    console.log(
+      `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
+        `Delete it with: ${orange(`rm -rf ${next.path}/.inscope`)}`,
     )
   await finalizeSlack(next, seedSlack)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)

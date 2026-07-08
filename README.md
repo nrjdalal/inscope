@@ -230,7 +230,7 @@ npx inscope add ~/acme --isolate   # or toggle it later with inscope edit
 
 On the next `apply`, inscope scaffolds `~/acme/.inscope` (gitignored, it holds a login) and adds a `claude()` wrapper to the hook that points `CLAUDE_CONFIG_DIR` there when you launch `claude` from the workspace. Sign in once; that login is reused, and `inscope doctor` warns if it is unsigned or tracked by git. Resolution happens at launch from `$PWD`, so this applies to `claude` started from the shell; an IDE or GUI launch uses the shared `~/.claude`.
 
-Launch flags for the wrapper (`claude update` before launch, `--dangerously-skip-permissions`) go under an optional top-level `claude` key in the config.
+Launch flags for the wrapper (`claude update` before launch, `--dangerously-skip-permissions`) go under an optional top-level `claude` key in the config. `update` runs on every launch, so it adds a network round-trip each time you start `claude`; it is best-effort, so an offline or failed update never blocks the launch.
 
 ---
 

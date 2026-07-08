@@ -89,6 +89,12 @@ export const remove = async (args: string[]) => {
   applyAll(next)
 
   console.log(`\n✓ removed workspace "${target.name}"`)
+  if (target.isolate) {
+    console.log(
+      `\nNote: ${target.path}/.inscope still holds a Claude login; it was left in place.\n` +
+        `Delete it with: ${orange(`rm -rf ${target.path}/.inscope`)}`,
+    )
+  }
   if (target.servers.slack) {
     console.log(
       `\nNote: the keychain entry ${target.servers.slack.keychain} was left in place.\n` +

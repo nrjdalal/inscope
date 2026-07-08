@@ -230,8 +230,9 @@ test("golden: claude wrapper shadows a nested non-isolated workspace", () => {
   ).toMatchSnapshot()
 })
 
-// Top-level launch flags ride on the isolate wrapper: the launch line gains
-// `claude update &&` and `--dangerously-skip-permissions`, resolved dir unchanged.
+// Top-level launch flags ride on the isolate wrapper: the launch line gains a
+// best-effort `claude update;` (`;`, not `&&`) and `--dangerously-skip-permissions`,
+// resolved dir unchanged.
 test("golden: claude wrapper with top-level launch flags", () => {
   expect(
     renderHook({
