@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.9.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.9...v0.9.0)
+
+### 🚀 Enhancements
+
+- Default the Slack MCP package to @nrjdalal/slack-mcp-server ([a8171d1](https://github.com/nrjdalal/inscope/commit/a8171d1))
+- **claude:** Opt-in per-workspace Claude login via an isolated .inscope dir ([a190d71](https://github.com/nrjdalal/inscope/commit/a190d71))
+
+### 🩹 Fixes
+
+- **claude:** Flag the leftover .inscope login on rm and un-isolate ([297c954](https://github.com/nrjdalal/inscope/commit/297c954))
+
+### 📖 Documentation
+
+- **readme:** Document isolated workspaces and the claude launch flags ([e08c881](https://github.com/nrjdalal/inscope/commit/e08c881))
+- **readme:** Rewrite for clarity and lead with isolated Claude logins ([fa7e516](https://github.com/nrjdalal/inscope/commit/fa7e516))
+- **assets:** Regenerate demo GIFs for the isolate prompt and Slack fork default ([8c3d1e8](https://github.com/nrjdalal/inscope/commit/8c3d1e8))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.8.9
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.8.8...v0.8.9)
