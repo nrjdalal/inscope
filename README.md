@@ -35,6 +35,7 @@ You describe each workspace once, and inscope keeps the moving parts in sync fro
   - [`inscope doctor`](#inscope-doctor)
 - [What It Manages](#-what-it-manages)
 - [Isolated Workspaces](#-isolated-workspaces)
+- [Skills](#-skills)
 - [MCP Servers](#-mcp-servers)
 - [Config File](#-config-file)
 - [Install Globally](#-install-globally)
@@ -104,8 +105,9 @@ inscope add  [path] Map a directory to a GitHub account, git email, and MCP serv
 inscope edit [path] Edit a workspace interactively, then re-apply
 inscope rm   [path] Remove a workspace mapping (alias: remove)
 inscope list        List configured workspaces (alias: ls)
+inscope skill       Manage a workspace's Claude skills (add, list, rm, update)
 inscope diff        Preview what apply would change; --adopt pulls on-disk extras back
-inscope apply       Regenerate the hook, git includes, and .mcp.json (alias: sync)
+inscope apply       Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
 inscope doctor      Verify tokens, identities, and the hook resolve correctly
 
 -v, --version       Display version
@@ -184,7 +186,7 @@ Preview exactly what `apply` would write: a colored diff of the hook, git includ
 
 ### `inscope apply`
 
-Regenerate the hook, git includes, and every `.mcp.json` from the config (alias `sync`). Idempotent and surgical: only the managed blocks are touched, and writes are atomic. Run it any time you edit `inscope.json` by hand.
+Regenerate the hook, git includes, every `.mcp.json`, and each workspace's skill links from the config (alias `sync`). Idempotent and surgical: only the managed blocks are touched, and writes are atomic. Run it any time you edit `inscope.json` by hand.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/apply.gif" alt="inscope apply regenerating the hook, git includes, and each .mcp.json" width="900" />
@@ -202,13 +204,14 @@ Verify that tokens, identities, the hook, and each `.mcp.json` resolve correctly
 
 ## 🧩 What It Manages
 
-| Surface      | Location                                                            |
-| ------------ | ------------------------------------------------------------------- |
-| Config       | `~/.config/inscope/inscope.json`                                    |
-| chpwd hook   | `~/.config/inscope/inscope.zsh`                                     |
-| MCP servers  | `<workspace>/.mcp.json`                                             |
-| Git identity | `~/.gitconfig` includeIf + `~/.config/inscope/git/<name>.gitconfig` |
-| Claude login | `<workspace>/.inscope` (isolated workspaces only, gitignored)       |
+| Surface       | Location                                                                             |
+| ------------- | ------------------------------------------------------------------------------------ |
+| Config        | `~/.config/inscope/inscope.json`                                                     |
+| chpwd hook    | `~/.config/inscope/inscope.zsh`                                                      |
+| MCP servers   | `<workspace>/.mcp.json`                                                              |
+| Git identity  | `~/.gitconfig` includeIf + `~/.config/inscope/git/<name>.gitconfig`                  |
+| Claude login  | `<workspace>/.inscope` (isolated workspaces only, gitignored)                        |
+| Claude skills | `~/.claude/skills/<name>`, or `<workspace>/.inscope/skills` when isolated (symlinks) |
 
 inscope only touches the blocks it owns; your other `.zshrc`, `.gitconfig`, and `.mcp.json` content is left alone. Edit `inscope.json` by hand if you like, then run `inscope apply`.
 
@@ -227,6 +230,39 @@ On the next `apply`, inscope scaffolds `~/acme/.inscope` (gitignored, it holds a
 Because the login is exported, a shell you spawn from _inside_ an isolated subtree inherits it: an unmapped directory reached from that nested shell keeps the isolated login until you `cd` back into a mapped one. That inheritance is what lets cmux restore the right account when it reopens a tab, but under other multiplexers (tmux) or a plain nested shell it means "outside a workspace" can resolve to the last isolated login rather than `~/.claude`.
 
 To skip Claude's permission prompts in isolated logins, set the top-level `bypass: true`. inscope writes `permissions.defaultMode: "bypassPermissions"` into each isolated workspace's own `.inscope/settings.json`, on disk, so every launcher honors it with no launch flag. Your shared `~/.claude` base login is yours to configure; inscope never writes there.
+
+---
+
+## 🎓 Skills
+
+`inscope skill add` clones a skill source once into a shared cache and symlinks it into the workspace's personal Claude skills dir. Because that is personal scope, Claude lists the skill in the `/` menu and loads it in every project you open, under any launcher (a shell, an IDE, or cmux). An isolated workspace keeps its skills private to its own login; a non-isolated one shares `~/.claude/skills` with your other non-isolated workspaces.
+
+```sh
+# run from inside the workspace, or pass --workspace <label>
+npx inscope skill add owner/repo#skills/readme-audit   # one skill inside a repo
+npx inscope skill add owner/repo                        # many skills: pick interactively
+npx inscope skill add owner/repo --list                 # preview a repo's skills
+npx inscope skill add owner/repo --skill a --skill b    # specific ones (--all for all)
+npx inscope skill add owner/repo --name triage          # rename the /command
+npx inscope skill add ~/dev/my-skills/deploy            # a local path
+npx inscope skill list                                  # what this workspace has
+npx inscope skill rm triage                             # drop it
+npx inscope skill update                                # pull floating git sources
+```
+
+A source is a GitHub `owner/repo` (or a browser `tree`/`blob` URL), a git URL, or a local path, with an optional `#subdir` pointing at the folder that holds `SKILL.md`, and `--ref` to pin a branch, tag, or sha (git sources float on the default branch otherwise). When a repo holds several skills, `add` lists them and lets you pick (interactively, or with `--skill`/`--all`/`--list`). Like every inscope command it auto-applies, and it infers the workspace from the directory you run it in.
+
+Content is stored once in `~/.config/inscope/skills-cache/`; the personal skills dir only holds symlinks into it, so `skill update` refreshes every workspace that links a source at once. inscope only ever removes symlinks it created (links into that cache), so a skill directory you authored by hand in `~/.claude/skills` is never touched.
+
+Personal scope is what makes this work everywhere with no per-repo setup and no launch flags: Claude reads `~/.claude/skills` (or an isolated login's `.inscope/skills`) in every session, regardless of the git repo you happen to be in, and lists those skills in the `/` menu. Nothing is added at launch time, so a shell, an IDE, cmux, or a `--resume` all see the same skills.
+
+Every workspace also gets the bundled **inscope self-skill** by default: a short guide that teaches Claude how to drive inscope, so asking Claude to "add a skill here" or "isolate this workspace" uses the right commands. Opt a workspace out with `inscope skill rm inscope`, and back in with `inscope skill add inscope`.
+
+To give Claude the inscope skill in a repo or agent that inscope does not manage, install it with the standard [`skills`](https://github.com/vercel-labs/skills) CLI, which ships the same `skills/inscope` guide:
+
+```sh
+npx skills add nrjdalal/inscope
+```
 
 ---
 
@@ -297,6 +333,12 @@ The source of truth is `~/.config/inscope/inscope.json`:
         },
         // every other server (atlassian, canva, … webflow) defaults to false
       },
+      // optional: Claude skills, symlinked into your personal skills dir (~/.claude/skills,
+      // or the workspace's own .inscope/skills when isolated)
+      "skills": [
+        "owner/repo#skills/readme-audit",
+        { "name": "triage", "source": "owner/repo", "path": "slack", "ref": "main" },
+      ],
     },
   ],
 }

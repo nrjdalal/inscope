@@ -50,6 +50,39 @@ export type Workspace = {
   gh?: string
   git?: { email?: string; name?: string }
   servers: Servers
+  // Skills this workspace makes available to Claude. Materialized on apply as
+  // symlinks into the workspace's personal Claude skills dir, pointing at a shared
+  // local cache (see SkillSpec and generators/skills.ts). An isolated workspace keeps
+  // its skills private in `<path>/.inscope/skills`; a non-isolated one shares
+  // `~/.claude/skills` with every other non-isolated workspace.
+  skills?: SkillSpec[]
+  // The bundled inscope self-skill (which teaches Claude how to drive inscope) is
+  // linked into every workspace by default. Set false to opt this workspace out;
+  // `inscope skill rm inscope` writes that, `inscope skill add inscope` clears it.
+  selfSkill?: boolean
+}
+
+// A skill declared on a workspace. Either a string shorthand `"<source>#<subdir>"`
+// (e.g. `"owner/repo#skills/readme-audit"`) or the object form. See normalizeSkill
+// for how both collapse to a NormalizedSkill. `ref` is git-only and pins a branch,
+// tag, or sha; omitted, it floats on the source's default branch.
+export type SkillSpec = string | { name?: string; source: string; path?: string; ref?: string }
+
+// A skill source, after classifying the `source` string: a GitHub `owner/repo`, a
+// full git URL, or a local path. Only the git kinds carry a ref.
+export type SkillSource =
+  | { kind: "github"; repo: string }
+  | { kind: "git"; url: string }
+  | { kind: "local"; path: string }
+
+export type NormalizedSkill = {
+  // The directory/command name under `.claude/skills/`; becomes `/name` in Claude.
+  name: string
+  source: SkillSource
+  // git only; floats on the default branch when omitted.
+  ref?: string
+  // Path within the source that holds `SKILL.md`, when the skill is not at the root.
+  subdir?: string
 }
 
 export type Config = {
@@ -163,6 +196,130 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "")
 
+// A skill name is a single directory name under `.claude/skills/` (and a
+// `.gitignore` path segment), so it must be a plain slug with no separators or
+// `.`/`..` traversal. It is never interpolated into the zsh hook.
+export const SKILL_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+export const skillNameError = (name: string): string | null => {
+  if (!name) return "must not be empty"
+  if (name === "." || name === "..") return "must not be . or .."
+  if (!SKILL_NAME_RE.test(name))
+    return "use only letters, digits, dot (.), dash (-), or underscore (_)"
+  return null
+}
+
+// "inscope" names the bundled self-skill, so a workspace skill may not take it.
+export const RESERVED_SKILL_NAME = "inscope"
+
+// A skill subdir locates `SKILL.md` inside a cloned/local source, so it must be a
+// relative path with no `..` escape and no newline. Forward and back slashes are
+// both treated as separators when checking for traversal.
+export const skillSubdirError = (sub: string): string | null => {
+  if (!sub) return "must not be empty"
+  if (sub.startsWith("/")) return "must be a relative path (no leading /)"
+  if (/[\n\r]/.test(sub)) return "must not contain a newline"
+  if (sub.split(/[\\/]/).some((seg) => seg === "..")) return "must not contain .."
+  return null
+}
+
+const GITHUB_SLUG_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+const isLocalSource = (s: string) => s.startsWith("~") || s.startsWith(".") || s.startsWith("/")
+const isGitUrl = (s: string) =>
+  /^(https?|ssh|git):\/\//.test(s) || s.startsWith("git@") || s.endsWith(".git")
+
+// Classify a `source` string into a github/git/local source. A leading `~`, `.`,
+// or `/` marks a local path; a scheme (or a `.git` suffix, or `git@`) marks a git
+// URL; a bare `owner/repo` is GitHub. Anything else is ambiguous and rejected.
+const GITHUB_URL_RE =
+  /^(?:https?:\/\/github\.com\/|git@github\.com:)([^/]+)\/([^/]+?)(?:\.git)?\/?$/
+
+export const classifySkillSource = (s: string): SkillSource => {
+  // A leading "-" would be parsed as an option by the `git clone` inscope shells
+  // out to; reject it up front (no legitimate source starts with a dash).
+  if (s.startsWith("-")) throw new Error(`skill source "${s}" must not start with "-"`)
+  if (isLocalSource(s)) return { kind: "local", path: s }
+  // Normalize a github.com URL and an `owner/repo(.git)` to the github kind, so the
+  // same repo caches once regardless of how it was written (URL vs shorthand).
+  const url = s.match(GITHUB_URL_RE)
+  if (url) return { kind: "github", repo: `${url[1]}/${url[2]}` }
+  const bare = s.replace(/\.git$/, "")
+  if (GITHUB_SLUG_RE.test(bare)) return { kind: "github", repo: bare }
+  if (isGitUrl(s)) return { kind: "git", url: s }
+  throw new Error(
+    `skill source "${s}" is not a github owner/repo, a git URL, or a local path (~/… ./… /…)`,
+  )
+}
+
+// A relative local source (`./x`, `../x`) resolved to a stable, cwd-independent
+// path at add time, so a later apply from a different cwd still finds it. Absolute
+// and `~`-anchored sources, and non-local ones (github/git), pass through unchanged.
+export const absolutizeLocalSource = (source: string): string =>
+  source.startsWith(".") ? contractTilde(resolveAbsolute(source)) : source
+
+const stripDotGit = (s: string) => s.replace(/\.git$/, "")
+
+const defaultSkillName = (source: SkillSource, subdir?: string): string => {
+  if (subdir) return path.basename(subdir)
+  if (source.kind === "github") return path.basename(source.repo)
+  if (source.kind === "git") return path.basename(stripDotGit(source.url))
+  return path.basename(resolveAbsolute(source.path))
+}
+
+// Collapse a SkillSpec (string shorthand or object) into a NormalizedSkill. The
+// string form splits on the first `#` into `<source>#<subdir>`; the object form
+// takes `source`/`path`/`ref`/`name` directly. A missing `name` defaults to the
+// subdir's (or source's) basename. Throws on an unclassifiable source.
+export const normalizeSkill = (spec: SkillSpec): NormalizedSkill => {
+  let sourceStr: string
+  let subdir: string | undefined
+  let ref: string | undefined
+  let explicitName: string | undefined
+  if (typeof spec === "string") {
+    const hash = spec.indexOf("#")
+    sourceStr = hash >= 0 ? spec.slice(0, hash) : spec
+    subdir = hash >= 0 ? spec.slice(hash + 1) : undefined
+  } else {
+    sourceStr = spec.source
+    subdir = spec.path
+    ref = spec.ref
+    explicitName = spec.name
+  }
+  const source = classifySkillSource(sourceStr)
+  // Validate ref here (not only at persist time) so a CLI `--ref` is checked
+  // before `skill add` resolves/clones it: ref reaches `git checkout`/`--branch`,
+  // so reject a leading "-" (option injection) and a newline, like the source.
+  if (ref && (ref.startsWith("-") || /[\n\r]/.test(ref)))
+    throw new Error(`skill ref "${ref}" must not start with "-" or contain a newline`)
+  return {
+    name: explicitName || defaultSkillName(source, subdir),
+    source,
+    ref: ref || undefined,
+    subdir: subdir || undefined,
+  }
+}
+
+// The workspace whose path most specifically contains `cwd`, mirroring the hook's
+// most-specific-first `$PWD` match: a nested workspace wins over the parent whose
+// path it sits under, ties broken by longer path then name for determinism. Used
+// by doctor and by `inscope skill` to infer the workspace from where you run it.
+export const currentWorkspace = (
+  cfg: Config,
+  cwd: string = process.cwd(),
+): Workspace | undefined => {
+  const abs = resolveAbsolute(cwd)
+  let best: Workspace | undefined
+  let bestLen = -1
+  for (const w of cfg.workspaces) {
+    const root = resolveAbsolute(w.path)
+    if ((abs === root || abs.startsWith(root + path.sep)) && root.length > bestLen) {
+      best = w
+      bestLen = root.length
+    }
+  }
+  return best
+}
+
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)
@@ -185,6 +342,8 @@ export const validateConfig = (cfg: Config) => {
     }
     if (ws.isolate !== undefined && typeof ws.isolate !== "boolean")
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
+    if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
+      throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
     if (ws.git?.email) {
       const emailErr = gitValueError(ws.git.email)
       if (emailErr)
@@ -214,6 +373,49 @@ export const validateConfig = (cfg: Config) => {
       throw new Error(
         `workspace "${ws.name}" Slack package "${slackPkg}" is invalid: use one of ${SLACK_PACKAGES.join(", ")}`,
       )
+    }
+    if (ws.skills !== undefined) {
+      if (!Array.isArray(ws.skills))
+        throw new Error(`workspace "${ws.name}" skills must be an array`)
+      const seenSkill = new Set<string>()
+      for (const spec of ws.skills) {
+        const isStr = typeof spec === "string"
+        if (!isStr && (spec === null || typeof spec !== "object" || Array.isArray(spec)))
+          throw new Error(`workspace "${ws.name}" has a skill that is not a string or object`)
+        if (!isStr) {
+          const o = spec as Record<string, unknown>
+          if (typeof o.source !== "string" || !o.source)
+            throw new Error(`workspace "${ws.name}" has a skill missing a "source"`)
+          for (const k of ["name", "path", "ref"]) {
+            if (o[k] !== undefined && typeof o[k] !== "string")
+              throw new Error(`workspace "${ws.name}" skill ${k} must be a string`)
+          }
+        }
+        let norm: NormalizedSkill
+        try {
+          norm = normalizeSkill(spec)
+        } catch (err) {
+          throw new Error(`workspace "${ws.name}" ${err instanceof Error ? err.message : err}`)
+        }
+        const nameErr = skillNameError(norm.name)
+        if (nameErr)
+          throw new Error(`workspace "${ws.name}" skill name "${norm.name}" is invalid: ${nameErr}`)
+        if (norm.name === RESERVED_SKILL_NAME)
+          throw new Error(
+            `workspace "${ws.name}" skill name "${norm.name}" is reserved for the bundled self-skill`,
+          )
+        if (norm.subdir) {
+          const subErr = skillSubdirError(norm.subdir)
+          if (subErr)
+            throw new Error(
+              `workspace "${ws.name}" skill path "${norm.subdir}" is invalid: ${subErr}`,
+            )
+        }
+        // ref is validated inside normalizeSkill above (throws), so no check here.
+        if (seenSkill.has(norm.name))
+          throw new Error(`workspace "${ws.name}" has duplicate skill name "${norm.name}"`)
+        seenSkill.add(norm.name)
+      }
     }
     if (seen.has(ws.name)) throw new Error(`duplicate workspace name "${ws.name}"`)
     seen.add(ws.name)

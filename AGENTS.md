@@ -21,12 +21,20 @@ This file provides guidance to AI coding agents working in the inscope repositor
   bun run test        # unit + golden snapshots
   ```
 
+- ALWAYS: before you commit or open/update a PR, run the `/ship` checklist (see Skills); it bundles the snapshot, gate, and docs/self-skill sync steps.
 - ALWAYS: use `@/` for `src` imports and `~/` for repo-root imports.
 - ALWAYS: write Conventional Commit messages, scoped (`feat(mcp):`, `fix(hook):`, `chore(tooling):`, `ci:`, `docs:`). The title becomes a changelog line.
 - NEVER: include a `Co-authored-by` trailer in commit messages.
 - NEVER: use em-dashes in prose.
 - Keep logic in `src/`; `bin/` is the CLI surface (arg parsing, prompts, output) only.
 - Generators pair pure render functions (config in, text out, snapshot-pinned) with the side-effecting apply/remove for that artifact. Every write goes through the atomic writer in `src/io.ts`; shared dotfiles (`~/.zshrc`, `~/.gitconfig`) are edited inside a marked managed block (`src/managed-block.ts`) so re-applying never clobbers user edits.
+
+## Skills
+
+This repo carries two skills in `.claude/skills/`, so they are always available in a Claude Code session here:
+
+- `/ship`: the pre-PR checklist for a change to inscope. Run the gates, regenerate golden snapshots after a generator change, keep the README and the bundled self-skill in sync, and follow the commit conventions. Run it before you commit or open/update a PR.
+- `/inscope`: the bundled self-skill (also shipped in the package at `skills/inscope/`), a guide to driving inscope. When you change the CLI or behavior, update it alongside the README.
 
 ## Hooks
 

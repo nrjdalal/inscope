@@ -7,6 +7,7 @@ import { renderHook } from "@/generators/hook"
 import { applyIsolation } from "@/generators/isolate"
 import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
 import { applyBypass } from "@/generators/settings"
+import { applySkills } from "@/generators/skills"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 const homeVar = (abs: string) => {
@@ -70,6 +71,12 @@ export const applyAll = (cfg: Config): ApplyResult => {
     applyBypass(ws, cfg.bypass ?? false)
     mcp.push(mcpFilePath(ws))
   }
+
+  // One pass over the whole config: the shared ~/.claude/skills is the union of every
+  // non-isolated workspace, so skills cannot be materialized per-workspace. Clone-if
+  // -missing only (no pull), so an apply is offline once a source is cached (a not-yet
+  // -cached git skill still clones here on first apply). `inscope skill update` pulls.
+  applySkills(cfg)
 
   return {
     hook: hp,

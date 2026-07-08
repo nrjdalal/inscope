@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util"
 
-import { configExists, loadConfig } from "@/config"
+import { configExists, loadConfig, normalizeSkill } from "@/config"
 import { enabledServers } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
@@ -44,6 +44,8 @@ export const list = (args: string[]) => {
     console.log(`  git      ${ws.git?.email ?? "(default)"}`)
     console.log(`  servers  ${enabledServers(ws.servers).join(", ") || "none"}`)
     if (ws.servers.slack) console.log(`  slack    keychain: ${ws.servers.slack.keychain}`)
+    if (ws.skills?.length)
+      console.log(`  skills   ${ws.skills.map((s) => normalizeSkill(s).name).join(", ")}`)
   }
   process.exit(0)
 }

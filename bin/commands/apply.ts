@@ -4,8 +4,9 @@ import { applyAll } from "@/apply"
 import { configExists, loadConfig } from "@/config"
 import { name } from "~/package.json"
 
-const helpMessage = `Regenerate the chpwd hook, git includes, and every .mcp.json
-from your config. Idempotent: run it any time the config changes.
+const helpMessage = `Regenerate the chpwd hook, git includes, every .mcp.json, and
+each workspace's skill links from your config. Idempotent: run it any time the
+config changes.
 
 Usage:
   $ ${name} apply

@@ -27,7 +27,8 @@
     "inscope": "dist/bin/index.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "type": "module",
   "types": "./dist/index.d.mts",

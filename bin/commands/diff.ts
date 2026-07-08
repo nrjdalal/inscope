@@ -29,8 +29,8 @@ const colorizeDiff = (text: string): string => {
 }
 
 const helpMessage = `Show what \`${name} apply\` would change: a diff of each managed
-artifact (the zsh hook, git includes, and .mcp.json files) against what your
-config would generate. Read-only.
+artifact (the zsh hook, git includes, .mcp.json files, and workspace skills)
+against what your config would generate. Read-only.
 
 With --adopt, pull settings that exist in your .mcp.json but not your config
 (a Slack add-message tool or package, a custom server URL) back into the config, so the

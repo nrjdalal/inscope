@@ -11,6 +11,7 @@ import {
 } from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
+import { removeSkills } from "@/generators/skills"
 import { isInteractive, orange, promptText, selectOne } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -85,6 +86,10 @@ export const remove = async (args: string[]) => {
   const { cfg: next } = removeWorkspace(cfg, target.name)
   removeMcp(target)
   removePerWorkspaceGitconfig(target.name)
+  // Symlinks into a shared cache are disposable, so we clean them up outright
+  // (unlike .inscope/keychain, which hold a login/secret and are left with a
+  // note). applyAll only touches remaining workspaces, so this must be explicit.
+  removeSkills(target)
   saveConfig(next)
   applyAll(next)
 
