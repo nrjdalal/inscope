@@ -9,6 +9,8 @@ import {
   loadConfig,
   type NormalizedSkill,
   normalizeSkill,
+  renameSkillSpec,
+  skillNameError,
   type SkillSpec,
   type Workspace,
 } from "@/config"
@@ -38,10 +40,11 @@ Usage:
   $ ${name} skill <command> [options]
 
 Commands:
-  add <source>   Add a skill (owner/repo#subdir, a git URL, or a local path)
-  list           List a workspace's skills and whether they are linked (alias: ls)
-  rm <name>      Remove a skill from a workspace (alias: remove)
-  update         Pull the latest for a workspace's floating git skills
+  add <source>        Add a skill (owner/repo#subdir, a git URL, or a local path)
+  list                List a workspace's skills and whether they are linked (alias: ls)
+  rename <old> <new>  Rename a skill (and its /command) in a workspace (alias: mv)
+  rm <name>           Remove a skill from a workspace (alias: remove)
+  update              Pull the latest for a workspace's floating git skills
 
 Planned (not available yet): use, find, init
 
@@ -383,6 +386,61 @@ const skillRemove = (args: string[]) => {
   process.exit(0)
 }
 
+const skillRename = (args: string[]) => {
+  const { positionals, values } = parse(args)
+  if (values.help) {
+    console.log(helpMessage)
+    process.exit(0)
+  }
+  const [from, to] = positionals
+  if (!from || !to) {
+    console.error(`Usage: \`${name} skill rename <current-name> <new-name>\`.`)
+    process.exit(1)
+  }
+  const cfg = loadConfig()
+  const ws = resolveWorkspace(cfg, values.workspace)
+
+  // The bundled self-skill's name is reserved; it is toggled with add/rm inscope,
+  // never renamed, and no workspace skill may take or vacate that name via rename.
+  if (from === SELF_SKILL_NAME || to === SELF_SKILL_NAME) {
+    console.error(`"${SELF_SKILL_NAME}" is the bundled self-skill; use \`skill add/rm inscope\`.`)
+    process.exit(1)
+  }
+  if (from === to) {
+    console.log(`\nSkill "${from}" already has that name in "${ws.name}".`)
+    process.exit(0)
+  }
+
+  const specs = ws.skills ?? []
+  const idx = specs.findIndex((sp) => normalizeSkill(sp).name === from)
+  if (idx < 0) {
+    console.error(`Workspace "${ws.name}" has no skill named "${from}".`)
+    process.exit(1)
+  }
+  const nameErr = skillNameError(to)
+  if (nameErr) {
+    console.error(`New skill name "${to}" is invalid: ${nameErr}`)
+    process.exit(1)
+  }
+  if (specs.some((sp, i) => i !== idx && normalizeSkill(sp).name === to)) {
+    console.error(`Workspace "${ws.name}" already has a skill named "${to}".`)
+    process.exit(1)
+  }
+
+  // A skill's name lives only in the object form (renameSkillSpec expands a string
+  // shorthand and preserves source/subdir/ref).
+  const nextSkills = specs.map((sp, i) => (i === idx ? renameSkillSpec(sp, to) : sp))
+
+  // Drop the old-name link explicitly (persist re-links under the new name and
+  // prunes owned links no longer declared).
+  unlinkSkillLink(ws, from)
+  persist({ ...ws, skills: nextSkills })
+
+  console.log(`\n✓ renamed skill "${from}" to "${to}" in "${ws.name}"`)
+  console.log(`Relaunch \`claude\` from ${ws.path} to pick up the new /command name.`)
+  process.exit(0)
+}
+
 const skillUpdate = (args: string[]) => {
   const { values } = parse(args)
   if (values.help) {
@@ -431,6 +489,9 @@ export const skill = async (args: string[]) => {
     case "ls":
     case "list":
       return skillList(rest)
+    case "rename":
+    case "mv":
+      return skillRename(rest)
     case "rm":
     case "remove":
       return skillRemove(rest)

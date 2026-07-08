@@ -246,6 +246,7 @@ npx inscope skill add owner/repo --skill a --skill b    # specific ones (--all f
 npx inscope skill add owner/repo --name triage          # rename the /command
 npx inscope skill add ~/dev/my-skills/deploy            # a local path
 npx inscope skill list                                  # what this workspace has
+npx inscope skill rename triage tickets                 # rename a skill and its /command
 npx inscope skill rm triage                             # drop it
 npx inscope skill update                                # pull floating git sources
 ```

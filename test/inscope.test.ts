@@ -16,6 +16,7 @@ import {
   normalizeSkill,
   pathConflict,
   removeWorkspace,
+  renameSkillSpec,
   saveConfig,
   slugify,
   upsertWorkspace,
@@ -1545,6 +1546,21 @@ test("normalizeSkill classifies sources and derives the command name", () => {
     repo: "o/r",
   })
   expect(normalizeSkill("o/r.git").source).toEqual({ kind: "github", repo: "o/r" })
+})
+
+test("renameSkillSpec renames into the object form, preserving the source", () => {
+  // string shorthand with a subdir -> object form with the new name
+  expect(renameSkillSpec("owner/repo#skills/x", "writer")).toEqual({
+    name: "writer",
+    source: "owner/repo",
+    path: "skills/x",
+  })
+  // bare string shorthand -> object form, no path
+  expect(renameSkillSpec("owner/repo", "writer")).toEqual({ name: "writer", source: "owner/repo" })
+  // object form keeps source/path/ref, just swaps the name
+  expect(
+    renameSkillSpec({ name: "editor", source: "o/r", path: "p", ref: "main" }, "writer"),
+  ).toEqual({ name: "writer", source: "o/r", path: "p", ref: "main" })
 })
 
 test("validateConfig accepts valid skills and rejects malformed ones", () => {

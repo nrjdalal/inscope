@@ -299,6 +299,17 @@ export const normalizeSkill = (spec: SkillSpec): NormalizedSkill => {
   }
 }
 
+// Rename a skill spec to `name`, returning the object form (a name lives only there),
+// preserving source/subdir/ref. A string shorthand `source#subdir` is expanded; an
+// object spec just takes the new name. Used by `inscope skill rename`.
+export const renameSkillSpec = (spec: SkillSpec, name: string): SkillSpec => {
+  if (typeof spec !== "string") return { ...spec, name }
+  const hash = spec.indexOf("#")
+  const source = hash >= 0 ? spec.slice(0, hash) : spec
+  const subdir = hash >= 0 ? spec.slice(hash + 1) : undefined
+  return { name, source, ...(subdir ? { path: subdir } : {}) }
+}
+
 // The workspace whose path most specifically contains `cwd`, mirroring the hook's
 // most-specific-first `$PWD` match: a nested workspace wins over the parent whose
 // path it sits under, ties broken by longer path then name for determinism. Used

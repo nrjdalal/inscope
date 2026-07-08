@@ -35,6 +35,7 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 - `inscope skill add <source>`: add skill(s). A source is a GitHub `owner/repo` (or a browser `tree`/`blob` URL), a git URL, or a local path, with an optional `#subdir`. A multi-skill source lists its skills to pick from. Flags: `-w/--workspace`, `-l/--list`, `-s/--skill <name>` (repeatable, `*` for all), `--all`, `-n/--name`, `--ref <branch|tag|sha>`, `-y`.
 - `inscope skill list`: the workspace's skills and their link status.
+- `inscope skill rename <old> <new>` (alias `mv`): rename a skill and its `/command`; re-links under the new name and prunes the old. Cannot rename the reserved `inscope` self-skill.
 - `inscope skill rm <name>`: remove a skill. `rm inscope` opts out of the bundled self-skill; `add inscope` re-enables it.
 - `inscope skill update`: pull the workspace's floating git skills.
 
