@@ -4,6 +4,7 @@ import type { Config } from "@/config"
 import { home, hookPath, zshrcPath } from "@/env"
 import { applyGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
+import { applyIsolation } from "@/generators/isolate"
 import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
@@ -62,6 +63,7 @@ export const applyAll = (cfg: Config): ApplyResult => {
   const mcp: string[] = []
   for (const ws of cfg.workspaces) {
     applyMcp(ws)
+    applyIsolation(ws)
     mcp.push(mcpFilePath(ws))
   }
 

@@ -19,8 +19,8 @@ export const readFileOrEmpty = (file: string): string => readFileOrNull(file) ??
 // Atomic write: write a sibling temp file, then rename it over the target.
 // rename(2) is atomic on the same filesystem, so a crash, SIGINT, disk-full, or
 // a second inscope running concurrently can never leave ~/.zshrc, ~/.gitconfig,
-// .mcp.json, or inscope.json truncated (the user-owned files inscope promises to
-// protect) — a reader sees the old file or the new one, never a torn one.
+// .mcp.json, .gitignore, or inscope.json truncated (the user-owned files inscope
+// promises to protect): a reader sees the old file or the new one, never a torn one.
 //
 // We resolve symlinks first and write+rename onto the *real* target, so a
 // dotfile managed by chezmoi/stow keeps its symlink: we replace the file the

@@ -22,7 +22,7 @@ import {
   workspacePathError,
   type Config,
 } from "@/config"
-import { currentWorkspace } from "@/doctor"
+import { currentWorkspace, runDoctor } from "@/doctor"
 import { adoptable, diffLines, mcpError, mcpTarget } from "@/drift"
 import { configPath, gitIncludeDir, home, hookPath, zshrcPath } from "@/env"
 import {
@@ -32,6 +32,13 @@ import {
   renderPerWorkspaceGitconfig,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
+import {
+  applyIsolation,
+  inscopeDirPath,
+  inscopeSignedIn,
+  isInscopeIgnored,
+  renderGitignore,
+} from "@/generators/isolate"
 import { applyMcp, removeMcp, renderServers, slackPackageFromArgs } from "@/generators/mcp"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
@@ -128,6 +135,122 @@ test("a workspace without gh or slack produces a no-op hook arm", () => {
     workspaces: [{ name: "docs", path: "~/docs", git: { email: "me@x.dev" }, servers: {} }],
   }
   expect(renderHook(cfg)).toContain(`docs) : ;;`)
+})
+
+test("renderHook adds no claude() wrapper when no workspace is isolated", () => {
+  expect(renderHook(blogConfig())).not.toContain("claude()")
+  expect(renderHook(blogConfig())).not.toContain("CLAUDE_CONFIG_DIR")
+})
+
+test("renderHook appends a claude() wrapper resolving .inscope from $PWD for isolated workspaces", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "acme", path: "~/acme", isolate: true, servers: { github: true } },
+      { name: "personal", path: "~/personal", gh: "nrjdalal", servers: { github: true } },
+    ],
+  }
+  const hook = renderHook(cfg)
+  // split at the wrapper's comment banner so the resolver slice excludes the
+  // wrapper (whose comment mentions CLAUDE_CONFIG_DIR)
+  const split = hook.indexOf("# Managed by inscope: launch")
+  const resolver = hook.slice(0, split)
+  const wrapper = hook.slice(split)
+  expect(resolver).not.toContain("CLAUDE_CONFIG_DIR")
+  expect(resolver).toContain(`*) return ;;`)
+  // the default honors an inherited CLAUDE_CONFIG_DIR (a user's global override),
+  // falling back to the base only when it is unset
+  expect(wrapper).toContain(`local dir="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"`)
+  // the wrapper resolves each isolated workspace's local .inscope
+  expect(wrapper).toContain(`"$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;`)
+  expect(wrapper).toContain(`CLAUDE_CONFIG_DIR="$dir" command claude "$@"`)
+  // a non-isolated, non-nested workspace contributes no wrapper arm
+  expect(wrapper).not.toContain(`"$HOME/personal/"*)`)
+})
+
+test("renderHook shadows a non-isolated workspace nested under an isolated one", () => {
+  // ~/acme is isolated; ~/acme/sub is a separate, non-isolated workspace. Without a
+  // shadow arm the parent's `"$HOME/acme/"*` would capture the child and hand it the
+  // parent's login, disagreeing with the token resolver that maps it to its own ws.
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "acme", path: "~/acme", isolate: true, servers: { github: true } },
+      { name: "sub", path: "~/acme/sub", gh: "nrjdalal", servers: { github: true } },
+      { name: "other", path: "~/other", isolate: false, servers: {} },
+    ],
+  }
+  const wrapper = renderHook(cfg).slice(renderHook(cfg).indexOf("claude() {"))
+  // the child gets a no-op shadow arm that keeps the default (shared login)...
+  expect(wrapper).toContain(`"$HOME/acme/sub/"*) : ;;`)
+  expect(wrapper).toContain(`"$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;`)
+  // ...emitted before the parent arm, so it wins (zsh runs the first match)
+  expect(wrapper.indexOf(`"$HOME/acme/sub/"*)`)).toBeLessThan(
+    wrapper.indexOf(`"$HOME/acme/"*) dir=`),
+  )
+  // a non-isolated workspace NOT nested under an isolated one gets no wrapper arm
+  expect(wrapper).not.toContain(`"$HOME/other/"*)`)
+})
+
+test("renderHook isolate arms are most-specific-first and handle spaced/absolute paths", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "root", path: "~", isolate: true, servers: {} },
+      { name: "nested", path: "~/work/client", isolate: true, servers: {} },
+      { name: "spaced", path: "~/My Client (x)", isolate: true, servers: {} },
+      { name: "abs", path: "/opt/srv", isolate: true, servers: {} },
+    ],
+  }
+  const hook = renderHook(cfg)
+  expect(hook).toContain(`"$HOME/work/client/"*) dir="$HOME/work/client/.inscope" ;;`)
+  expect(hook).toContain(`"$HOME/My Client (x)/"*) dir="$HOME/My Client (x)/.inscope" ;;`)
+  expect(hook).toContain(`"/opt/srv/"*) dir="/opt/srv/.inscope" ;;`)
+  expect(hook).toContain(`"$HOME/"*) dir="$HOME/.inscope" ;;`)
+  // the home-root arm (shortest path) is emitted last, after the nested one
+  expect(hook.indexOf(`"$HOME/work/client/"*) dir=`)).toBeLessThan(
+    hook.indexOf(`"$HOME/"*) dir="$HOME/.inscope"`),
+  )
+})
+
+test("renderHook wires top-level claude launch flags into the wrapper", () => {
+  const iso = (claude: any) =>
+    renderHook({
+      version: 1,
+      claude,
+      workspaces: [{ name: "acme", path: "~/acme", isolate: true, servers: {} }],
+    })
+
+  // explicit object, both flags: best-effort `claude update` (`;`, not `&&`) then
+  // the launch with the dir prefix and --dangerously-skip-permissions
+  expect(iso({ update: true, dangerouslySkipPermissions: true })).toContain(
+    `command claude update; CLAUDE_CONFIG_DIR="$dir" command claude --dangerously-skip-permissions "$@"`,
+  )
+  // `true` is shorthand for update only; it must NOT enable skip-permissions
+  const shorthand = iso(true)
+  expect(shorthand).toContain(`command claude update; CLAUDE_CONFIG_DIR="$dir" command claude "$@"`)
+  expect(shorthand).not.toContain("--dangerously-skip-permissions")
+  // one flag only
+  const skipOnly = iso({ dangerouslySkipPermissions: true })
+  expect(skipOnly).toContain(
+    `CLAUDE_CONFIG_DIR="$dir" command claude --dangerously-skip-permissions "$@"`,
+  )
+  expect(skipOnly).not.toContain("claude update")
+  // no `claude` key: unchanged bare launch (the flags are opt-in)
+  const none = iso(undefined)
+  expect(none).toContain(`CLAUDE_CONFIG_DIR="$dir" command claude "$@"`)
+  expect(none).not.toContain("--dangerously-skip-permissions")
+
+  // flags-only config (nothing isolated) -> a one-line wrapper, no dir resolver
+  const flagsOnly = renderHook({
+    version: 1,
+    claude: { update: true, dangerouslySkipPermissions: true },
+    workspaces: [{ name: "acme", path: "~/acme", gh: "x", servers: { github: true } }],
+  })
+  expect(flagsOnly).toContain(
+    `claude() { command claude update; command claude --dangerously-skip-permissions "$@"; }`,
+  )
+  expect(flagsOnly).not.toContain("local dir=")
 })
 
 test("git includes and per-workspace gitconfig", () => {
@@ -693,6 +816,146 @@ test("validateConfig rejects an unsafe name, path, gh, or keychain from a hand-e
   ).toThrow(/Slack keychain .* is invalid/)
 })
 
+test("validateConfig rejects a non-boolean isolate, accepts a boolean", () => {
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "ok", path: "~/x", isolate: "yes" as unknown as boolean, servers: {} }],
+    }),
+  ).toThrow(/isolate must be a boolean/)
+  expect(() =>
+    validateConfig({
+      version: 1,
+      workspaces: [{ name: "ok", path: "~/x", isolate: true, servers: {} }],
+    }),
+  ).not.toThrow()
+})
+
+test("validateConfig guards the top-level claude launch object", () => {
+  const workspaces = [{ name: "ok", path: "~/x", servers: {} }]
+  expect(() => validateConfig({ version: 1, claude: { update: true }, workspaces })).not.toThrow()
+  expect(() => validateConfig({ version: 1, claude: true, workspaces })).not.toThrow()
+  expect(() =>
+    validateConfig({ version: 1, claude: { bogus: true } as never, workspaces }),
+  ).toThrow(/claude has unknown key/)
+  expect(() =>
+    validateConfig({ version: 1, claude: { update: "yes" } as never, workspaces }),
+  ).toThrow(/claude.update must be a boolean/)
+  expect(() => validateConfig({ version: 1, claude: [] as never, workspaces })).toThrow(
+    /claude must be a boolean or an object/,
+  )
+})
+
+test("renderGitignore ignores .inscope once, idempotently, leaving an existing rule alone", () => {
+  const once = renderGitignore("node_modules\n")
+  expect(once).toContain("node_modules")
+  expect(once).toContain(".inscope/")
+  expect(once.match(/\.inscope\//g)).toHaveLength(1)
+  // re-running is a no-op
+  expect(renderGitignore(once)).toBe(once)
+  // a fresh file has no leading blank line
+  expect(renderGitignore("").startsWith("# inscope:")).toBe(true)
+  // an already-ignored dir is left untouched across gitignore spellings:
+  // bare, trailing slash, and the anchored /.inscope[/] forms
+  expect(renderGitignore(".inscope\n")).toBe(".inscope\n")
+  expect(renderGitignore("/.inscope/\n")).toBe("/.inscope/\n")
+  expect(isInscopeIgnored("build/\n.inscope/\n")).toBe(true)
+  expect(isInscopeIgnored("/.inscope/\n")).toBe(true)
+  expect(isInscopeIgnored("/.inscope\n")).toBe(true)
+  expect(isInscopeIgnored("build/\n")).toBe(false)
+  // a sibling that merely starts with the name is not the entry
+  expect(isInscopeIgnored(".inscope.bak\n")).toBe(false)
+})
+
+test("inscopeSignedIn: real content is signed in; empty/absent/noise/non-dir is not", () => {
+  const dir = tmpDir()
+  const inscope = path.join(dir, ".inscope")
+
+  // absent dir -> not signed in (no throw)
+  expect(inscopeSignedIn(inscope)).toBe(false)
+
+  // empty dir -> not signed in
+  fs.mkdirSync(inscope)
+  expect(inscopeSignedIn(inscope)).toBe(false)
+
+  // OS noise only (.DS_Store) does not count as a login
+  fs.writeFileSync(path.join(inscope, ".DS_Store"), "")
+  expect(inscopeSignedIn(inscope)).toBe(false)
+
+  // a real Claude artifact -> signed in
+  fs.writeFileSync(path.join(inscope, ".credentials.json"), "{}")
+  expect(inscopeSignedIn(inscope)).toBe(true)
+
+  // a path that is a file, not a dir -> not signed in (readdir would ENOTDIR)
+  const asFile = path.join(tmpDir(), ".inscope")
+  fs.writeFileSync(asFile, "oops")
+  expect(inscopeSignedIn(asFile)).toBe(false)
+})
+
+test("applyIsolation scaffolds .inscope and gitignores it, only when isolate is on", () => {
+  const dir = tmpDir()
+  const ws = { name: "acme", path: dir, isolate: true, servers: {} }
+  applyIsolation(ws)
+  expect(fs.existsSync(inscopeDirPath(ws))).toBe(true)
+  expect(fs.readFileSync(path.join(dir, ".gitignore"), "utf8")).toContain(".inscope/")
+  // idempotent: a second apply neither duplicates the rule nor errors
+  applyIsolation(ws)
+  expect(fs.readFileSync(path.join(dir, ".gitignore"), "utf8").match(/\.inscope\//g)).toHaveLength(
+    1,
+  )
+
+  // a non-isolated workspace is a no-op: no dir, no .gitignore
+  const plain = tmpDir()
+  applyIsolation({ name: "p", path: plain, servers: {} })
+  expect(fs.existsSync(path.join(plain, ".inscope"))).toBe(false)
+  expect(fs.existsSync(path.join(plain, ".gitignore"))).toBe(false)
+})
+
+test("runDoctor isolate checks: warn on empty/tracked, ok when signed in", () => {
+  // fake git so `ls-files --error-unmatch .inscope` returns a chosen status:
+  // 0 tracked, 1 untracked/ignored, 128 not-a-repo. isolateChecks is the only
+  // check that shells out for a bare isolated workspace, so nothing else needs it.
+  const gitRunner =
+    (status: number): Runner =>
+    (cmd, args) =>
+      cmd === "git" && args.includes("ls-files")
+        ? { status, stdout: "", stderr: "" }
+        : { status: 1, stdout: "", stderr: "" }
+
+  const claudeChecks = (dir: string, gitStatus: number) =>
+    runDoctor(
+      { version: 1, workspaces: [{ name: "acme", path: dir, isolate: true, servers: {} }] },
+      gitRunner(gitStatus),
+    ).filter((c) => c.label === "[acme] claude")
+
+  // empty .inscope + untracked -> one "sign in once" warning
+  const empty = tmpDir()
+  fs.mkdirSync(path.join(empty, ".inscope"))
+  const emptyChecks = claudeChecks(empty, 1)
+  expect(emptyChecks).toHaveLength(1)
+  expect(emptyChecks[0].status).toBe("warn")
+  expect(emptyChecks[0].detail).toContain("sign in")
+
+  // real content + untracked -> one ok
+  const signed = tmpDir()
+  fs.mkdirSync(path.join(signed, ".inscope"))
+  fs.writeFileSync(path.join(signed, ".inscope", ".credentials.json"), "{}")
+  const okChecks = claudeChecks(signed, 1)
+  expect(okChecks).toHaveLength(1)
+  expect(okChecks[0].status).toBe("ok")
+  expect(okChecks[0].detail).toContain("isolated login")
+
+  // signed in + tracked by git (status 0) -> ok plus a "tracked by git" warn
+  const trackedChecks = claudeChecks(signed, 0)
+  expect(trackedChecks).toHaveLength(2)
+  expect(
+    trackedChecks.some((c) => c.status === "warn" && c.detail?.includes("tracked by git")),
+  ).toBe(true)
+
+  // not-a-repo (status 128) -> no tracked warn, just the ok
+  expect(claudeChecks(signed, 128)).toHaveLength(1)
+})
+
 test("diffLines marks unchanged, removed, and added lines", () => {
   const d = diffLines("a\nb\nc", "a\nB\nc\nd")
   expect(d).toContain("  a")
@@ -947,6 +1210,24 @@ test("applyAll is all-or-nothing: a malformed .mcp.json aborts before any write"
   })
 })
 
+test("applyAll scaffolds an isolated workspace and wires its wrapper into the hook", () => {
+  withSandbox((sb) => {
+    const proj = path.join(sb, "acme")
+    fs.mkdirSync(proj, { recursive: true })
+    const cfg: Config = {
+      version: 1,
+      workspaces: [{ name: "acme", path: proj, isolate: true, servers: { github: true } }],
+    }
+    applyAll(cfg)
+    // the project-local config dir exists and is gitignored
+    expect(fs.existsSync(path.join(proj, ".inscope"))).toBe(true)
+    expect(fs.readFileSync(path.join(proj, ".gitignore"), "utf8")).toContain(".inscope/")
+    // the generated hook carries the launch wrapper pointing at it (HOME=sb, so the
+    // sandbox path renders as $HOME/acme)
+    expect(fs.readFileSync(hookPath(), "utf8")).toContain(`dir="$HOME/acme/.inscope"`)
+  })
+})
+
 test("writeFileAtomic writes through a symlink, preserving the link", () => {
   const dir = tmpDir()
   const real = path.join(dir, "real.txt")
@@ -1024,16 +1305,19 @@ const hasZsh = (() => {
 
 test.skipIf(!hasZsh)("the rendered hook parses as valid zsh (zsh -n)", () => {
   // every pathPattern branch and idArm shape, plus a path with spaces and a
-  // dotted/dashed/underscored name, mirroring the golden coverage config.
+  // dotted/dashed/underscored name, mirroring the golden coverage config. Two
+  // workspaces are isolated so the appended claude() wrapper (a home-root and a
+  // spaced-path .inscope arm) is parse-checked too.
   const cfg: Config = {
     version: 1,
     workspaces: [
-      { name: "home", path: "~", gh: "acct", servers: { github: true } },
+      { name: "home", path: "~", gh: "acct", isolate: true, servers: { github: true } },
       { name: "opt", path: "/opt/work", gh: "acct", servers: { github: true } },
       {
         name: "my-project-work",
         path: "~/My Project (work)",
         gh: "acme-org",
+        isolate: true,
         servers: { github: true, slack: { keychain: "SLACK_MCP_XOXP_TOKEN_MYPROJECT" } },
       },
       { name: "slackonly", path: "~/slackonly", servers: { slack: { keychain: "K" } } },
@@ -1059,7 +1343,7 @@ test("mcpTarget preview is byte-identical to what applyMcp writes", () => {
   const ws = { name: "acme", path: dir, servers: { github: true, linear: true } }
 
   // the diff preview and the apply share one merge, so the preview must equal
-  // the exact bytes apply writes — that is the whole point of sharing it.
+  // the exact bytes apply writes; that is the whole point of sharing it.
   const preview = mcpTarget(ws)
   applyMcp(ws)
   expect(fs.readFileSync(file, "utf8")).toBe(preview)

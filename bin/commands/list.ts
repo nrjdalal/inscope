@@ -40,6 +40,7 @@ export const list = (args: string[]) => {
     console.log(`\n${ws.name}`)
     console.log(`  path     ${ws.path}`)
     console.log(`  gh       ${ws.gh ?? "(none)"}`)
+    if (ws.isolate) console.log(`  claude   ${ws.path}/.inscope (isolated login)`)
     console.log(`  git      ${ws.git?.email ?? "(default)"}`)
     console.log(`  servers  ${enabledServers(ws.servers).join(", ") || "none"}`)
     if (ws.servers.slack) console.log(`  slack    keychain: ${ws.servers.slack.keychain}`)
