@@ -19,6 +19,11 @@ import { defaultRunner, type Runner } from "@/secrets"
 // process's CLAUDE_CONFIG_DIR counts only when it is NOT one of inscope's own isolated
 // dirs (the shell may sit in an isolated workspace, whose hook exported that dir), so a
 // non-isolated workspace's skills always land on the base, never a sibling isolated login.
+// Edge: a user with a *global* CLAUDE_CONFIG_DIR who runs from inside an isolated
+// workspace falls back to ~/.claude here, since the isolation export overwrote the global
+// in the env and the hook keeps the true base only in the non-exported `__inscope_base_ccd`
+// shell var. Strictly better than the pre-fix hardcode; recovering it would need the base
+// persisted in config.
 const baseClaudeDir = (): string => {
   const env = process.env.CLAUDE_CONFIG_DIR?.trim()
   return env && path.basename(env) !== INSCOPE_DIR ? env : path.join(home(), ".claude")
