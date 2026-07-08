@@ -462,7 +462,7 @@ test("validateConfig rejects an unknown slack package", () => {
   ).toThrow(/Slack package .* is invalid/)
 })
 
-test("renderServers emits each OAuth http server at its endpoint", () => {
+test("renderServers emits each remote http server at its endpoint", () => {
   const out = renderServers({
     name: "x",
     path: "~/x",
@@ -495,6 +495,7 @@ test("renderServers emits each OAuth http server at its endpoint", () => {
       monday: true,
       stripe: true,
       webflow: true,
+      xquik: true,
     },
   })
   expect(out2["canva-y"]).toEqual({
@@ -520,6 +521,11 @@ test("renderServers emits each OAuth http server at its endpoint", () => {
   expect(out2["webflow-y"]).toEqual({
     type: "http",
     url: "https://mcp.webflow.com/",
+  })
+  expect(out2["xquik-y"]).toEqual({
+    type: "http",
+    url: "https://xquik.com/mcp",
+    headers: { Authorization: "Bearer ${XQUIK_API_KEY:-}" },
   })
 })
 

@@ -71,6 +71,13 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       "type": "http",
       "url": "https://mcp.webflow.com/",
     },
+    "xquik-acme": {
+      "headers": {
+        "Authorization": "Bearer \${XQUIK_API_KEY:-}",
+      },
+      "type": "http",
+      "url": "https://xquik.com/mcp",
+    },
   },
 }
 `;
@@ -592,6 +599,7 @@ exports[`golden: SERVER_TYPES registry order is locked 1`] = `
   "stripe",
   "vercel",
   "webflow",
+  "xquik",
 ]
 `;
 

@@ -35,6 +35,7 @@ export type Servers = {
   stripe?: boolean | HttpServer
   vercel?: boolean | HttpServer
   webflow?: boolean | HttpServer
+  xquik?: boolean | HttpServer
 }
 
 export type Workspace = {

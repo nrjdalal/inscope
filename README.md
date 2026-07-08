@@ -50,7 +50,7 @@ You describe each workspace once, and inscope keeps the moving parts in sync fro
 - 🎫 **Isolated Claude logins**: mark a workspace `isolate` and `claude` runs on its own account from a workspace-local `.inscope` dir, picked up automatically when you launch from the directory.
 - 🧵 **Race-free**: correct across concurrent shells and Claude Code sessions, with no global toggles.
 - 🔐 **Nothing sensitive on disk**: GitHub tokens come from the `gh` keyring, Slack tokens from the macOS Keychain.
-- 🤖 **One `.mcp.json` per workspace**: uniquely named servers so nothing collides: GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel, and Webflow.
+- 🤖 **One `.mcp.json` per workspace**: uniquely named servers so nothing collides: GitHub, Slack, Xquik, and OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Stripe, Vercel, and Webflow.
 - ✉️ **Git `includeIf` per path**: every commit lands with the right author email.
 - 🪝 **One zsh `chpwd` hook** does all the resolving; nothing else touches your shell.
 - 🩺 **`inscope doctor`** verifies tokens, identities, and the hook before you trust them.
@@ -141,7 +141,7 @@ Map a directory. Run it bare and it walks you through everything: pick the GitHu
   --label <name>        workspace name; defaults to the directory basename
   --servers <list>      comma-separated, any of: github, atlassian, canva,
                         clickup, hubspot, intercom, linear, monday, notion,
-                        plane, sentry, slack, stripe, vercel, webflow
+                        plane, sentry, slack, stripe, vercel, webflow, xquik
                         (default: github)
   --slack-keychain <s>  keychain service for the Slack token
                         (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
@@ -288,8 +288,10 @@ Each enabled server is written into the workspace `.mcp.json` with a name suffix
 | `stripe`    | http      | OAuth                                                      |
 | `vercel`    | http      | OAuth                                                      |
 | `webflow`   | http      | OAuth                                                      |
+| `xquik`     | http      | `XQUIK_API_KEY` environment variable                      |
 
 GitHub auth is fetched at connect time (a `headersHelper` in `.mcp.json` runs `gh auth token` for the workspace's account), so it works under any launcher, a terminal, an IDE, cmux, or a `--resume`, not just a shell that pre-set an env var. Slack reads `SLACK_MCP_XOXP_TOKEN`, which the hook exports from the Keychain on `cd`.
+Xquik uses `XQUIK_API_KEY` in the generated `.mcp.json`; when it is unset, only that server receives an empty bearer token.
 
 Because `.mcp.json` is project-scoped, Claude Code asks you to trust the workspace's MCP servers the first time you open `claude` there (its own project-server approval, not inscope's); approve once and github/slack connect. This is unchanged from any project `.mcp.json`.
 
@@ -332,7 +334,7 @@ The source of truth is `~/.config/inscope/inscope.json`:
           "keychain": "SLACK_MCP_XOXP_TOKEN_ACME",
           "addMessageTool": false,
         },
-        // every other server (atlassian, canva, … webflow) defaults to false
+        // every other server (atlassian, canva, … xquik) defaults to false
       },
       // optional: Claude skills, symlinked into your personal skills dir (~/.claude/skills,
       // or the workspace's own .inscope/skills when isolated)

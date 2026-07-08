@@ -74,6 +74,7 @@ export const REMOTE: Record<string, string> = {
   stripe: "https://mcp.stripe.com",
   vercel: "https://mcp.vercel.com",
   webflow: "https://mcp.webflow.com/",
+  xquik: "https://xquik.com/mcp",
 }
 
 // github first (the primary identity), then the rest alphabetical
@@ -93,6 +94,7 @@ export const SERVER_TYPES = [
   "stripe",
   "vercel",
   "webflow",
+  "xquik",
 ] as const
 
 export const managedKeys = (name: string) => SERVER_TYPES.map((t) => `${t}-${name}`)
@@ -139,6 +141,12 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
         if (slack.addMessageTool) env.SLACK_MCP_ADD_MESSAGE_TOOL = "true"
       }
       out[name] = { type: "stdio", command: "npx", args, env }
+    } else if (key === "xquik") {
+      out[name] = {
+        type: "http",
+        url: httpUrl(v as boolean | HttpServer, REMOTE.xquik),
+        headers: { Authorization: "Bearer ${XQUIK_API_KEY:-}" },
+      }
     } else {
       out[name] = {
         type: "http",
