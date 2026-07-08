@@ -31,12 +31,16 @@ Enter
 Sleep 1200ms
 Up Sleep 200ms Up Sleep 200ms Up Sleep 200ms Up Sleep 500ms Space Sleep 900ms Enter
 Sleep 1600ms
-# Slack MCP server package: pick @nrjdalal/slack-mcp-server (the second option)
-Down Sleep 500ms Enter
+# Slack MCP server package: keep the default @nrjdalal/slack-mcp-server (first, pre-selected)
+Sleep 500ms Enter
 Sleep 1500ms
 Enter
 Sleep 1400ms
 Up Sleep 800ms Enter
 Sleep 1300ms
 Down Sleep 800ms Enter
-Sleep 2800ms
+Sleep 1300ms
+
+# Dedicated Claude login for this workspace: pick Yes to give acme its own login
+Up Sleep 600ms Enter
+Sleep 3200ms
