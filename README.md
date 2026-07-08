@@ -224,6 +224,8 @@ npx inscope add ~/acme --isolate   # or toggle it later with inscope edit
 
 On the next `apply`, inscope scaffolds `~/acme/.inscope` (gitignored, it holds a login) and the chpwd hook **exports** `CLAUDE_CONFIG_DIR` pointing there whenever `$PWD` is inside the workspace. Exporting the login (rather than wrapping the `claude` command) means any launcher that inherits the shell environment, a terminal, an IDE, or a cmux tab, runs on the right login, and cmux's own session restore keeps working. Sign in once; that login is reused, and `inscope doctor` warns if it is unsigned or tracked by git. A fully shell-less launch (some GUI/agent modes) needs its own env, so it falls back to the shared `~/.claude`.
 
+Because the login is exported, a shell you spawn from _inside_ an isolated subtree inherits it: an unmapped directory reached from that nested shell keeps the isolated login until you `cd` back into a mapped one. That inheritance is what lets cmux restore the right account when it reopens a tab, but under other multiplexers (tmux) or a plain nested shell it means "outside a workspace" can resolve to the last isolated login rather than `~/.claude`.
+
 To skip Claude's permission prompts in isolated logins, set the top-level `bypass: true`. inscope writes `permissions.defaultMode: "bypassPermissions"` into each isolated workspace's own `.inscope/settings.json`, on disk, so every launcher honors it with no launch flag. Your shared `~/.claude` base login is yours to configure; inscope never writes there.
 
 ---

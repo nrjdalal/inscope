@@ -52,7 +52,9 @@ const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
 // Code runs this fresh on each connect (and re-runs it on a 401/403, retrying
 // once). An offline/failed fetch yields an empty bearer, which fails just this
 // server, not the whole .mcp.json (unlike a bare `${GITHUB_TOKEN}`, which makes
-// Claude fail to parse the file when the var is unset).
+// Claude fail to parse the file when the var is unset). The token is interpolated
+// raw via %s, so it assumes a shell/JSON-safe token; real gh tokens are
+// [A-Za-z0-9_], the account (the untrusted part) is validated and single-quoted.
 export const githubHeadersHelper = (account: string) =>
   `printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u ${shSingleQuote(account)} 2>/dev/null)"`
 

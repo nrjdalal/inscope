@@ -121,6 +121,25 @@ test("addMessageTool omitted means read-only Slack server", () => {
   expect(slack.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBeUndefined()
 })
 
+test("github with a gh account uses headersHelper; without one, a defaulted env token", () => {
+  // with gh: token fetched at connect (launcher-agnostic), no static header
+  const withGh = renderServers({
+    name: "acme",
+    path: "~/acme",
+    gh: "acme",
+    servers: { github: true },
+  })["github-acme"] as any
+  expect(withGh.headersHelper).toContain("gh auth token -u 'acme'")
+  expect(withGh.headers).toBeUndefined()
+  // without gh: the ambient token, defaulted (`:-`) so an unset var degrades this
+  // one server instead of failing the whole .mcp.json to parse
+  const noGh = renderServers({ name: "x", path: "~/x", servers: { github: true } })[
+    "github-x"
+  ] as any
+  expect(noGh.headersHelper).toBeUndefined()
+  expect(noGh.headers).toEqual({ Authorization: "Bearer ${GITHUB_TOKEN:-}" })
+})
+
 test("renderHook wires both workspaces and is deterministic", () => {
   const hook = renderHook(blogConfig())
   expect(hook).toContain(`"$HOME/acme/"*) ws="acme" ;;`)
@@ -919,6 +938,10 @@ test("mergeBypassSettings sets/clears only its own key, preserving the rest", ()
   // on is idempotent
   const once = mergeBypassSettings({}, true)
   expect(mergeBypassSettings(once, true)).toEqual(once)
+  // a malformed array `permissions` is treated as absent, not spread to numeric keys
+  expect(mergeBypassSettings({ permissions: ["x"] as unknown as object }, true)).toEqual({
+    permissions: { defaultMode: "bypassPermissions" },
+  })
 })
 
 test("applyBypass writes an isolated login's settings.json, no-ops elsewhere", () => {
@@ -951,6 +974,14 @@ test("applyBypass writes an isolated login's settings.json, no-ops elsewhere", (
   fs.mkdirSync(inscopeDirPath(fresh))
   applyBypass(fresh, false)
   expect(fs.existsSync(inscopeSettingsPath(fresh))).toBe(false)
+
+  // a bypass-only file, turned off, is removed rather than left as `{}`
+  const only = { name: "o", path: tmpDir(), isolate: true, servers: {} }
+  fs.mkdirSync(inscopeDirPath(only))
+  applyBypass(only, true)
+  expect(fs.existsSync(inscopeSettingsPath(only))).toBe(true)
+  applyBypass(only, false)
+  expect(fs.existsSync(inscopeSettingsPath(only))).toBe(false)
 })
 
 test("runDoctor isolate checks: warn on empty/tracked, ok when signed in", () => {
@@ -996,6 +1027,38 @@ test("runDoctor isolate checks: warn on empty/tracked, ok when signed in", () =>
 
   // not-a-repo (status 128) -> no tracked warn, just the ok
   expect(claudeChecks(signed, 128)).toHaveLength(1)
+})
+
+test("runDoctor flags bypass drift in both directions", () => {
+  // git ls-files -> untracked (status 1), so no "tracked by git" warn interferes
+  const run: Runner = () => ({ status: 1, stdout: "", stderr: "" })
+  // a signed-in isolated login (so the "sign in" warn does not fire)
+  const mk = () => {
+    const dir = tmpDir()
+    fs.mkdirSync(path.join(dir, ".inscope"))
+    fs.writeFileSync(path.join(dir, ".inscope", ".credentials.json"), "{}")
+    return dir
+  }
+  const details = (dir: string, bypass: boolean) =>
+    runDoctor(
+      { version: 1, bypass, workspaces: [{ name: "acme", path: dir, isolate: true, servers: {} }] },
+      run,
+    )
+      .filter((c) => c.label === "[acme] claude")
+      .map((c) => c.detail ?? "")
+
+  // config ON, login has no setting -> "not applied" warn
+  expect(details(mk(), true).some((d) => d.includes("not applied to this login"))).toBe(true)
+
+  // config OFF, login still carries bypass -> the dangerous reverse warn
+  const off = mk()
+  applyBypass({ name: "acme", path: off, isolate: true, servers: {} }, true)
+  expect(details(off, false).some((d) => d.includes("still has it"))).toBe(true)
+
+  // config ON and applied -> no bypass warn at all
+  const ok = mk()
+  applyBypass({ name: "acme", path: ok, isolate: true, servers: {} }, true)
+  expect(details(ok, true).some((d) => d.includes("bypass"))).toBe(false)
 })
 
 test("diffLines marks unchanged, removed, and added lines", () => {

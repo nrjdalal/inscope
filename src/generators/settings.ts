@@ -22,8 +22,9 @@ export const mergeBypassSettings = (
   bypass: boolean,
 ): Record<string, any> => {
   const next = { ...doc }
+  const cur = next.permissions
   const perms: Record<string, any> = {
-    ...(next.permissions && typeof next.permissions === "object" ? next.permissions : {}),
+    ...(cur && typeof cur === "object" && !Array.isArray(cur) ? cur : {}),
   }
   if (bypass) perms.defaultMode = BYPASS_MODE
   else if (perms.defaultMode === BYPASS_MODE) delete perms.defaultMode
@@ -48,14 +49,19 @@ const readSettings = (file: string): Record<string, any> => {
 
 // Reconcile an isolated workspace's `.inscope/settings.json` to the desired bypass
 // state. A no-op for a non-isolated workspace (it runs on the shared ~/.claude,
-// which inscope never writes). Never creates an empty settings.json: with bypass
-// off and no existing file, there is nothing to write.
+// which inscope never writes).
 export const applyBypass = (ws: Workspace, bypass: boolean) => {
   if (!ws.isolate) return
   const file = inscopeSettingsPath(ws)
   const existed = fs.existsSync(file)
   const next = mergeBypassSettings(readSettings(file), bypass)
-  if (!existed && Object.keys(next).length === 0) return
+  // Nothing left to declare (a bypass-only file just turned off, or there was
+  // nothing to write): remove an existing file rather than leave `{}` behind, and
+  // never create an empty one.
+  if (Object.keys(next).length === 0) {
+    if (existed) fs.rmSync(file, { force: true })
+    return
+  }
   writeFileAtomic(file, JSON.stringify(next, null, 2) + "\n")
 }
 

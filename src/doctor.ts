@@ -99,12 +99,19 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
           detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
         },
   )
-  // bypass is on but this isolated login's settings.json does not carry it yet
+  // bypass drift, both directions: configured but not applied, and the dangerous
+  // reverse, turned off in config but the login still auto-approves on disk.
   if (bypass && !hasBypassSetting(ws))
     out.push({
       status: "warn",
       label: tag,
       detail: "bypass configured but not applied to this login; run `inscope apply`",
+    })
+  else if (!bypass && hasBypassSetting(ws))
+    out.push({
+      status: "warn",
+      label: tag,
+      detail: "bypass is off in config but this login still has it; run `inscope apply`",
     })
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
