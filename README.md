@@ -42,6 +42,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
   - [`inscope apply`](#inscope-apply)
   - [`inscope doctor`](#inscope-doctor)
 - [What It Manages](#-what-it-manages)
+- [Isolated Workspaces](#-isolated-workspaces)
 - [MCP Servers](#-mcp-servers)
 - [Config File](#-config-file)
 - [Install Globally (Optional)](#-install-globally-optional)
@@ -53,6 +54,7 @@ Nothing sensitive is written to disk: GitHub tokens come from the `gh` keyring a
 ## ✨ Features
 
 - 🪪 Per-directory identity: GitHub token, git commit email, and MCP servers scoped to `$PWD`
+- 🎫 Optional per-workspace Claude login: mark a workspace `isolate` and it runs `claude` on its own `.inscope` config dir (its own account), picked up automatically when you launch from the directory
 - 🧵 Race-free across concurrent shells and Claude Code sessions, with no global toggles
 - 🔐 No secrets on disk: GitHub tokens from the `gh` keyring, Slack tokens from the macOS Keychain
 - 🤖 One `.mcp.json` per workspace with uniquely named servers: GitHub plus OAuth connectors for Atlassian, Canva, ClickUp, HubSpot, Intercom, Linear, monday, Notion, Plane, Sentry, Slack, Stripe, Vercel, and Webflow
@@ -212,8 +214,23 @@ Verify that tokens, identities, the hook, and each `.mcp.json` resolve correctly
 | chpwd hook   | `~/.config/inscope/inscope.zsh`                                     |
 | MCP servers  | `<workspace>/.mcp.json`                                             |
 | Git identity | `~/.gitconfig` includeIf + `~/.config/inscope/git/<name>.gitconfig` |
+| Claude login | `<workspace>/.inscope` (isolated workspaces only, gitignored)       |
 
 `inscope` only touches the blocks it owns; your other `.zshrc`, `.gitconfig`, and `.mcp.json` content is left alone. Edit `inscope.json` by hand if you like, then run `inscope apply`.
+
+---
+
+## 🎫 Isolated Workspaces
+
+By default every directory shares your normal Claude Code login at `~/.claude`. Mark a workspace `isolate` and it runs `claude` on its own login instead, kept in a workspace-local `.inscope` dir, so a client's subscription or a work/personal split stays separate while everything else keeps the shared login.
+
+```sh
+npx inscope add ~/acme --isolate   # or toggle it later with inscope edit
+```
+
+On the next `apply`, inscope scaffolds `~/acme/.inscope` (gitignored, it holds a login) and adds a `claude()` wrapper to the hook that points `CLAUDE_CONFIG_DIR` there when you launch `claude` from the workspace. Sign in once; that login is reused, and `inscope doctor` warns if it is unsigned or tracked by git. Resolution happens at launch from `$PWD`, so this applies to `claude` started from the shell; an IDE or GUI launch uses the shared `~/.claude`.
+
+Launch flags for the wrapper (`claude update` before launch, `--dangerously-skip-permissions`) go under an optional top-level `claude` key in the config.
 
 ---
 
@@ -262,6 +279,8 @@ The source of truth is `~/.config/inscope/inscope.json`:
   "version": 1,
   "workspaces": [
     {
+      // optional: run claude on this workspace's own login in ~/acme/.inscope
+      "isolate": true,
       "name": "acme",
       "path": "~/acme",
       "gh": "neeraj-acme-org",
