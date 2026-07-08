@@ -196,12 +196,12 @@ test("golden: chpwd hook covers tricky paths and every arm shape", () => {
   ).toMatchSnapshot()
 })
 
-// Project-local Claude isolation: the token resolver is untouched, and a `claude()`
-// launch wrapper is appended that resolves CLAUDE_CONFIG_DIR from $PWD to each
-// isolated workspace's own `<path>/.inscope` (base ~/.claude everywhere else). Arms
-// are most-specific-first and cover a ~/sub path, a spaced path, and a non-home
-// absolute path. A non-isolated workspace (personal) contributes no arm.
-test("golden: chpwd hook with isolated workspaces (claude wrapper)", () => {
+// Project-local Claude isolation: the chpwd hook gains a CLAUDE_CONFIG_DIR pin,
+// resolved from $PWD to each isolated workspace's own `<path>/.inscope` (base
+// ~/.claude everywhere else) and EXPORTED so any launcher inherits it. Arms are
+// most-specific-first and cover a ~/sub path, a spaced path, and a non-home absolute
+// path. A non-isolated workspace (personal) contributes no arm.
+test("golden: chpwd hook with isolated workspaces (exported CLAUDE_CONFIG_DIR)", () => {
   expect(
     renderHook({
       version: 1,
@@ -215,32 +215,16 @@ test("golden: chpwd hook with isolated workspaces (claude wrapper)", () => {
   ).toMatchSnapshot()
 })
 
-// A non-isolated workspace nested under an isolated one: the wrapper must emit a
+// A non-isolated workspace nested under an isolated one: the CCD pin must emit a
 // no-op shadow arm for the child BEFORE the parent's arm, so the child keeps the
 // base login. Pinned here so the shadow-arm shape cannot silently regress.
-test("golden: claude wrapper shadows a nested non-isolated workspace", () => {
+test("golden: exported CLAUDE_CONFIG_DIR shadows a nested non-isolated workspace", () => {
   expect(
     renderHook({
       version: 1,
       workspaces: [
         { name: "acme", path: "~/acme", isolate: true, servers: { github: true } },
         { name: "sub", path: "~/acme/sub", gh: "nrjdalal", servers: { github: true } },
-      ],
-    }),
-  ).toMatchSnapshot()
-})
-
-// Top-level launch flags ride on the isolate wrapper: the launch line gains a
-// best-effort `claude update;` (`;`, not `&&`) and `--dangerously-skip-permissions`,
-// resolved dir unchanged.
-test("golden: claude wrapper with top-level launch flags", () => {
-  expect(
-    renderHook({
-      version: 1,
-      claude: { update: true, dangerouslySkipPermissions: true },
-      workspaces: [
-        { name: "acme", path: "~/acme", isolate: true, servers: { github: true } },
-        { name: "personal", path: "~/personal", gh: "nrjdalal", servers: { github: true } },
       ],
     }),
   ).toMatchSnapshot()

@@ -222,9 +222,11 @@ By default every directory shares your normal Claude Code login at `~/.claude`. 
 npx inscope add ~/acme --isolate   # or toggle it later with inscope edit
 ```
 
-On the next `apply`, inscope scaffolds `~/acme/.inscope` (gitignored, it holds a login) and adds a `claude()` wrapper to the hook that points `CLAUDE_CONFIG_DIR` there when you launch `claude` from the workspace. Sign in once; that login is reused, and `inscope doctor` warns if it is unsigned or tracked by git. Resolution happens at launch from `$PWD`, so this applies to `claude` started from the shell; an IDE or GUI launch uses the shared `~/.claude`.
+On the next `apply`, inscope scaffolds `~/acme/.inscope` (gitignored, it holds a login) and the chpwd hook **exports** `CLAUDE_CONFIG_DIR` pointing there whenever `$PWD` is inside the workspace. Exporting the login (rather than wrapping the `claude` command) means any launcher that inherits the shell environment, a terminal, an IDE, or a cmux tab, runs on the right login, and cmux's own session restore keeps working. Sign in once; that login is reused, and `inscope doctor` warns if it is unsigned or tracked by git. A fully shell-less launch (some GUI/agent modes) needs its own env, so it falls back to the shared `~/.claude`.
 
-Launch flags for the wrapper (`claude update` before launch, `--dangerously-skip-permissions`) go under an optional top-level `claude` key in the config. `update` runs on every launch, so it adds a network round-trip each time you start `claude`; it is best-effort, so an offline or failed update never blocks the launch.
+Because the login is exported, a shell you spawn from _inside_ an isolated subtree inherits it: an unmapped directory reached from that nested shell keeps the isolated login until you `cd` back into a mapped one. That inheritance is what lets cmux restore the right account when it reopens a tab, but under other multiplexers (tmux) or a plain nested shell it means "outside a workspace" can resolve to the last isolated login rather than `~/.claude`.
+
+To skip Claude's permission prompts in isolated logins, set the top-level `bypass: true`. inscope writes `permissions.defaultMode: "bypassPermissions"` into each isolated workspace's own `.inscope/settings.json`, on disk, so every launcher honors it with no launch flag. Your shared `~/.claude` base login is yours to configure; inscope never writes there.
 
 ---
 
@@ -232,23 +234,27 @@ Launch flags for the wrapper (`claude update` before launch, `--dangerously-skip
 
 Each enabled server is written into the workspace `.mcp.json` with a name suffixed by the workspace label (for example `github-acme`), so servers from different workspaces never collide.
 
-| Server      | Transport | Auth                                           |
-| ----------- | --------- | ---------------------------------------------- |
-| `github`    | http      | `GITHUB_TOKEN` from the active `gh` account    |
-| `atlassian` | http      | OAuth (Jira / Confluence)                      |
-| `canva`     | http      | OAuth                                          |
-| `clickup`   | http      | OAuth                                          |
-| `hubspot`   | http      | OAuth                                          |
-| `intercom`  | http      | OAuth                                          |
-| `linear`    | http      | OAuth                                          |
-| `monday`    | http      | OAuth                                          |
-| `notion`    | http      | OAuth                                          |
-| `plane`     | http      | OAuth                                          |
-| `sentry`    | http      | OAuth                                          |
-| `slack`     | stdio     | `SLACK_MCP_XOXP_TOKEN` from the macOS Keychain |
-| `stripe`    | http      | OAuth                                          |
-| `vercel`    | http      | OAuth                                          |
-| `webflow`   | http      | OAuth                                          |
+| Server      | Transport | Auth                                                       |
+| ----------- | --------- | ---------------------------------------------------------- |
+| `github`    | http      | token fetched at connect from the workspace's `gh` account |
+| `atlassian` | http      | OAuth (Jira / Confluence)                                  |
+| `canva`     | http      | OAuth                                                      |
+| `clickup`   | http      | OAuth                                                      |
+| `hubspot`   | http      | OAuth                                                      |
+| `intercom`  | http      | OAuth                                                      |
+| `linear`    | http      | OAuth                                                      |
+| `monday`    | http      | OAuth                                                      |
+| `notion`    | http      | OAuth                                                      |
+| `plane`     | http      | OAuth                                                      |
+| `sentry`    | http      | OAuth                                                      |
+| `slack`     | stdio     | `SLACK_MCP_XOXP_TOKEN` from the macOS Keychain             |
+| `stripe`    | http      | OAuth                                                      |
+| `vercel`    | http      | OAuth                                                      |
+| `webflow`   | http      | OAuth                                                      |
+
+GitHub auth is fetched at connect time (a `headersHelper` in `.mcp.json` runs `gh auth token` for the workspace's account), so it works under any launcher, a terminal, an IDE, cmux, or a `--resume`, not just a shell that pre-set an env var. Slack reads `SLACK_MCP_XOXP_TOKEN`, which the hook exports from the Keychain on `cd`.
+
+Because `.mcp.json` is project-scoped, Claude Code asks you to trust the workspace's MCP servers the first time you open `claude` there (its own project-server approval, not inscope's); approve once and github/slack connect. This is unchanged from any project `.mcp.json`.
 
 Slack is opt-in. Enable it during `add`, or with flags, then store the token once:
 
@@ -271,6 +277,9 @@ The source of truth is `~/.config/inscope/inscope.json`:
 ```jsonc
 {
   "version": 1,
+  // optional: skip permission prompts in every isolated login (written into each
+  // workspace's own .inscope/settings.json; your shared ~/.claude is left to you)
+  "bypass": true,
   "workspaces": [
     {
       // optional: run claude on this workspace's own login in ~/acme/.inscope

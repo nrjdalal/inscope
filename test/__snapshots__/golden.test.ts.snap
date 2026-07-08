@@ -16,9 +16,7 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       "url": "https://mcp.clickup.com/mcp",
     },
     "github-acme": {
-      "headers": {
-        "Authorization": "Bearer \${GITHUB_TOKEN}",
-      },
+      "headersHelper": "printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u 'neeraj-acme-org' 2>/dev/null)"",
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/",
     },
@@ -57,7 +55,7 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       ],
       "command": "npx",
       "env": {
-        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN:-}",
       },
       "type": "stdio",
     },
@@ -81,9 +79,7 @@ exports[`golden: .mcp.json for a github-only workspace 1`] = `
 {
   "mcpServers": {
     "github-personal": {
-      "headers": {
-        "Authorization": "Bearer \${GITHUB_TOKEN}",
-      },
+      "headersHelper": "printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u 'nrjdalal' 2>/dev/null)"",
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/",
     },
@@ -102,7 +98,7 @@ exports[`golden: Slack server, read-only vs post-enabled: read-only 1`] = `
       "command": "npx",
       "env": {
         "SLACK_MCP_ALLOW_WRITE": "false",
-        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN:-}",
       },
       "type": "stdio",
     },
@@ -120,7 +116,7 @@ exports[`golden: Slack server, read-only vs post-enabled: post-enabled 1`] = `
       ],
       "command": "npx",
       "env": {
-        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN:-}",
       },
       "type": "stdio",
     },
@@ -138,7 +134,7 @@ exports[`golden: Slack server on the @nrjdalal package (kept latest) 1`] = `
       ],
       "command": "npx",
       "env": {
-        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN:-}",
       },
       "type": "stdio",
     },
@@ -157,7 +153,7 @@ exports[`golden: @nrjdalal Slack fork read-only sets SLACK_MCP_ALLOW_WRITE=false
       "command": "npx",
       "env": {
         "SLACK_MCP_ALLOW_WRITE": "false",
-        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN}",
+        "SLACK_MCP_XOXP_TOKEN": "\${SLACK_MCP_XOXP_TOKEN:-}",
       },
       "type": "stdio",
     },
@@ -388,7 +384,7 @@ __inscope_resolve_identity
 "
 `;
 
-exports[`golden: chpwd hook with isolated workspaces (claude wrapper) 1`] = `
+exports[`golden: chpwd hook with isolated workspaces (exported CLAUDE_CONFIG_DIR) 1`] = `
 "# Managed by inscope. Do not edit by hand.
 # Source of truth: ~/.config/inscope/inscope.json
 # Edit there, then run \`inscope apply\` to regenerate this file.
@@ -408,6 +404,18 @@ __inscope_resolve_identity() {
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
+
+  # Pin the Claude login for this location and export it, so any launcher that
+  # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
+  # \`claude\`. An isolated workspace uses its local .inscope login; every other
+  # directory keeps your base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude).
+  local dir="\${__inscope_base_ccd:-$HOME/.claude}"
+  case "\${PWD}/" in
+    "$HOME/My Client (x)/"*) dir="$HOME/My Client (x)/.inscope" ;;
+    "/opt/srv/"*) dir="/opt/srv/.inscope" ;;
+    "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
+  esac
+  export CLAUDE_CONFIG_DIR="$dir"
   unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
   local gh_user="" slack_svc=""
@@ -438,27 +446,13 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"   # login to fall back to outside an isolated subtree (empty -> ~/.claude)
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
-
-# Managed by inscope: launch \`claude\` on an isolated workspace's own login. The
-# config dir is resolved from $PWD here (not exported on every cd) and set only for
-# this launch; isolated workspaces use their local .inscope, everything else keeps
-# your normal login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude). Launch flags
-# come from the top-level "claude"; toggle "isolate" per workspace in inscope.json.
-claude() {
-  local dir="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-  case "\${PWD}/" in
-    "$HOME/My Client (x)/"*) dir="$HOME/My Client (x)/.inscope" ;;
-    "/opt/srv/"*) dir="/opt/srv/.inscope" ;;
-    "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
-  esac
-  CLAUDE_CONFIG_DIR="$dir" command claude "$@"
-}
 "
 `;
 
-exports[`golden: claude wrapper shadows a nested non-isolated workspace 1`] = `
+exports[`golden: exported CLAUDE_CONFIG_DIR shadows a nested non-isolated workspace 1`] = `
 "# Managed by inscope. Do not edit by hand.
 # Source of truth: ~/.config/inscope/inscope.json
 # Edit there, then run \`inscope apply\` to regenerate this file.
@@ -476,6 +470,17 @@ __inscope_resolve_identity() {
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
+
+  # Pin the Claude login for this location and export it, so any launcher that
+  # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
+  # \`claude\`. An isolated workspace uses its local .inscope login; every other
+  # directory keeps your base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude).
+  local dir="\${__inscope_base_ccd:-$HOME/.claude}"
+  case "\${PWD}/" in
+    "$HOME/acme/sub/"*) : ;;
+    "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
+  esac
+  export CLAUDE_CONFIG_DIR="$dir"
   unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
   local gh_user="" slack_svc=""
@@ -504,86 +509,9 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
+__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"   # login to fall back to outside an isolated subtree (empty -> ~/.claude)
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
-
-# Managed by inscope: launch \`claude\` on an isolated workspace's own login. The
-# config dir is resolved from $PWD here (not exported on every cd) and set only for
-# this launch; isolated workspaces use their local .inscope, everything else keeps
-# your normal login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude). Launch flags
-# come from the top-level "claude"; toggle "isolate" per workspace in inscope.json.
-claude() {
-  local dir="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-  case "\${PWD}/" in
-    "$HOME/acme/sub/"*) : ;;
-    "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
-  esac
-  CLAUDE_CONFIG_DIR="$dir" command claude "$@"
-}
-"
-`;
-
-exports[`golden: claude wrapper with top-level launch flags 1`] = `
-"# Managed by inscope. Do not edit by hand.
-# Source of truth: ~/.config/inscope/inscope.json
-# Edit there, then run \`inscope apply\` to regenerate this file.
-#
-# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
-# the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
-# is written to disk, and there is no shared mutable state for sessions to race.
-__inscope_resolve_identity() {
-  local ws
-  case "\${PWD}/" in
-    "$HOME/personal/"*) ws="personal" ;;
-    "$HOME/acme/"*) ws="acme" ;;
-    *) ws="" ;;
-  esac
-  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
-  __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
-
-  local gh_user="" slack_svc=""
-  case "$ws" in
-    acme) : ;;
-    personal) gh_user="nrjdalal" ;;
-    *) return ;;                                     # outside a mapped workspace: nothing set
-  esac
-
-  local tok
-  if [[ -n "$gh_user" ]]; then
-    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
-    else
-      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
-    fi
-  fi
-  if [[ -n "$slack_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export SLACK_MCP_XOXP_TOKEN="$tok"
-    else
-      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
-    fi
-  fi
-}
-
-autoload -Uz add-zsh-hook
-add-zsh-hook chpwd __inscope_resolve_identity
-__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
-__inscope_resolve_identity
-
-# Managed by inscope: launch \`claude\` on an isolated workspace's own login. The
-# config dir is resolved from $PWD here (not exported on every cd) and set only for
-# this launch; isolated workspaces use their local .inscope, everything else keeps
-# your normal login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude). Launch flags
-# come from the top-level "claude"; toggle "isolate" per workspace in inscope.json.
-claude() {
-  local dir="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-  case "\${PWD}/" in
-    "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
-  esac
-  command claude update; CLAUDE_CONFIG_DIR="$dir" command claude --dangerously-skip-permissions "$@"
-}
 "
 `;
 

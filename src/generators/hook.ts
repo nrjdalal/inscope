@@ -1,4 +1,4 @@
-import { type Config, resolveClaudeLaunch, type Workspace } from "@/config"
+import { type Config, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
 
 const pathPattern = (p: string) => {
@@ -43,74 +43,48 @@ const nestedUnder = (child: string, parent: string): boolean => {
   return contractTilde(child).startsWith(p.endsWith("/") ? p : `${p}/`)
 }
 
-// The opt-in `claude()` launch wrapper for isolated workspaces. CLAUDE_CONFIG_DIR is
-// a launch-time setting (Claude reads it once, at startup, to pick its config dir and
-// login), so an isolated workspace's dir is resolved here, from $PWD, at the moment you
-// launch, and set only for that `claude` (no persistent env change, and the token hook
-// above stays untouched). An isolated workspace uses its workspace-local `<path>/.inscope`;
-// every other directory keeps your normal login: an inherited CLAUDE_CONFIG_DIR if you
-// export one, else ~/.claude. Emitted only when at least one workspace is isolated, so
-// configs without `isolate` render a byte-for-byte identical hook. The arms interpolate
-// workspace paths (validated, double-quoted); nothing else reaches the shell.
-const renderClaudeWrapper = (cfg: Config): string => {
-  const launch = resolveClaudeLaunch(cfg)
-  const hasFlags = !!launch && (launch.update || launch.dangerouslySkipPermissions)
+// The per-location Claude login, resolved from $PWD on every cd and EXPORTED, so
+// any launcher that inherits this shell (a terminal, cmux, an IDE, `--resume`) runs
+// on it, not just a `claude` typed here. An isolated workspace points
+// CLAUDE_CONFIG_DIR at its local `<path>/.inscope`; every other directory keeps your
+// base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude). Returns the in-hook
+// pieces: `block` splices into __inscope_resolve_identity, `base` captures the login
+// to fall back to. Emitted only when a workspace is isolated; a config with none
+// never touches CLAUDE_CONFIG_DIR, so its hook is byte-for-byte the pre-isolation
+// one. Arms interpolate validated, double-quoted paths. (Skills need no arm here:
+// they live in each login's personal skills dir, so Claude loads them directly.)
+const renderCcd = (cfg: Config): { block: string; base: string } => {
   const isolated = cfg.workspaces.filter((w) => w.isolate)
-  // Nothing to wrap: no isolated login to route and no launch flags requested.
-  if (isolated.length === 0 && !hasFlags) return ""
+  if (isolated.length === 0) return { block: "", base: "" }
 
-  // Launch flags ride on the same wrapper. `--dangerously-skip-permissions` is
-  // appended to the launch; `claude update` refreshes the global CLI, so it runs
-  // first and without the per-launch CLAUDE_CONFIG_DIR prefix. It is best-effort
-  // (`;`, not `&&`), so a failed/offline update never blocks the launch. Both are
-  // fixed literals gated on booleans, so nothing user-controlled reaches the shell.
-  const flags = launch?.dangerouslySkipPermissions ? " --dangerously-skip-permissions" : ""
-  const dirPrefix = isolated.length ? `CLAUDE_CONFIG_DIR="$dir" ` : ""
-  const bare = `${dirPrefix}command claude${flags} "$@"`
-  const run = launch?.update ? `command claude update; ${bare}` : bare
-
-  // Flags-only config (nothing isolated): the config dir never changes, so skip
-  // the resolver and emit a one-line wrapper.
-  if (isolated.length === 0) {
-    return `
-# Managed by inscope: launch \`claude\` with the flags set in the top-level "claude".
-claude() { ${run}; }
-`
-  }
-
-  // A non-isolated workspace nested under an isolated one needs a shadow arm, or
-  // the parent's broad `"<parent>/"*` arm would capture it and hand the child the
-  // parent's login despite it opting out. The token resolver above already maps
-  // the child to its own workspace; mirror that here by matching the child first
-  // and leaving `dir` at the default. Only nested opt-outs need an arm.
+  // A workspace nested under an isolated one gets its own arm so it reflects its own
+  // login rather than inheriting the parent's broad `"<parent>/"*` arm; a
+  // non-isolated nested one gets a no-op shadow arm so it keeps the base login.
+  // Name-sort then most-specific-first, matching the resolver's order.
   const shadows = cfg.workspaces.filter(
-    (w) => !w.isolate && isolated.some((iso) => nestedUnder(w.path, iso.path)),
+    (w) => !w.isolate && isolated.some((a) => a.name !== w.name && nestedUnder(w.path, a.path)),
   )
-  // Name-sort the base so ties (equal-length paths) order the same as the token
-  // resolver, which builds its arms from a name-sorted list; bySpecificity then
-  // puts the most specific first.
   const byName = [...isolated, ...shadows].sort((a, b) => a.name.localeCompare(b.name))
   const arms = bySpecificity(byName)
-    .map((w) =>
-      w.isolate
-        ? `    ${pathPattern(w.path)}) dir="${shellPath(w.path)}/.inscope" ;;`
-        : `    ${pathPattern(w.path)}) : ;;`,
+    .map(
+      (w) =>
+        `    ${pathPattern(w.path)}) ${w.isolate ? `dir="${shellPath(w.path)}/.inscope"` : ":"} ;;`,
     )
     .join("\n")
-  return `
-# Managed by inscope: launch \`claude\` on an isolated workspace's own login. The
-# config dir is resolved from $PWD here (not exported on every cd) and set only for
-# this launch; isolated workspaces use their local .inscope, everything else keeps
-# your normal login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude). Launch flags
-# come from the top-level "claude"; toggle "isolate" per workspace in inscope.json.
-claude() {
-  local dir="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+
+  const block = `
+  # Pin the Claude login for this location and export it, so any launcher that
+  # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
+  # \`claude\`. An isolated workspace uses its local .inscope login; every other
+  # directory keeps your base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude).
+  local dir="\${__inscope_base_ccd:-$HOME/.claude}"
   case "\${PWD}/" in
 ${arms}
   esac
-  ${run}
-}
+  export CLAUDE_CONFIG_DIR="$dir"
 `
+  const base = `__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"   # login to fall back to outside an isolated subtree (empty -> ~/.claude)\n`
+  return { block, base }
 }
 
 export const renderHook = (cfg: Config): string => {
@@ -134,6 +108,8 @@ export const renderHook = (cfg: Config): string => {
       })
       .join("\n") || "    # no workspaces configured"
 
+  const { block: ccdBlock, base: ccdBase } = renderCcd(cfg)
+
   return `${HOOK_HEADER}
 __inscope_resolve_identity() {
   local ws
@@ -143,7 +119,7 @@ ${dirArms}
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
+${ccdBlock}  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
   local gh_user="" slack_svc=""
   case "$ws" in
@@ -170,7 +146,7 @@ ${idArms}
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
-__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
+${ccdBase}__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
-${renderClaudeWrapper(cfg)}`
+`
 }

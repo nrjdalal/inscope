@@ -39,10 +39,11 @@ export type Servers = {
 
 export type Workspace = {
   // Give this workspace its own Claude Code login: apply scaffolds a
-  // workspace-local config dir at `<path>/.inscope` and the generated `claude()`
-  // wrapper points CLAUDE_CONFIG_DIR there when you launch from this subtree. Omit
-  // to run on the shared ~/.claude like every unmapped directory. Kept first so an
-  // isolated workspace is flagged at the top of its block in inscope.json.
+  // workspace-local config dir at `<path>/.inscope`, and the chpwd hook exports
+  // CLAUDE_CONFIG_DIR to point there whenever $PWD is under this subtree (so any
+  // launcher that inherits the shell env, a terminal, cmux, an IDE, uses that
+  // login). Omit to run on the shared ~/.claude like every unmapped directory.
+  // Kept first so an isolated workspace is flagged at the top of its block.
   isolate?: boolean
   name: string
   path: string
@@ -51,38 +52,18 @@ export type Workspace = {
   servers: Servers
 }
 
-// Launch behavior for the generated `claude()` wrapper, independent of per-workspace
-// `isolate` (which only sets the login dir). `true` enables only `claude update`;
-// `--dangerously-skip-permissions` is dangerous (CLI-only, no settings equivalent),
-// so it is opt-in via the object form and never implied by a terse `true`. An object
-// opts each flag in individually (omitted = off); absent/false adds no flags.
-export type ClaudeLaunch = boolean | { update?: boolean; dangerouslySkipPermissions?: boolean }
-
 export type Config = {
   version: number
-  // Global `claude()` launch flags: `claude update` before each launch and/or
-  // `--dangerously-skip-permissions` (see ClaudeLaunch).
-  claude?: ClaudeLaunch
+  // Bypass Claude's permission prompts in each ISOLATED workspace's own login, by
+  // writing `permissions.defaultMode: "bypassPermissions"` into its
+  // `<path>/.inscope/settings.json` (launcher-agnostic: any launcher that runs on
+  // that login honors it). The shared ~/.claude base login is yours to manage;
+  // inscope never writes there. Dangerous, so it is opt-in and never implied.
+  bypass?: boolean
   workspaces: Workspace[]
 }
 
 export const CONFIG_VERSION = 1
-
-// Normalize the top-level `claude` launch config into concrete flags, or null when
-// the wrapper needs none. `true` enables only the safe `update` flag; bypassing
-// permissions must be opted into explicitly via the object form, never implied by a
-// terse `true`. Shared by the hook generator and validation.
-export const resolveClaudeLaunch = (
-  cfg: Config,
-): { update: boolean; dangerouslySkipPermissions: boolean } | null => {
-  const c = cfg.claude
-  if (c === undefined || c === false) return null
-  if (c === true) return { update: true, dangerouslySkipPermissions: false }
-  return {
-    update: c.update ?? false,
-    dangerouslySkipPermissions: c.dangerouslySkipPermissions ?? false,
-  }
-}
 
 export const defaultConfig = (): Config => ({
   version: CONFIG_VERSION,
@@ -187,20 +168,8 @@ export const validateConfig = (cfg: Config) => {
   const versionErr = configVersionError(cfg)
   if (versionErr) throw new Error(versionErr)
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
-  if (cfg.claude !== undefined && typeof cfg.claude !== "boolean") {
-    const c = cfg.claude
-    if (c === null || typeof c !== "object" || Array.isArray(c))
-      throw new Error("config claude must be a boolean or an object")
-    for (const k of Object.keys(c)) {
-      if (k !== "update" && k !== "dangerouslySkipPermissions")
-        throw new Error(`config claude has unknown key "${k}"`)
-      if (
-        (c as Record<string, unknown>)[k] !== undefined &&
-        typeof (c as Record<string, unknown>)[k] !== "boolean"
-      )
-        throw new Error(`config claude.${k} must be a boolean`)
-    }
-  }
+  if (cfg.bypass !== undefined && typeof cfg.bypass !== "boolean")
+    throw new Error("config bypass must be a boolean")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")
