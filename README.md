@@ -254,6 +254,8 @@ Each enabled server is written into the workspace `.mcp.json` with a name suffix
 
 GitHub auth is fetched at connect time (a `headersHelper` in `.mcp.json` runs `gh auth token` for the workspace's account), so it works under any launcher, a terminal, an IDE, cmux, or a `--resume`, not just a shell that pre-set an env var. Slack reads `SLACK_MCP_XOXP_TOKEN`, which the hook exports from the Keychain on `cd`.
 
+Because `.mcp.json` is project-scoped, Claude Code asks you to trust the workspace's MCP servers the first time you open `claude` there (its own project-server approval, not inscope's); approve once and github/slack connect. This is unchanged from any project `.mcp.json`.
+
 Slack is opt-in. Enable it during `add`, or with flags, then store the token once:
 
 ```sh
