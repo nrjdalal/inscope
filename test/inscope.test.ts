@@ -59,6 +59,7 @@ import {
   SELF_SKILL_NAME,
   selfSkillSource,
   skillsCacheRoot,
+  skillsDir,
   unlinkSkillLink,
 } from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
@@ -1307,9 +1308,14 @@ test("mcpError flags a malformed .mcp.json and clears once valid", () => {
 const withSandbox = (fn: (sb: string) => void) => {
   const prevHome = process.env.HOME
   const prevXdg = process.env.XDG_CONFIG_HOME
+  const prevCcd = process.env.CLAUDE_CONFIG_DIR
   const sb = tmpDir()
   process.env.HOME = sb
   process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
+  // skillsDir's base resolution reads CLAUDE_CONFIG_DIR; clear it so a sandbox run
+  // is deterministic (falls back to the sandbox ~/.claude), and a test that wants to
+  // exercise a base CCD sets it explicitly inside.
+  delete process.env.CLAUDE_CONFIG_DIR
   try {
     fn(sb)
   } finally {
@@ -1317,6 +1323,8 @@ const withSandbox = (fn: (sb: string) => void) => {
     else process.env.HOME = prevHome
     if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
     else process.env.XDG_CONFIG_HOME = prevXdg
+    if (prevCcd === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = prevCcd
   }
 }
 
@@ -1565,6 +1573,26 @@ const seedCachedSkill = (repo: string): string => {
 }
 const stubRunner: Runner = () => ({ status: 0, stdout: "", stderr: "" })
 const one = (ws: Workspace): Config => ({ version: 1, workspaces: [ws] })
+
+test("skillsDir: non-isolated tracks the base CLAUDE_CONFIG_DIR; isolated is always private", () => {
+  withSandbox((sb) => {
+    const ws: Workspace = { name: "w", path: path.join(sb, "w"), servers: {} }
+    const iso: Workspace = { name: "i", path: path.join(sb, "i"), isolate: true, servers: {} }
+    // isolated: always its own login's dir, regardless of the ambient CLAUDE_CONFIG_DIR
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "anything")
+    expect(skillsDir(iso)).toBe(path.join(sb, "i", ".inscope", "skills"))
+    // non-isolated, no base override -> the shared ~/.claude
+    delete process.env.CLAUDE_CONFIG_DIR
+    expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
+    // non-isolated, a global base CCD set -> that dir (matches the hook's base login)
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "global-claude")
+    expect(skillsDir(ws)).toBe(path.join(sb, "global-claude", "skills"))
+    // the shell sits in an isolated workspace (CCD is an inscope .inscope dir): ignore
+    // it so non-isolated skills never land in a sibling isolated login
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "other", ".inscope")
+    expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
+  })
+})
 
 test("applySkills links a non-isolated workspace's skills into the shared ~/.claude/skills, idempotently", () => {
   withSandbox((sb) => {

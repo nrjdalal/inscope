@@ -10,19 +10,29 @@ import {
   type Workspace,
 } from "@/config"
 import { home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { inscopeDirPath } from "@/generators/isolate"
+import { INSCOPE_DIR, inscopeDirPath } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
+
+// The non-isolated base login dir, matching the hook's `${__inscope_base_ccd:-$HOME/.claude}`:
+// a user's global CLAUDE_CONFIG_DIR when they set one, else ~/.claude. The current
+// process's CLAUDE_CONFIG_DIR counts only when it is NOT one of inscope's own isolated
+// dirs (the shell may sit in an isolated workspace, whose hook exported that dir), so a
+// non-isolated workspace's skills always land on the base, never a sibling isolated login.
+const baseClaudeDir = (): string => {
+  const env = process.env.CLAUDE_CONFIG_DIR?.trim()
+  return env && path.basename(env) !== INSCOPE_DIR ? env : path.join(home(), ".claude")
+}
 
 // The personal skills dir Claude reads for a workspace. A skill materialized here
 // is personal scope: Claude lists it in the `/` menu and loads it in every project
 // of that login, with no `--add-dir` and no per-repo linking (so it works under any
 // launcher, cmux included). An isolated workspace has its own login, so its skills
-// stay private in `<ws>/.inscope/skills`; a non-isolated one shares the base
-// `~/.claude/skills` with every other non-isolated workspace, because they share one
-// config dir and therefore cannot be scoped apart.
+// stay private in `<ws>/.inscope/skills`; a non-isolated one shares the base login's
+// `skills` dir with every other non-isolated workspace, because they share one config
+// dir and therefore cannot be scoped apart.
 export const skillsDir = (ws: Workspace): string =>
-  ws.isolate ? path.join(inscopeDirPath(ws), "skills") : path.join(home(), ".claude", "skills")
+  ws.isolate ? path.join(inscopeDirPath(ws), "skills") : path.join(baseClaudeDir(), "skills")
 
 // One shared content cache for every workspace. Each git source is cloned exactly
 // once here, keyed by host/owner/repo (plus @ref when pinned), so five workspaces
@@ -309,7 +319,8 @@ export const discoverSkills = (root: string): { name: string; subdir: string }[]
     seen.add(subdir)
     out.push({ name, subdir })
   }
-  push(path.basename(root), "")
+  // strip a `@ref` cache suffix so a pinned root source lists as "repo", not "repo@ref"
+  push(path.basename(root).replace(/@[^/@]+$/, ""), "")
   for (const base of ["", "skills"]) {
     const scanDir = base ? path.join(root, base) : root
     let entries: fs.Dirent[]

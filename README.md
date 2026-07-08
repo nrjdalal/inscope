@@ -250,7 +250,7 @@ npx inscope skill rm triage                             # drop it
 npx inscope skill update                                # pull floating git sources
 ```
 
-A source is a GitHub `owner/repo` (or a browser `tree`/`blob` URL), a git URL, or a local path, with an optional `#subdir` pointing at the folder that holds `SKILL.md`, and `--ref` to pin a branch, tag, or sha (git sources float on the default branch otherwise). When a repo holds several skills, `add` lists them and lets you pick (interactively, or with `--skill`/`--all`/`--list`). Like every inscope command it auto-applies, and it infers the workspace from the directory you run it in.
+A source is a GitHub `owner/repo` (or a browser `tree`/`blob` URL), a git URL, or a local path, with an optional `#subdir` pointing at the folder that holds `SKILL.md`, and `--ref` to pin a branch, tag, or sha (git sources float on the default branch otherwise). When a repo holds several skills, `add` lists them and lets you pick (interactively, or with `--skill`/`--all`/`--list`); discovery scans the repo root and one level down (including under a top-level `skills/`), so a more deeply nested skill is added by its explicit `#subdir`. Like every inscope command it auto-applies, and it infers the workspace from the directory you run it in.
 
 Content is stored once in `~/.config/inscope/skills-cache/`; the personal skills dir only holds symlinks into it, so `skill update` refreshes every workspace that links a source at once. inscope only ever removes symlinks it created (links into that cache), so a skill directory you authored by hand in `~/.claude/skills` is never touched.
 
