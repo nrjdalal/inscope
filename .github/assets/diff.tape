@@ -27,14 +27,14 @@ Sleep 800ms
 Type "inscope diff" Sleep 300ms Enter
 Sleep 2400ms
 
-# you enable the Slack add-message tool directly in .mcp.json (drift)
+# you allow Slack to post by removing the fork's read-only opt-out in .mcp.json (drift)
 Hide
-Type `node -e 'f=process.env.HOME+"/acme/.mcp.json";d=require(f);d.mcpServers["slack-acme"].env.SLACK_MCP_ADD_MESSAGE_TOOL="true";require("fs").writeFileSync(f,JSON.stringify(d,null,2)+"\n")'` Enter
+Type `node -e 'f=process.env.HOME+"/acme/.mcp.json";d=require(f);delete d.mcpServers["slack-acme"].env.SLACK_MCP_ALLOW_WRITE;require("fs").writeFileSync(f,JSON.stringify(d,null,2)+"\n")'` Enter
 Type "clear" Enter
 Show
 
 Sleep 600ms
-# diff shows what apply would drop, and offers to keep it
+# diff shows apply would put the opt-out back, and offers to keep your change
 Type "inscope diff" Sleep 300ms Enter
 Sleep 3600ms
 

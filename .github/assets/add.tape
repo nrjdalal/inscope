@@ -33,8 +33,8 @@ Enter
 Sleep 1300ms
 Up Sleep 200ms Up Sleep 200ms Up Sleep 200ms Up Sleep 500ms Space Sleep 900ms Enter
 Sleep 1600ms
-# Slack MCP server package: pick @nrjdalal/slack-mcp-server (the second option)
-Down Sleep 500ms Enter
+# Slack MCP server package: keep the default @nrjdalal/slack-mcp-server (first, pre-selected)
+Sleep 500ms Enter
 Sleep 1600ms
 Enter
 Sleep 1600ms
@@ -42,6 +42,10 @@ Enter
 Sleep 1300ms
 Down Sleep 800ms Enter
 Sleep 2800ms
+
+# Dedicated Claude login for this workspace: keep the default (No) for the shared login
+Enter
+Sleep 2600ms
 
 Type "inscope list" Sleep 300ms Enter
 Sleep 3400ms
