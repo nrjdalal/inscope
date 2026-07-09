@@ -76,7 +76,6 @@ Bare `inscope add` prompts for the directory (defaulting to where you are); pass
 | `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                 |
 | `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                       |
 | `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                               |
-| `inscope mcp`         | Run inscope as an MCP server (stdio) so Claude can introspect identity                                       |
 
 Run any command with `-h` for its flags. Mutating commands apply in one step; `apply` is only for after you hand-edit the config.
 
@@ -118,24 +117,6 @@ npx inscope skill update                 # refresh floating git sources
 ```
 
 Every workspace also gets the bundled **inscope self-skill**, so you can just ask Claude to "isolate this workspace" or "add a skill here." Install it anywhere with the [`skills`](https://github.com/vercel-labs/skills) CLI: `npx skills add nrjdalal/inscope`.
-
----
-
-## Drive inscope from Claude (MCP server)
-
-`inscope mcp` runs inscope itself as an MCP server over stdio (hand-rolled, no dependency), exposing read tools so Claude can introspect identity without shelling out: `inscope_status` (the identity resolved for a directory), `inscope_list` (the workspaces), and `inscope_doctor` (health checks). Register it once:
-
-```sh
-claude mcp add inscope -- inscope mcp
-```
-
-or add it to any `.mcp.json`:
-
-```jsonc
-{ "mcpServers": { "inscope": { "command": "inscope", "args": ["mcp"] } } }
-```
-
-The bundled self-skill already teaches Claude the CLI; this is the structured-tools alternative.
 
 ---
 
