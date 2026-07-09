@@ -528,6 +528,43 @@ test("validateConfig enforces the accounts pool rules", () => {
   expect(() => validateConfig(cfg(["bad name"]))).toThrow(/is invalid/)
 })
 
+test("inscope switch re-points a pooled workspace's active account (end to end)", () => {
+  withSandbox((sb) => {
+    const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
+    const env = { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") }
+    const cli = (args: string[]) => spawnSync("bun", [entry, ...args], { encoding: "utf8", env })
+    for (const a of ["one", "two"]) {
+      const d = path.join(sb, ".config/inscope/accounts", a)
+      fs.mkdirSync(d, { recursive: true })
+      fs.writeFileSync(path.join(d, ".claude.json"), "{}") // marks the account signed in
+    }
+    fs.mkdirSync(path.join(sb, "proj"), { recursive: true })
+    fs.mkdirSync(path.join(sb, ".config/inscope"), { recursive: true })
+    fs.writeFileSync(
+      path.join(sb, ".config/inscope/inscope.json"),
+      JSON.stringify({
+        version: 1,
+        workspaces: [
+          {
+            isolate: true,
+            accounts: ["one", "two"],
+            name: "proj",
+            path: "~/proj",
+            servers: { github: true },
+          },
+        ],
+      }),
+    )
+    cli(["apply"])
+    const link = path.join(sb, "proj/.inscope")
+    expect(path.basename(fs.readlinkSync(link))).toBe("one") // apply pins the first account
+    const r = cli(["switch", "--workspace", "proj"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain("one -> two")
+    expect(path.basename(fs.readlinkSync(link))).toBe("two") // re-pointed
+  })
+})
+
 test("validateConfig rejects an unknown slack package", () => {
   expect(() =>
     validateConfig({

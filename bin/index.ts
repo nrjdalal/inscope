@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { account } from "~/bin/commands/account"
 import { add } from "~/bin/commands/add"
 import { apply } from "~/bin/commands/apply"
 import { diff } from "~/bin/commands/diff"
@@ -8,6 +9,7 @@ import { list } from "~/bin/commands/list"
 import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
 import { status } from "~/bin/commands/status"
+import { switchAccount, use } from "~/bin/commands/switch"
 import { author, name, version } from "~/package.json"
 
 const helpMessage = `Version:
@@ -29,6 +31,8 @@ Commands:
   doctor         Verify tokens, identities, the hook, and skill links resolve correctly
   diff           Preview what apply would change; --adopt pulls on-disk extras back
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
+  account        Manage the pool of Claude logins a workspace can switch between (add, list)
+  switch [acct]  Switch a workspace to another pooled account (alias: use); no arg picks the next signed-in
 
 Options:
   -v, --version  Display version
@@ -66,6 +70,12 @@ const main = async () => {
         return apply(rest)
       case "doctor":
         return doctor(rest)
+      case "account":
+        return account(rest)
+      case "use":
+        return use(rest)
+      case "switch":
+        return switchAccount(rest)
     }
 
     if (cmd === "-v" || cmd === "--version") {

@@ -37,6 +37,20 @@ export const listRegistry = (): string[] => {
 
 export const isSignedIn = (name: string): boolean => inscopeSignedIn(accountDir(name))
 
+// The next account in pool order after `after` (wrap-around) that is signed in, or
+// null if none is. Phase 1's auto-switch target; Phase 2 additionally skips capped
+// accounts (see usage.ts).
+export const nextSignedIn = (ws: Workspace, after: string | null): string | null => {
+  const pool = poolFor(ws)
+  if (!pool.length) return null
+  const start = after ? pool.indexOf(after) : -1
+  for (let i = 1; i <= pool.length; i++) {
+    const name = pool[(((start + i) % pool.length) + pool.length) % pool.length]
+    if (isSignedIn(name)) return name
+  }
+  return null
+}
+
 // The account a pooled workspace's `.inscope` symlink currently points at, or null
 // when `.inscope` is not a symlink into the registry for an account still in the
 // pool (unmigrated real dir, dangling, foreign, or a removed account).
