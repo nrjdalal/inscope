@@ -139,8 +139,13 @@ const ensureClone = (skill: NormalizedSkill, dir: string, run: Runner, update: b
   }
   fs.mkdirSync(path.dirname(dir), { recursive: true })
 
+  // Restrict git to safe transports so a `.git` source can never invoke a remote
+  // helper (ext::, fd::, …) at clone/fetch time. Defense in depth behind
+  // classifySkillSource, which already rejects the `name::` syntax.
+  const proto = { env: { GIT_ALLOW_PROTOCOL: "https:http:ssh:git:file" } }
+
   const clone = (extra: string[]) =>
-    run("git", ["clone", "--depth", "1", "--no-tags", ...extra, "--", url, dir])
+    run("git", ["clone", "--depth", "1", "--no-tags", ...extra, "--", url, dir], proto)
 
   if (!skill.ref) {
     const r = clone(["--single-branch"])
@@ -164,7 +169,7 @@ const ensureClone = (skill: NormalizedSkill, dir: string, run: Runner, update: b
       ["-C", dir, "fetch", "--depth", "1", "--no-tags", "origin", skill.ref],
       ["-C", dir, "checkout", "-q", "--detach", "FETCH_HEAD"],
     ]) {
-      const r = run("git", args)
+      const r = run("git", args, proto)
       if (r.status !== 0)
         throw new Error(
           `failed to fetch ${skill.ref} from ${url}: ${r.stderr.trim() || "git fetch failed"}`,

