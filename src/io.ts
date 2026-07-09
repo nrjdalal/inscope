@@ -43,12 +43,12 @@ export const writeFileAtomic = (file: string, data: string) => {
     mode = fs.statSync(target).mode
   } catch {}
   const tmp = path.join(dir, `.${path.basename(target)}.inscope-${process.pid}.tmp`)
-  fs.writeFileSync(tmp, data)
-  if (mode !== undefined) fs.chmodSync(tmp, mode & 0o7777)
   try {
+    fs.writeFileSync(tmp, data)
+    if (mode !== undefined) fs.chmodSync(tmp, mode & 0o7777)
     fs.renameSync(tmp, target)
   } catch (err) {
-    // don't leave a stray temp file behind if the rename fails.
+    // don't leave a stray temp file behind if the write, chmod, or rename fails.
     try {
       fs.rmSync(tmp, { force: true })
     } catch {}
