@@ -378,13 +378,14 @@ test("slackKeychainFor names the keychain after the env var, uppercased", () => 
   expect(slackKeychainFor("a.b c")).toBe("SLACK_MCP_XOXP_TOKEN_A_B_C")
 })
 
-test("buildServers reflects the enabled list and slack details", () => {
+test("buildServers reflects the enabled list and Slack details", () => {
   const s = buildServers(["github", "linear"], null)
   expect(s.github).toBe(true)
   expect(s.linear).toBe(true)
   expect(s.notion).toBe(false)
   expect(s.stripe).toBe(false)
   expect(s.slack).toBe(false)
+  expect(s.xquik).toBe(false)
 
   const withSlack = buildServers(["github", "slack"], {
     keychain: "K",
@@ -393,6 +394,10 @@ test("buildServers reflects the enabled list and slack details", () => {
   expect(withSlack.github).toBe(true)
   expect(withSlack.linear).toBe(false)
   expect(withSlack.slack).toEqual({ keychain: "K", addMessageTool: true })
+
+  const withXquik = buildServers(["github", "xquik"], null)
+  expect(withXquik.github).toBe(true)
+  expect(withXquik.xquik).toBe(true)
 })
 
 test("buildServers omits the default slack package but keeps a non-default one", () => {
@@ -463,7 +468,7 @@ test("validateConfig rejects an unknown slack package", () => {
   ).toThrow(/Slack package .* is invalid/)
 })
 
-test("renderServers emits each OAuth http server at its endpoint", () => {
+test("renderServers emits each remote http server at its endpoint", () => {
   const out = renderServers({
     name: "x",
     path: "~/x",
@@ -496,6 +501,7 @@ test("renderServers emits each OAuth http server at its endpoint", () => {
       monday: true,
       stripe: true,
       webflow: true,
+      xquik: true,
     },
   })
   expect(out2["canva-y"]).toEqual({
@@ -521,6 +527,10 @@ test("renderServers emits each OAuth http server at its endpoint", () => {
   expect(out2["webflow-y"]).toEqual({
     type: "http",
     url: "https://mcp.webflow.com/",
+  })
+  expect(out2["xquik-y"]).toEqual({
+    type: "http",
+    url: "https://xquik.com/mcp",
   })
 })
 

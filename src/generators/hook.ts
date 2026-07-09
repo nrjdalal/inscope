@@ -33,7 +33,7 @@ export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.`
 
 // True when `child` is strictly nested under `parent`, compared as ~-normalized

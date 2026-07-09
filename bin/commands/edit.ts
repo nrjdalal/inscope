@@ -164,7 +164,6 @@ export const edit = async (args: string[]) => {
       process.exit(1)
     }
   }
-
   // --- isolate: give this workspace its own Claude login in a local .inscope ---
   const isolate = await promptConfirm(
     "Dedicated Claude login for this workspace?",

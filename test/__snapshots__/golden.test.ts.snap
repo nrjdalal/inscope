@@ -71,6 +71,10 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       "type": "http",
       "url": "https://mcp.webflow.com/",
     },
+    "xquik-acme": {
+      "type": "http",
+      "url": "https://xquik.com/mcp",
+    },
   },
 }
 `;
@@ -185,7 +189,7 @@ exports[`golden: chpwd hook for two workspaces 1`] = `
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -236,7 +240,7 @@ exports[`golden: chpwd hook with no workspaces 1`] = `
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -285,7 +289,7 @@ exports[`golden: chpwd hook arm for a workspace with neither gh nor slack 1`] = 
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -334,7 +338,7 @@ exports[`golden: chpwd hook covers tricky paths and every arm shape 1`] = `
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -391,7 +395,7 @@ exports[`golden: chpwd hook with isolated workspaces (exported CLAUDE_CONFIG_DIR
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -459,7 +463,7 @@ exports[`golden: exported CLAUDE_CONFIG_DIR shadows a nested non-isolated worksp
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack token from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -592,6 +596,7 @@ exports[`golden: SERVER_TYPES registry order is locked 1`] = `
   "stripe",
   "vercel",
   "webflow",
+  "xquik",
 ]
 `;
 

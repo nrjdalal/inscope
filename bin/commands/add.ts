@@ -51,7 +51,7 @@ Options:
   --label <name>        workspace name; defaults to the directory basename
   --servers <list>      comma-separated, any of: github, atlassian, canva,
                         clickup, hubspot, intercom, linear, monday, notion,
-                        plane, sentry, slack, stripe, vercel, webflow
+                        plane, sentry, slack, stripe, vercel, webflow, xquik
                         (default: github)
   --slack-keychain <s>  keychain service for the Slack token
                         (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
@@ -234,7 +234,6 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
-
   const ws: Workspace = {
     isolate: isolate || undefined,
     name: label,

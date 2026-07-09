@@ -19,6 +19,9 @@ export type SlackServer = { keychain: string; addMessageTool?: boolean; package?
 
 export type HttpServer = { url?: string }
 
+export const slackKeychainFor = (label: string): string =>
+  `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
+
 export type Servers = {
   github?: boolean
   atlassian?: boolean | HttpServer
@@ -35,6 +38,7 @@ export type Servers = {
   stripe?: boolean | HttpServer
   vercel?: boolean | HttpServer
   webflow?: boolean | HttpServer
+  xquik?: boolean | HttpServer
 }
 
 export type Workspace = {

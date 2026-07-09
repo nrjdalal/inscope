@@ -16,13 +16,12 @@ import { removeMcp, SERVER_TYPES } from "@/generators/mcp"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
 
+export { slackKeychainFor } from "@/config"
+
 export const SLACK_AUTH_DOCS =
   "https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth"
 
 export const SERVER_LABELS = SERVER_TYPES
-
-export const slackKeychainFor = (label: string) =>
-  `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
 export const enabledServers = (s: Servers): string[] =>
   SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t]))

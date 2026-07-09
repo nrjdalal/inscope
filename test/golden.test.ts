@@ -39,6 +39,7 @@ const allServers: Workspace = {
     stripe: true,
     vercel: true,
     webflow: true,
+    xquik: true,
   },
 }
 

@@ -20,7 +20,7 @@
 ## Why inscope
 
 - 🎫 **Its own Claude login.** Run a client on their subscription, your personal on your Max, work on work, each from its own directory. Shared by default, isolated when you want it.
-- 🤖 **MCP servers per workspace.** GitHub, Slack, and 13 one-click OAuth connectors, uniquely named so nothing ever collides between projects.
+- 🤖 **MCP servers per workspace.** GitHub, Slack, Xquik, and 13 one-click OAuth connectors, uniquely named so nothing ever collides between projects.
 - 🪪 **The right git identity, always.** GitHub token and commit email resolved live from `$PWD`, so every commit lands as the right you.
 - 🎓 **Skills per workspace.** A curated `/` menu per directory, shared into your Claude skills dir with zero per-repo setup.
 - 🔐 **Nothing sensitive on disk.** Tokens come from the `gh` keyring and the macOS Keychain. 🧵 Race-free across sessions. 🚀 Works under any launcher (terminal, IDE, cmux, `--resume`).
@@ -100,9 +100,9 @@ Run any command with `-h` for its flags. Mutating commands apply in one step; `a
 
 One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Slack reads a Keychain token exported by the hook; the rest are OAuth.
 
-`github` · `atlassian` · `canva` · `clickup` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `plane` · `sentry` · `slack` · `stripe` · `vercel` · `webflow`
+`github` · `atlassian` · `canva` · `clickup` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `plane` · `sentry` · `slack` · `stripe` · `vercel` · `webflow` · `xquik`
 
-Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
+Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). OAuth connectors, including Xquik, authenticate in Claude Code at connect time. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
 
 ---
 
@@ -135,7 +135,7 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "path": "~/work",
       "gh": "neeraj-work",
       "git": { "email": "neeraj@work.com" },
-      "servers": { "github": true, "linear": true },
+      "servers": { "github": true, "linear": true, "xquik": true },
     },
     {
       "isolate": true, // a client, its own login in ~/clients/acme/.inscope
