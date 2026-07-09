@@ -20,3 +20,7 @@ node_modules/
 
 # build
 dist/
+
+# claude code drops these in cwd when run here during dev/testing
+backups/
+.credentials.json

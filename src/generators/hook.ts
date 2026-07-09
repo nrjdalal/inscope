@@ -66,10 +66,20 @@ const renderCcd = (cfg: Config): { block: string; base: string } => {
   )
   const byName = [...isolated, ...shadows].sort((a, b) => a.name.localeCompare(b.name))
   const arms = bySpecificity(byName)
-    .map(
-      (w) =>
-        `    ${pathPattern(w.path)}) ${w.isolate ? `dir="${shellPath(w.path)}/.inscope"` : ":"} ;;`,
-    )
+    .map((w) => {
+      const p = `${shellPath(w.path)}/.inscope`
+      // A pooled workspace's `.inscope` is a symlink to the active account. macOS
+      // keys the Claude login in the Keychain by the *literal* CLAUDE_CONFIG_DIR
+      // string, so we must export the symlink's resolved target (`pwd -P`) or the
+      // login won't resolve. A single-isolate `.inscope` is a real dir, so it stays
+      // the plain literal (byte-identical to the pre-pool hook).
+      const arm = !w.isolate
+        ? ":"
+        : w.accounts?.length
+          ? `dir="$(cd "${p}" 2>/dev/null && pwd -P || echo "${p}")"`
+          : `dir="${p}"`
+      return `    ${pathPattern(w.path)}) ${arm} ;;`
+    })
     .join("\n")
 
   const block = `

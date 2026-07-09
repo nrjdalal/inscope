@@ -215,6 +215,29 @@ test("renderHook exports each isolated workspace's .inscope login, resolved from
   expect(hook).not.toContain("command claude")
 })
 
+test("renderHook resolves a pooled workspace's .inscope symlink to its real path (pwd -P)", () => {
+  // macOS keys the Claude login in the Keychain by the literal CLAUDE_CONFIG_DIR
+  // string, so a pooled workspace (whose .inscope is a symlink to the active
+  // account) must export the resolved target, not the symlink path.
+  const pooled: Config = {
+    version: 1,
+    workspaces: [
+      { name: "pool", path: "~/proj", isolate: true, accounts: ["a", "b"], servers: {} },
+    ],
+  }
+  const hook = renderHook(pooled)
+  expect(hook).toContain(
+    `"$HOME/proj/"*) dir="$(cd "$HOME/proj/.inscope" 2>/dev/null && pwd -P || echo "$HOME/proj/.inscope")" ;;`,
+  )
+  // a single-isolate workspace (real dir) stays the plain literal, no resolution
+  const single: Config = {
+    version: 1,
+    workspaces: [{ name: "iso", path: "~/iso", isolate: true, servers: {} }],
+  }
+  expect(renderHook(single)).toContain(`"$HOME/iso/"*) dir="$HOME/iso/.inscope" ;;`)
+  expect(renderHook(single)).not.toContain("pwd -P")
+})
+
 test("renderHook adds no wrapper for a workspace that only declares skills", () => {
   // Skills live in a login's personal skills dir, so nothing is added at launch time;
   // a non-isolated, flag-less config's hook stays byte-identical to a plain one.
