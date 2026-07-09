@@ -5,7 +5,7 @@ description: Manage per-workspace Claude Code identity with inscope (the GitHub 
 
 # inscope
 
-inscope gives each **workspace** (a directory) its own Claude Code identity: a GitHub account, a git commit email, MCP servers, an optional isolated Claude login, and its own skills. It resolves from the current directory on every `cd`, so identity follows location.
+inscope gives each **workspace** (a directory) its own Claude Code identity: a Claude login/subscription (shared or isolated), MCP servers, a GitHub account, a git commit email, and its own skills. It resolves from the current directory on every `cd`, so identity follows location.
 
 Change identity through inscope so its generated files stay in sync. The source of truth is `~/.config/inscope/inscope.json`; from it inscope regenerates the zsh hook, the git `includeIf` block, each workspace's `.mcp.json`, and its Claude skill symlinks.
 

@@ -13,8 +13,8 @@ import { author, name, version } from "~/package.json"
 const helpMessage = `Version:
   ${name}@${version}
 
-Per-workspace identity for Claude Code: scope MCP servers, GitHub auth, and git
-commit identity to the directory you are in, so concurrent sessions never clash.
+Per-workspace identity for Claude Code: each directory auto-resolves its own
+login/subscription, MCP servers, GitHub account, and skills.
 
 Usage:
   $ ${name} <command> [options]

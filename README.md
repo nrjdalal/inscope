@@ -1,6 +1,6 @@
 # Inscope
 
-**Per-workspace identity for Claude Code: every workspace gets the right Claude subscription (shared or its own), MCP servers, GitHub account, and skills, picked up automatically from wherever you're working.**
+**Per-workspace identity for Claude Code: each directory auto-resolves its own login/subscription, MCP servers, GitHub account, and skills.**
 
 [![Twitter](https://img.shields.io/twitter/follow/nrjdalal_dev?label=%40nrjdalal_dev)](https://twitter.com/nrjdalal_dev)
 [![npm](https://img.shields.io/npm/v/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
@@ -19,7 +19,7 @@
 
 ## Why inscope
 
-- 🎫 **Its own Claude login.** Run a client on their subscription, your personal on your Max, work on work, each from its own directory. Shared by default, isolated when you want it.
+- 🎫 **Its own login/subscription.** Run a client on their subscription, your personal on your Max, work on work, each from its own directory. Shared by default, isolated when you want it.
 - 🤖 **MCP servers per workspace.** GitHub, Slack, and 14 one-click OAuth connectors (Notion, Linear, Stripe, Xquik, and more), uniquely named so nothing ever collides between workspaces.
 - 🪪 **The right git identity, always.** GitHub token and commit email resolved live from `$PWD`, so every commit lands as the right you.
 - 🎓 **Skills per workspace.** A curated `/` menu per directory, shared into your Claude skills dir with zero per-repo setup.
