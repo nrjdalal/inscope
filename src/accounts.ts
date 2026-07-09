@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import type { Workspace } from "@/config"
+import type { Config, Workspace } from "@/config"
 import { accountDir, accountsDir } from "@/env"
 import {
   gitignorePath,
@@ -9,6 +9,8 @@ import {
   inscopeSignedIn,
   renderGitignore,
 } from "@/generators/isolate"
+import { applyBypass } from "@/generators/settings"
+import { applySkills } from "@/generators/skills"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 // The account pool: a workspace can draw from several named Claude logins. Each
@@ -37,19 +39,26 @@ export const listRegistry = (): string[] => {
 
 export const isSignedIn = (name: string): boolean => inscopeSignedIn(accountDir(name))
 
-// The next account in pool order after `after` (wrap-around) that is signed in, or
-// null if none is. Phase 1's auto-switch target; Phase 2 additionally skips capped
-// accounts (see usage.ts).
-export const nextSignedIn = (ws: Workspace, after: string | null): string | null => {
+// The next account in pool order after `after` (wrap-around) satisfying `usable`,
+// or null if none does. The auto-switch target: `switch` passes a predicate of
+// signed-in && not usage-limit-capped (see usage.ts).
+export const nextUsable = (
+  ws: Workspace,
+  after: string | null,
+  usable: (name: string) => boolean,
+): string | null => {
   const pool = poolFor(ws)
   if (!pool.length) return null
   const start = after ? pool.indexOf(after) : -1
   for (let i = 1; i <= pool.length; i++) {
     const name = pool[(((start + i) % pool.length) + pool.length) % pool.length]
-    if (isSignedIn(name)) return name
+    if (usable(name)) return name
   }
   return null
 }
+
+export const nextSignedIn = (ws: Workspace, after: string | null): string | null =>
+  nextUsable(ws, after, isSignedIn)
 
 // The account a pooled workspace's `.inscope` symlink currently points at, or null
 // when `.inscope` is not a symlink into the registry for an account still in the
@@ -118,6 +127,22 @@ export const ensureActiveSymlink = (ws: Workspace): string | null => {
 
   repointSymlink(ws, first) // missing: create the account dir + symlink
   return first
+}
+
+// Re-point a workspace to `target` and equip it: bypass + skills write through the
+// `.inscope` symlink into the now-active account (Claude only ever reads the active
+// one). Shared by the `use`/`switch` commands and the inscope_switch_account MCP
+// tool. Returns the previous and new active account names.
+export const performSwitch = (
+  cfg: Config,
+  ws: Workspace,
+  target: string,
+): { previous: string | null; active: string } => {
+  const previous = activeAccount(ws)
+  repointSymlink(ws, target)
+  applyBypass(ws, cfg.bypass ?? false)
+  applySkills(cfg)
+  return { previous, active: target }
 }
 
 // Scaffold every account dir in the pool, ensure the active symlink, and gitignore

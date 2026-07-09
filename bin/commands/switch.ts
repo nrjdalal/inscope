@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util"
 
-import { activeAccount, isSignedIn, nextSignedIn, poolFor, repointSymlink } from "@/accounts"
+import { activeAccount, isSignedIn, nextUsable, performSwitch, poolFor } from "@/accounts"
 import {
   type Config,
   configExists,
@@ -9,8 +9,7 @@ import {
   loadConfig,
   type Workspace,
 } from "@/config"
-import { applyBypass } from "@/generators/settings"
-import { applySkills } from "@/generators/skills"
+import { accountCap } from "@/usage"
 import { name } from "~/package.json"
 
 const helpMessage = (verb: string) => `Switch a workspace's active Claude account by
@@ -62,10 +61,18 @@ const run = (verb: string) => (args: string[]) => {
 
   let target = positionals[0]
   if (!target) {
-    const next = nextSignedIn(ws, current)
+    // Auto-pick the next signed-in account that is not usage-limit-capped.
+    const next = nextUsable(ws, current, (n) => isSignedIn(n) && !accountCap(n).capped)
     if (!next) {
+      const soonest = pool
+        .map((n) => accountCap(n).resetAt)
+        .filter((r): r is number => typeof r === "number")
+        .sort((a, b) => a - b)[0]
+      const when = soonest
+        ? ` The soonest frees at ${new Date(soonest * 1000).toLocaleTimeString()}.`
+        : ""
       console.error(
-        `No signed-in account available in ${ws.name}'s pool. Sign one in with \`${name} account add <name>\`.`,
+        `No signed-in, uncapped account available in ${ws.name}'s pool.${when} Sign one in with \`${name} account add <name>\`.`,
       )
       process.exit(1)
     }
@@ -84,11 +91,7 @@ const run = (verb: string) => (args: string[]) => {
     process.exit(0)
   }
 
-  repointSymlink(ws, target)
-  // Equip the newly-active account: bypass + skills write through the .inscope
-  // symlink into it (Claude only ever reads the active one).
-  applyBypass(ws, cfg.bypass ?? false)
-  applySkills(cfg)
+  performSwitch(cfg, ws, target)
   console.log(`\n✓ ${ws.name}: ${current ?? "(none)"} -> ${target}`)
   console.log(`Relaunch \`claude\` from ${ws.path} to use ${target}.`)
   process.exit(0)

@@ -1,7 +1,9 @@
-import { type Config, configExists, loadConfig } from "@/config"
+import { activeAccount, isSignedIn, nextUsable, performSwitch, poolFor } from "@/accounts"
+import { type Config, configExists, currentWorkspace, loadConfig } from "@/config"
 import { runDoctor } from "@/doctor"
 import { resolveAbsolute } from "@/env"
 import { resolveStatus } from "@/status"
+import { accountCap } from "@/usage"
 import { name, version } from "~/package.json"
 
 // A minimal Model Context Protocol server, hand-rolled over JSON-RPC 2.0 so
@@ -27,8 +29,9 @@ export type JsonRpcResponse = {
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean }
 
-// The tools inscope exposes. Read-only for now: they let a client introspect the
-// identity resolved for a directory and the configured workspaces.
+// The tools inscope exposes: three read-only introspection tools (identity for a
+// directory, the workspaces, the health checks) plus inscope_switch_account, the one
+// mutating tool, which re-points a pooled workspace to another Claude account.
 export const MCP_TOOLS = [
   {
     name: "inscope_status",
@@ -54,6 +57,24 @@ export const MCP_TOOLS = [
     description:
       "Verify the inscope setup: gh tokens, keychain entries, git emails, the hook, and skill links. Returns each check's status.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "inscope_switch_account",
+    description:
+      "Switch a workspace's active Claude account by re-pointing its .inscope symlink, e.g. when the current account hit its usage limit. Omit `account` to auto-pick the next signed-in, uncapped account in the pool. Effective on the next `claude` launch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "A directory in the target workspace. Defaults to the current directory.",
+        },
+        account: {
+          type: "string",
+          description: "The account to switch to. Omit to auto-pick the next uncapped one.",
+        },
+      },
+    },
   },
 ] as const
 
@@ -81,6 +102,30 @@ const callTool = (toolName: string, args: Record<string, unknown> | undefined): 
         return asText(cfg.workspaces)
       case "inscope_doctor":
         return asText(runDoctor(cfg))
+      case "inscope_switch_account": {
+        const p =
+          typeof args?.path === "string" && args.path ? resolveAbsolute(args.path) : process.cwd()
+        const ws = currentWorkspace(cfg, p)
+        if (!ws) return asError(`No inscope workspace resolves for ${p}.`)
+        const pool = poolFor(ws)
+        if (!pool.length) return asError(`Workspace "${ws.name}" has no account pool.`)
+        let target = typeof args?.account === "string" && args.account ? args.account : undefined
+        if (target && !pool.includes(target))
+          return asError(`"${target}" is not in ${ws.name}'s pool (${pool.join(", ")}).`)
+        if (!target) {
+          const next = nextUsable(
+            ws,
+            activeAccount(ws),
+            (n) => isSignedIn(n) && !accountCap(n).capped,
+          )
+          if (!next)
+            return asError(`No signed-in, uncapped account available in ${ws.name}'s pool.`)
+          target = next
+        }
+        if (!isSignedIn(target)) return asError(`Account "${target}" is not signed in.`)
+        const { previous, active } = performSwitch(cfg, ws, target)
+        return asText({ workspace: ws.name, previous, active })
+      }
       default:
         return asError(`Unknown tool: ${toolName}`)
     }

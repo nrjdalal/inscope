@@ -69,6 +69,7 @@ import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { handleMcpRequest } from "@/mcp"
 import { claudeAuthStatus, ghAccounts, gitGlobal, keychainSetCommand, type Runner } from "@/secrets"
 import { resolveStatus } from "@/status"
+import { accountCap } from "@/usage"
 import {
   buildServers,
   enabledServers,
@@ -527,6 +528,28 @@ test("validateConfig enforces the accounts pool rules", () => {
   expect(() => validateConfig(cfg([]))).toThrow(/must not be empty/)
   expect(() => validateConfig(cfg(["a", "a"]))).toThrow(/duplicate account/)
   expect(() => validateConfig(cfg(["bad name"]))).toThrow(/is invalid/)
+})
+
+test("accountCap detects a usage-limit cap and its reset from the account's transcripts", () => {
+  withSandbox(() => {
+    const dir = path.join(accountDir("one"), "projects", "p")
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, "s.jsonl")
+    fs.writeFileSync(file, '{"type":"assistant","message":{}}\n') // no marker -> not capped
+    expect(accountCap("one").capped).toBe(false)
+    const future = Math.floor(Date.now() / 1000) + 3600
+    fs.appendFileSync(
+      file,
+      `{"isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"Claude AI usage limit reached|${future}"}]}}\n`,
+    )
+    expect(accountCap("one")).toEqual({ capped: true, resetAt: future })
+    const past = Math.floor(Date.now() / 1000) - 3600
+    fs.writeFileSync(
+      file,
+      `{"isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"Claude AI usage limit reached|${past}"}]}}\n`,
+    )
+    expect(accountCap("one").capped).toBe(false) // reset already passed
+  })
 })
 
 test("inscope switch re-points a pooled workspace's active account (end to end)", () => {
@@ -1570,6 +1593,7 @@ test("handleMcpRequest: tools/list returns the inscope tools", () => {
     "inscope_status",
     "inscope_list",
     "inscope_doctor",
+    "inscope_switch_account",
   ])
 })
 
