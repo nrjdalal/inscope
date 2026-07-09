@@ -6,10 +6,11 @@ rm -rf "$SB"
 mkdir -p "$SB"
 export HOME="$SB"
 export XDG_CONFIG_HOME="$SB/.config"
+export USER="neeraj" # so keychain hints show a safe name, not the real macOS user
 
 # A personal global git identity, so `add`'s prompts show "global: <value>"; the
-# acme (work) workspace then overrides the email per the demo.
-git config --global user.email "hello@nrjdalal.com"
+# work workspace then overrides the email per the demo.
+git config --global user.email "neeraj@personal.com"
 git config --global user.name "Neeraj Dalal"
 
 mkdir -p "$SB/bin"
@@ -18,10 +19,11 @@ cat > "$SB/bin/gh" <<'GH'
 case "$1 $2" in
   "auth status")
     echo "github.com"
-    echo "  * Logged in to github.com account nrjdalal (keyring)"
-    echo "  * Logged in to github.com account neeraj-acme-org (keyring)" ;;
+    echo "  * Logged in to github.com account neeraj-personal (keyring)"
+    echo "  * Logged in to github.com account neeraj-work (keyring)"
+    echo "  * Logged in to github.com account neeraj-acme (keyring)" ;;
   "auth token") echo "gho_demo_token" ;;
-  *) echo "nrjdalal" ;;
+  *) echo "neeraj-personal" ;;
 esac
 exit 0
 GH

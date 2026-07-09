@@ -26,10 +26,11 @@ Change identity through inscope so its generated files stay in sync. The source 
 ### Workspaces
 
 - `inscope init`: create the config and hook, source it from `~/.zshrc`.
-- `inscope add [path]`: map a directory. Flags skip prompts: `--gh <account>`, `--email`/`--git-name` (per-workspace git identity, else inherits global), `--isolate` (own Claude login in a gitignored `<path>/.inscope`), `--servers <list>`, `--label`, the Slack options, `-y`.
+- `inscope add [path]`: map a workspace. Flags skip prompts: `--gh <account>`, `--email`/`--git-name` (per-workspace git identity, else inherits global), `--isolate` (own Claude login in a gitignored `<path>/.inscope`), `--servers <list>`, `--label`, the Slack options, `-y`.
+- `inscope status` (`whoami`): show the identity resolved for the current directory, the Claude login (email + subscription, from `claude auth status`) and whether it is shared or isolated, the GitHub account and token, the git email, MCP servers, and skills. `--json` for scripting.
+- `inscope list` (`ls`): show workspaces with their identity, servers, and skills.
 - `inscope edit [path|label]`: change a workspace through the same prompts.
 - `inscope rm [path|label]`: unmap a workspace (drops its git include, managed MCP servers, and skill links). Confirms by typing the label; `-y` skips it.
-- `inscope list` (`ls`): show workspaces with their identity, servers, and skills.
 
 ### Skills
 
@@ -46,7 +47,7 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 ## Recipes
 
-- **Work vs personal:** `inscope add ~/work --gh work-account --email you@work.com`, then `inscope add ~/personal --gh personal-account`.
-- **Isolated client login:** `inscope add ~/clients/acme --isolate`, then launch `claude` there and sign in once.
+- **Personal, work, client:** `inscope add ~/personal --gh personal-account --email you@personal.com` (shared login), `inscope add ~/work --gh work-account --email you@work.com --isolate` (its own login), `inscope add ~/clients/acme --isolate` (a client on its own login and subscription).
+- **Who am I here:** `inscope status` (or `whoami`) prints the resolved Claude login and subscription, GitHub account, git email, MCP servers, and skills.
 - **Skill in the current workspace:** `inscope skill add owner/repo#skills/the-skill`, or `inscope skill add owner/repo --list` to browse first.
 - **Wrong account here:** run `inscope doctor` in the directory; it names the resolved workspace and whether its token and identity are present, says to run `inscope apply` if the hook is stale, then relaunch.

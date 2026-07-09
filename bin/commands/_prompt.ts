@@ -21,6 +21,8 @@ export const orange = paint("38;5;208")
 export const green = paint("38;2;63;185;80")
 export const yellow = paint("38;2;210;153;34")
 export const red = paint("38;2;248;81;73")
+// dim marks secondary detail (a config-dir path, an inherited-from tag).
+export const dim = paint("2")
 
 const setRaw = (on: boolean) => {
   const s: any = process.stdin

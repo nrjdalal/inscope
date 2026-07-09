@@ -8,6 +8,7 @@ import { init } from "~/bin/commands/init"
 import { list } from "~/bin/commands/list"
 import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
+import { status } from "~/bin/commands/status"
 import { author, name, version } from "~/package.json"
 
 const helpMessage = `Version:
@@ -21,14 +22,15 @@ Usage:
 
 Commands:
   init           Create the config, generate the hook, source it from ~/.zshrc
-  add [path]     Map a directory to a GitHub account, git email, and MCP servers
+  add [path]     Map a workspace to a GitHub account, git email, MCP servers, and skills
+  status         Show the identity resolved for the current directory (alias: whoami)
+  list           List configured workspaces (alias: ls)
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
-  list           List configured workspaces (alias: ls)
-  skill          Manage a workspace's Claude skills (add, list, rm, update)
+  skill          Manage a workspace's Claude skills (add, list, rename, rm, update)
+  doctor         Verify tokens, identities, the hook, and skill links resolve correctly
   diff           Preview what apply would change; --adopt pulls on-disk extras back
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
-  doctor         Verify tokens, identities, and the hook resolve correctly
 
 Options:
   -v, --version  Display version
@@ -56,6 +58,9 @@ const main = async () => {
       case "ls":
       case "list":
         return list(rest)
+      case "status":
+      case "whoami":
+        return status(rest)
       case "skill":
         return await skill(rest)
       case "diff":

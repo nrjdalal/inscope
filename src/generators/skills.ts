@@ -9,25 +9,10 @@ import {
   RESERVED_SKILL_NAME,
   type Workspace,
 } from "@/config"
-import { home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { INSCOPE_DIR, inscopeDirPath } from "@/generators/isolate"
+import { inscopeHome, packageRoot, resolveAbsolute } from "@/env"
+import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
-
-// The non-isolated base login dir, matching the hook's `${__inscope_base_ccd:-$HOME/.claude}`:
-// a user's global CLAUDE_CONFIG_DIR when they set one, else ~/.claude. The current
-// process's CLAUDE_CONFIG_DIR counts only when it is NOT one of inscope's own isolated
-// dirs (the shell may sit in an isolated workspace, whose hook exported that dir), so a
-// non-isolated workspace's skills always land on the base, never a sibling isolated login.
-// Edge: a user with a *global* CLAUDE_CONFIG_DIR who runs from inside an isolated
-// workspace falls back to ~/.claude here, since the isolation export overwrote the global
-// in the env and the hook keeps the true base only in the non-exported `__inscope_base_ccd`
-// shell var. Strictly better than the pre-fix hardcode; recovering it would need the base
-// persisted in config.
-const baseClaudeDir = (): string => {
-  const env = process.env.CLAUDE_CONFIG_DIR?.trim()
-  return env && path.basename(env) !== INSCOPE_DIR ? env : path.join(home(), ".claude")
-}
 
 // The personal skills dir Claude reads for a workspace. A skill materialized here
 // is personal scope: Claude lists it in the `/` menu and loads it in every project
