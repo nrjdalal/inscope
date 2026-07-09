@@ -6,7 +6,7 @@ import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitc
 import { renderHook } from "@/generators/hook"
 import { renderMcp, SERVER_TYPES } from "@/generators/mcp"
 import { renderStatus, type StatusSnapshot } from "@/status"
-import { slackKeychainFor, xquikKeychainFor } from "~/bin/commands/_workspace"
+import { slackKeychainFor } from "~/bin/commands/_workspace"
 
 // Golden suite: lock the EXACT generated artifacts (chpwd hook, .mcp.json, git
 // includes, .zshrc source line) so any drift is caught on review instead of
@@ -308,15 +308,6 @@ test("golden: slack keychain naming for tricky labels", () => {
     "brand-new": slackKeychainFor("brand-new"),
     "a.b c": slackKeychainFor("a.b c"),
     "Weird Name!": slackKeychainFor("Weird Name!"),
-  }).toMatchSnapshot()
-})
-
-test("golden: Xquik keychain naming for tricky labels", () => {
-  expect({
-    acme: xquikKeychainFor("acme"),
-    "brand-new": xquikKeychainFor("brand-new"),
-    "a.b c": xquikKeychainFor("a.b c"),
-    "Weird Name!": xquikKeychainFor("Weird Name!"),
   }).toMatchSnapshot()
 })
 

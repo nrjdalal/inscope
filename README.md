@@ -97,11 +97,11 @@ Run any command with `-h` for its flags. Mutating commands apply in one step; `a
 
 ## MCP servers
 
-One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Slack and Xquik read Keychain tokens exported by the hook; the rest are OAuth.
+One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Slack reads a Keychain token exported by the hook; the rest are OAuth.
 
 `github` · `atlassian` · `canva` · `clickup` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `plane` · `sentry` · `slack` · `stripe` · `vercel` · `webflow` · `xquik`
 
-Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). Xquik is opt-in too: `--seed-xquik` stores the API key, and the generated server sends it with `x-api-key`. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
+Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). OAuth connectors, including Xquik, authenticate in Claude Code at connect time. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
 
 ---
 
@@ -134,7 +134,7 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "path": "~/work",
       "gh": "neeraj-work",
       "git": { "email": "neeraj@work.com" },
-      "servers": { "github": true, "linear": true, "xquik": { "keychain": "XQUIK_API_KEY_WORK" } },
+      "servers": { "github": true, "linear": true, "xquik": true },
     },
     {
       "isolate": true, // a client, its own login in ~/clients/acme/.inscope

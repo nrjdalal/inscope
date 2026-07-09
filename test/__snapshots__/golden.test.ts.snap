@@ -72,9 +72,6 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       "url": "https://mcp.webflow.com/",
     },
     "xquik-acme": {
-      "headers": {
-        "x-api-key": "\${XQUIK_API_KEY:-}",
-      },
       "type": "http",
       "url": "https://xquik.com/mcp",
     },
@@ -192,7 +189,7 @@ exports[`golden: chpwd hook for two workspaces 1`] = `
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -203,9 +200,9 @@ __inscope_resolve_identity() {
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
     acme) gh_user="neeraj-acme-org"; slack_svc="SLACK_MCP_XOXP_TOKEN_ACME" ;;
     personal) gh_user="nrjdalal" ;;
@@ -227,13 +224,6 @@ __inscope_resolve_identity() {
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
     fi
   fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
-    fi
-  fi
 }
 
 autoload -Uz add-zsh-hook
@@ -250,7 +240,7 @@ exports[`golden: chpwd hook with no workspaces 1`] = `
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -260,9 +250,9 @@ __inscope_resolve_identity() {
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
     # no workspaces configured
     *) return ;;                                     # outside a mapped workspace: nothing set
@@ -283,13 +273,6 @@ __inscope_resolve_identity() {
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
     fi
   fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
-    fi
-  fi
 }
 
 autoload -Uz add-zsh-hook
@@ -306,7 +289,7 @@ exports[`golden: chpwd hook arm for a workspace with neither gh nor slack 1`] = 
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -316,9 +299,9 @@ __inscope_resolve_identity() {
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
     docs) : ;;
     *) return ;;                                     # outside a mapped workspace: nothing set
@@ -339,13 +322,6 @@ __inscope_resolve_identity() {
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
     fi
   fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
-    fi
-  fi
 }
 
 autoload -Uz add-zsh-hook
@@ -362,7 +338,7 @@ exports[`golden: chpwd hook covers tricky paths and every arm shape 1`] = `
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -376,9 +352,9 @@ __inscope_resolve_identity() {
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
     home) gh_user="acct" ;;
     my-project-work) gh_user="acme-org"; slack_svc="SLACK_MCP_XOXP_TOKEN_MYPROJECT" ;;
@@ -403,13 +379,6 @@ __inscope_resolve_identity() {
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
     fi
   fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
-    fi
-  fi
 }
 
 autoload -Uz add-zsh-hook
@@ -426,7 +395,7 @@ exports[`golden: chpwd hook with isolated workspaces (exported CLAUDE_CONFIG_DIR
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -451,9 +420,9 @@ __inscope_resolve_identity() {
     "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
   esac
   export CLAUDE_CONFIG_DIR="$dir"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
     acme) gh_user="acct" ;;
     client) : ;;
@@ -477,13 +446,6 @@ __inscope_resolve_identity() {
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
     fi
   fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
-    fi
-  fi
 }
 
 autoload -Uz add-zsh-hook
@@ -501,7 +463,7 @@ exports[`golden: exported CLAUDE_CONFIG_DIR shadows a nested non-isolated worksp
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.
 __inscope_resolve_identity() {
   local ws
@@ -523,9 +485,9 @@ __inscope_resolve_identity() {
     "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
   esac
   export CLAUDE_CONFIG_DIR="$dir"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
     acme) : ;;
     sub) gh_user="nrjdalal" ;;
@@ -545,13 +507,6 @@ __inscope_resolve_identity() {
       export SLACK_MCP_XOXP_TOKEN="$tok"
     else
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
-    fi
-  fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
     fi
   fi
 }
@@ -651,15 +606,6 @@ exports[`golden: slack keychain naming for tricky labels 1`] = `
   "a.b c": "SLACK_MCP_XOXP_TOKEN_A_B_C",
   "acme": "SLACK_MCP_XOXP_TOKEN_ACME",
   "brand-new": "SLACK_MCP_XOXP_TOKEN_BRAND_NEW",
-}
-`;
-
-exports[`golden: Xquik keychain naming for tricky labels 1`] = `
-{
-  "Weird Name!": "XQUIK_API_KEY_WEIRD_NAME_",
-  "a.b c": "XQUIK_API_KEY_A_B_C",
-  "acme": "XQUIK_API_KEY_ACME",
-  "brand-new": "XQUIK_API_KEY_BRAND_NEW",
 }
 `;
 

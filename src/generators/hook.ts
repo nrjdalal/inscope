@@ -1,4 +1,4 @@
-import { type Config, type Workspace, xquikKeychainFor } from "@/config"
+import { type Config, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
 
 const pathPattern = (p: string) => {
@@ -26,11 +26,6 @@ const bySpecificity = <T extends Workspace>(workspaces: T[]): T[] =>
   [...workspaces].sort((a, b) => contractTilde(b.path).length - contractTilde(a.path).length)
 
 const slackService = (ws: Workspace) => (ws.servers.slack ? ws.servers.slack.keychain : "")
-const xquikService = (ws: Workspace) => {
-  const server = ws.servers.xquik
-  if (!server) return ""
-  return typeof server === "object" && server.keychain ? server.keychain : xquikKeychainFor(ws.name)
-}
 
 export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 # Source of truth: ~/.config/inscope/inscope.json
@@ -38,7 +33,7 @@ export const HOOK_HEADER = `# Managed by inscope. Do not edit by hand.
 #
 # One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
 # the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack/Xquik tokens from the macOS keychain. Nothing sensitive
+# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
 # is written to disk, and there is no shared mutable state for sessions to race.`
 
 // True when `child` is strictly nested under `parent`, compared as ~-normalized
@@ -109,8 +104,6 @@ export const renderHook = (cfg: Config): string => {
         if (w.gh) parts.push(`gh_user="${w.gh}"`)
         const svc = slackService(w)
         if (svc) parts.push(`slack_svc="${svc}"`)
-        const xquikSvc = xquikService(w)
-        if (xquikSvc) parts.push(`xquik_svc="${xquikSvc}"`)
         return `    ${w.name}) ${parts.length ? parts.join("; ") : ":"} ;;`
       })
       .join("\n") || "    # no workspaces configured"
@@ -126,9 +119,9 @@ ${dirArms}
   esac
   [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
   __inscope_ws="$ws"
-${ccdBlock}  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY   # clear previous (and any inherited) tokens
+${ccdBlock}  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
-  local gh_user="" slack_svc="" xquik_svc=""
+  local gh_user="" slack_svc=""
   case "$ws" in
 ${idArms}
     *) return ;;                                     # outside a mapped workspace: nothing set
@@ -147,13 +140,6 @@ ${idArms}
       export SLACK_MCP_XOXP_TOKEN="$tok"
     else
       print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
-    fi
-  fi
-  if [[ -n "$xquik_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$xquik_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export XQUIK_API_KEY="$tok"
-    else
-      print -u2 "inscope: $xquik_svc not in keychain; XQUIK_API_KEY unset"
     fi
   fi
 }

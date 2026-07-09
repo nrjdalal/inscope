@@ -141,12 +141,6 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
         if (slack.addMessageTool) env.SLACK_MCP_ADD_MESSAGE_TOOL = "true"
       }
       out[name] = { type: "stdio", command: "npx", args, env }
-    } else if (key === "xquik") {
-      out[name] = {
-        type: "http",
-        url: httpUrl(v as boolean | HttpServer, REMOTE.xquik),
-        headers: { "x-api-key": "${XQUIK_API_KEY:-}" },
-      }
     } else {
       out[name] = {
         type: "http",

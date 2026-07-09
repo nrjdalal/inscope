@@ -19,16 +19,11 @@ export type SlackServer = { keychain: string; addMessageTool?: boolean; package?
 
 export type HttpServer = { url?: string }
 
-export type XquikServer = HttpServer & { keychain?: string }
-
 export const keychainServiceFor = (prefix: string, label: string): string =>
   `${prefix}_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
 export const slackKeychainFor = (label: string): string =>
   keychainServiceFor("SLACK_MCP_XOXP_TOKEN", label)
-
-export const xquikKeychainFor = (label: string): string =>
-  keychainServiceFor("XQUIK_API_KEY", label)
 
 export type Servers = {
   github?: boolean
@@ -46,7 +41,7 @@ export type Servers = {
   stripe?: boolean | HttpServer
   vercel?: boolean | HttpServer
   webflow?: boolean | HttpServer
-  xquik?: boolean | XquikServer
+  xquik?: boolean | HttpServer
 }
 
 export type Workspace = {
@@ -387,15 +382,6 @@ export const validateConfig = (cfg: Config) => {
       if (kcErr)
         throw new Error(
           `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
-        )
-    }
-    const xquik = ws.servers?.xquik
-    const xquikKeychain = xquik && typeof xquik === "object" ? xquik.keychain : undefined
-    if (xquikKeychain) {
-      const kcErr = hookValueError(xquikKeychain)
-      if (kcErr)
-        throw new Error(
-          `workspace "${ws.name}" Xquik keychain "${xquikKeychain}" is invalid: ${kcErr}`,
         )
     }
     // package picks the npm package npx runs, so restrict it to the known set: a

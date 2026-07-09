@@ -74,7 +74,6 @@ import {
   persist,
   resolveSlackPackage,
   slackKeychainFor,
-  xquikKeychainFor,
 } from "~/bin/commands/_workspace"
 import { parseAddSource } from "~/bin/commands/skill"
 
@@ -181,18 +180,6 @@ test("a workspace without gh or slack produces a no-op hook arm", () => {
     workspaces: [{ name: "docs", path: "~/docs", git: { email: "me@x.dev" }, servers: {} }],
   }
   expect(renderHook(cfg)).toContain(`docs) : ;;`)
-})
-
-test("renderHook exports Xquik API keys from the workspace keychain service", () => {
-  const hook = renderHook({
-    version: 1,
-    workspaces: [
-      { name: "acme", path: "~/acme", servers: { xquik: { keychain: "XQUIK_API_KEY_ACME" } } },
-    ],
-  })
-  expect(hook).toContain(`acme) xquik_svc="XQUIK_API_KEY_ACME" ;;`)
-  expect(hook).toContain(`unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN XQUIK_API_KEY`)
-  expect(hook).toContain(`export XQUIK_API_KEY="$tok"`)
 })
 
 test("renderHook adds no claude() wrapper when no workspace is isolated", () => {
@@ -391,13 +378,7 @@ test("slackKeychainFor names the keychain after the env var, uppercased", () => 
   expect(slackKeychainFor("a.b c")).toBe("SLACK_MCP_XOXP_TOKEN_A_B_C")
 })
 
-test("xquikKeychainFor names the keychain after the env var, uppercased", () => {
-  expect(xquikKeychainFor("acme")).toBe("XQUIK_API_KEY_ACME")
-  expect(xquikKeychainFor("brand-new")).toBe("XQUIK_API_KEY_BRAND_NEW")
-  expect(xquikKeychainFor("a.b c")).toBe("XQUIK_API_KEY_A_B_C")
-})
-
-test("buildServers reflects the enabled list, Slack details, and Xquik keychain", () => {
+test("buildServers reflects the enabled list and Slack details", () => {
   const s = buildServers(["github", "linear"], null)
   expect(s.github).toBe(true)
   expect(s.linear).toBe(true)
@@ -414,12 +395,9 @@ test("buildServers reflects the enabled list, Slack details, and Xquik keychain"
   expect(withSlack.linear).toBe(false)
   expect(withSlack.slack).toEqual({ keychain: "K", addMessageTool: true })
 
-  const withXquik = buildServers(["github", "xquik"], null, { keychain: "XQUIK_API_KEY_ACME" })
+  const withXquik = buildServers(["github", "xquik"], null)
   expect(withXquik.github).toBe(true)
-  expect(withXquik.xquik).toEqual({ keychain: "XQUIK_API_KEY_ACME" })
-
-  const defaultXquik = buildServers(["xquik"], null)
-  expect(defaultXquik.xquik).toBe(true)
+  expect(withXquik.xquik).toBe(true)
 })
 
 test("buildServers omits the default slack package but keeps a non-default one", () => {
@@ -553,7 +531,6 @@ test("renderServers emits each remote http server at its endpoint", () => {
   expect(out2["xquik-y"]).toEqual({
     type: "http",
     url: "https://xquik.com/mcp",
-    headers: { "x-api-key": "${XQUIK_API_KEY:-}" },
   })
 })
 
