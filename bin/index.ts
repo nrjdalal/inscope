@@ -11,6 +11,7 @@ import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
 import { status } from "~/bin/commands/status"
 import { switchAccount, use } from "~/bin/commands/switch"
+import { usage } from "~/bin/commands/usage"
 import { author, name, version } from "~/package.json"
 
 const helpMessage = `Version:
@@ -34,6 +35,7 @@ Commands:
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
   account        Manage the pool of Claude logins a workspace can switch between (add, list)
   switch [acct]  Switch a workspace to another pooled account (alias: use); no arg picks the next signed-in
+  usage          Show live 5h/7d Claude usage per pooled account (from the OAuth usage endpoint)
   mcp            Run inscope as an MCP server (stdio), so Claude can drive it
 
 Options:
@@ -78,6 +80,8 @@ const main = async () => {
         return use(rest)
       case "switch":
         return switchAccount(rest)
+      case "usage":
+        return await usage(rest)
       case "mcp":
         return mcp()
     }

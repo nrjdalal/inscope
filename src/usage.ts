@@ -76,3 +76,88 @@ export const accountCap = (name: string, now = Date.now()): AccountCap => {
   if (resetAt === undefined) return { capped: false }
   return { capped: now / 1000 < resetAt, resetAt }
 }
+
+// Live usage from Anthropic's own OAuth usage endpoint (the same call Claude Code's
+// `/usage` makes): the server-computed 5-hour and 7-day utilization percentages. We
+// read the account's OAuth token live from its own `<accountDir>/.credentials.json`
+// (Claude Code wrote it; we never persist it or the usage) and GET the endpoint.
+// Degrades to null on any failure, missing token, non-subscription account (`{}`),
+// expired token (401), or the ~1/min rate limit (429), so callers show "unknown".
+
+export const USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
+const OAUTH_BETA = "oauth-2025-04-20"
+
+export type UsageWindow = { pct: number; resetAt?: string }
+export type LiveUsage = { fiveHour?: UsageWindow; sevenDay?: UsageWindow }
+
+type Fetcher = (
+  url: string,
+  init: { method: string; headers: Record<string, string> },
+) => Promise<{ status: number; json: () => Promise<unknown> }>
+
+const defaultFetcher: Fetcher = async (url, init) => {
+  const r = await fetch(url, init)
+  return { status: r.status, json: () => r.json() }
+}
+
+// The OAuth access token for a registry account, read live from its own credentials
+// file. Never cached. Returns null when absent (e.g. macOS Keychain-only, signed out).
+const readToken = (name: string): string | null => {
+  try {
+    const cred = JSON.parse(
+      fs.readFileSync(path.join(accountDir(name), ".credentials.json"), "utf8"),
+    ) as { claudeAiOauth?: { accessToken?: unknown } }
+    const t = cred?.claudeAiOauth?.accessToken
+    return typeof t === "string" && t ? t : null
+  } catch {
+    return null
+  }
+}
+
+// Parse the usage endpoint body. Prefers the top-level `five_hour`/`seven_day`
+// { utilization, resets_at } objects, falling back to the newer `limits[]` array
+// (kind "session" => 5h, "weekly_all" => 7d). Pure, so it is unit-testable.
+export const parseUsage = (data: unknown): LiveUsage => {
+  const d = (data ?? {}) as Record<string, unknown>
+  const win = (o: unknown): UsageWindow | undefined => {
+    const w = o as { utilization?: unknown; resets_at?: unknown }
+    return w && typeof w.utilization === "number"
+      ? { pct: w.utilization, resetAt: typeof w.resets_at === "string" ? w.resets_at : undefined }
+      : undefined
+  }
+  let fiveHour = win(d.five_hour)
+  let sevenDay = win(d.seven_day)
+  if ((!fiveHour || !sevenDay) && Array.isArray(d.limits)) {
+    for (const l of d.limits as { kind?: unknown; percent?: unknown; resets_at?: unknown }[]) {
+      const w =
+        typeof l?.percent === "number"
+          ? { pct: l.percent, resetAt: typeof l.resets_at === "string" ? l.resets_at : undefined }
+          : undefined
+      if (l?.kind === "session" && !fiveHour) fiveHour = w
+      if (l?.kind === "weekly_all" && !sevenDay) sevenDay = w
+    }
+  }
+  return { fiveHour, sevenDay }
+}
+
+export const fetchLiveUsage = async (
+  name: string,
+  fetcher: Fetcher = defaultFetcher,
+): Promise<LiveUsage | null> => {
+  const token = readToken(name)
+  if (!token) return null
+  try {
+    const res = await fetcher(USAGE_ENDPOINT, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "anthropic-beta": OAUTH_BETA,
+        "User-Agent": "claude-code/2.1",
+      },
+    })
+    if (res.status !== 200) return null
+    return parseUsage(await res.json())
+  } catch {
+    return null
+  }
+}

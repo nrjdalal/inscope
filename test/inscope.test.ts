@@ -69,7 +69,7 @@ import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import { handleMcpRequest } from "@/mcp"
 import { claudeAuthStatus, ghAccounts, gitGlobal, keychainSetCommand, type Runner } from "@/secrets"
 import { resolveStatus } from "@/status"
-import { accountCap } from "@/usage"
+import { accountCap, fetchLiveUsage, parseUsage } from "@/usage"
 import {
   buildServers,
   enabledServers,
@@ -550,6 +550,62 @@ test("accountCap detects a usage-limit cap and its reset from the account's tran
     )
     expect(accountCap("one").capped).toBe(false) // reset already passed
   })
+})
+
+test("parseUsage reads five_hour/seven_day utilization, and the limits[] fallback", () => {
+  expect(
+    parseUsage({
+      five_hour: { utilization: 42, resets_at: "2026-04-20T06:59:59+00:00" },
+      seven_day: { utilization: 60 },
+    }),
+  ).toEqual({
+    fiveHour: { pct: 42, resetAt: "2026-04-20T06:59:59+00:00" },
+    sevenDay: { pct: 60, resetAt: undefined },
+  })
+  expect(
+    parseUsage({
+      limits: [
+        { kind: "session", percent: 10 },
+        { kind: "weekly_all", percent: 20 },
+      ],
+    }),
+  ).toEqual({
+    fiveHour: { pct: 10, resetAt: undefined },
+    sevenDay: { pct: 20, resetAt: undefined },
+  })
+  expect(parseUsage({})).toEqual({ fiveHour: undefined, sevenDay: undefined }) // non-subscription
+})
+
+test("fetchLiveUsage reads the account's own token and returns the endpoint usage", async () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  const tmp = tmpDir()
+  process.env.XDG_CONFIG_HOME = tmp
+  try {
+    const dir = accountDir("acct")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "tok-123" } }),
+    )
+    let sentAuth = ""
+    const fake = async (_url: string, init: { headers: Record<string, string> }) => {
+      sentAuth = init.headers.Authorization
+      return {
+        status: 200,
+        json: async () => ({ five_hour: { utilization: 71 }, seven_day: { utilization: 32 } }),
+      }
+    }
+    expect(await fetchLiveUsage("acct", fake)).toEqual({
+      fiveHour: { pct: 71, resetAt: undefined },
+      sevenDay: { pct: 32, resetAt: undefined },
+    })
+    expect(sentAuth).toBe("Bearer tok-123") // the account's own OAuth token, live-read
+    expect(await fetchLiveUsage("no-token-account", fake)).toBeNull() // no credentials file
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
 })
 
 test("inscope switch re-points a pooled workspace's active account (end to end)", () => {
