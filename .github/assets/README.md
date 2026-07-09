@@ -13,7 +13,9 @@ The README GIFs and the [vhs](https://github.com/charmbracelet/vhs) tapes that g
 | `doctor.gif` | `doctor.tape` | `doctor` verifying tokens, identities, and the hook                                              |
 | `status.gif` | `status.tape` | `status`: identity per directory, shared login in personal/work, isolated client in clients/acme |
 
-`setup.sh` / `setup-seeded.sh` build a throwaway sandbox (`/tmp/inscope-demo`) with a stubbed `gh`, so recordings never touch your real config and never print a real token (only the safe names `nrjdalal` / `neeraj-acme-org` appear). `setup-seeded.sh` also pre-adds the `acme` and `personal` workspaces for the demos that show an existing setup. `setup-status.sh` seeds the `status` demo (a separate `/tmp/inscope-status-demo` sandbox) and additionally stubs `claude auth status --json`, so the recording shows the safe demo accounts `neeraj@personal.com` / `neeraj@work.com` / `neeraj@acme.com`, never a real login.
+`status.tape` also emits `status-hero.png` (a `Screenshot` of the final frame), the static image used as the README hero.
+
+`setup.sh` / `setup-seeded.sh` build a throwaway sandbox (`/tmp/inscope-demo`) with a stubbed `gh`, so recordings never touch your real config and never print a real token (only the safe names `nrjdalal` / `neeraj-acme-org` appear). `setup-seeded.sh` also pre-adds the `acme` and `personal` workspaces for the demos that show an existing setup. `setup-status.sh` seeds the `status` demo (a separate `/tmp/inscope-status-demo` sandbox) and additionally stubs `claude auth status --json`, so the recording shows the safe demo accounts `neeraj@personal.com` / `neeraj@work.com` / `neeraj@acme.org`, never a real login.
 
 ## Regenerate
 

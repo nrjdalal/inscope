@@ -12,7 +12,7 @@
 `inscope status` (alias `whoami`) shows who you are in any directory: the Claude login and subscription, MCP servers, GitHub account, git email, and skills.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/status.gif" alt="inscope status in three directories: personal on the shared max login, then work and the acme client each on their own isolated team login" width="900" />
+  <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/status-hero.png" alt="inscope status in three directories: personal on the shared max login, then work and the acme client each on their own isolated team login" width="900" />
 </p>
 
 ---
@@ -84,6 +84,7 @@ Run any command with `-h` for its flags. Mutating commands apply in one step; `a
 
 |            |                                                                                              |
 | ---------- | -------------------------------------------------------------------------------------------- |
+| **status** | ![status](https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/status.gif) |
 | **list**   | ![list](https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/list.gif)     |
 | **edit**   | ![edit](https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/edit.gif)     |
 | **rm**     | ![rm](https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/rm.gif)         |
