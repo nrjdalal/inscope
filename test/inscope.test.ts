@@ -4,6 +4,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
+import { activeAccount, ensureActiveSymlink, ensurePool, repointSymlink } from "@/accounts"
 import { applyAll, renderZshrcSource, zshrcSourcesHook } from "@/apply"
 import {
   absolutizeLocalSource,
@@ -29,7 +30,7 @@ import {
 } from "@/config"
 import { currentWorkspace, runDoctor } from "@/doctor"
 import { adoptable, computeDrift, diffLines, mcpError, mcpTarget } from "@/drift"
-import { configPath, gitIncludeDir, home, hookPath, zshrcPath } from "@/env"
+import { accountDir, configPath, gitIncludeDir, home, hookPath, zshrcPath } from "@/env"
 import {
   applyGitconfig,
   perWorkspaceGitconfigPath,
@@ -451,6 +452,80 @@ test("renderServers shapes the @nrjdalal slack fork per its own CLI", () => {
   expect(koro.args).toContain("--transport")
   expect(koro.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBe("true")
   expect(koro.env.SLACK_MCP_ALLOW_WRITE).toBeUndefined()
+})
+
+test("ensurePool makes .inscope a symlink to the first pool account, gitignored symlink-safe", () => {
+  withSandbox((sb) => {
+    const ws: Workspace = {
+      isolate: true,
+      accounts: ["one", "two"],
+      name: "w",
+      path: path.join(sb, "w"),
+      servers: {},
+    }
+    fs.mkdirSync(ws.path, { recursive: true })
+    expect(ensurePool(ws)).toBe("one")
+    const link = path.join(ws.path, ".inscope")
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(fs.realpathSync(link)).toBe(fs.realpathSync(accountDir("one")))
+    expect(activeAccount(ws)).toBe("one")
+    // symlink-safe gitignore entry (no trailing slash, so a dir-only rule can't miss it)
+    expect(fs.readFileSync(path.join(ws.path, ".gitignore"), "utf8")).toMatch(/\n\.inscope\n/)
+  })
+})
+
+test("ensureActiveSymlink adopts a legacy real .inscope into the registry, preserving the login", () => {
+  withSandbox((sb) => {
+    const ws: Workspace = {
+      isolate: true,
+      accounts: ["one"],
+      name: "w",
+      path: path.join(sb, "w"),
+      servers: {},
+    }
+    const link = path.join(ws.path, ".inscope")
+    fs.mkdirSync(link, { recursive: true })
+    fs.writeFileSync(path.join(link, ".claude.json"), "{}") // a live login on disk
+    expect(ensureActiveSymlink(ws)).toBe("one")
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(fs.existsSync(path.join(accountDir("one"), ".claude.json"))).toBe(true) // moved, not lost
+    expect(activeAccount(ws)).toBe("one")
+  })
+})
+
+test("repointSymlink switches the active account; ensurePool is idempotent and self-heals a stray link", () => {
+  withSandbox((sb) => {
+    const ws: Workspace = {
+      isolate: true,
+      accounts: ["one", "two"],
+      name: "w",
+      path: path.join(sb, "w"),
+      servers: {},
+    }
+    fs.mkdirSync(ws.path, { recursive: true })
+    ensurePool(ws)
+    repointSymlink(ws, "two")
+    expect(activeAccount(ws)).toBe("two")
+    expect(ensurePool(ws)).toBe("two") // idempotent: keeps the active choice
+    // a link pointing outside the pool heals back to the first account
+    const link = path.join(ws.path, ".inscope")
+    fs.rmSync(link)
+    fs.symlinkSync(accountDir("gone"), link)
+    expect(ensureActiveSymlink(ws)).toBe("one")
+    expect(activeAccount(ws)).toBe("one")
+  })
+})
+
+test("validateConfig enforces the accounts pool rules", () => {
+  const cfg = (accounts: string[], isolate = true) => ({
+    version: 1,
+    workspaces: [{ isolate, accounts, name: "w", path: "~/w", servers: {} }],
+  })
+  expect(() => validateConfig(cfg(["a", "b"]))).not.toThrow()
+  expect(() => validateConfig(cfg(["a"], false))).toThrow(/requires isolate/)
+  expect(() => validateConfig(cfg([]))).toThrow(/must not be empty/)
+  expect(() => validateConfig(cfg(["a", "a"]))).toThrow(/duplicate account/)
+  expect(() => validateConfig(cfg(["bad name"]))).toThrow(/is invalid/)
 })
 
 test("validateConfig rejects an unknown slack package", () => {

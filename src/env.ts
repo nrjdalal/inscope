@@ -30,6 +30,13 @@ export const resolveAbsolute = (p: string) => path.resolve(expandTilde(p))
 
 export const inscopeHome = () => path.join(configHome(), "inscope")
 
+// The registry of named Claude logins a pooled workspace can switch between. Each
+// account is a real Claude config dir under ~/.config/inscope/accounts/<name>; a
+// pooled workspace's `.inscope` is a symlink to the active one (see accounts.ts).
+export const accountsDir = () => path.join(inscopeHome(), "accounts")
+
+export const accountDir = (name: string) => path.join(accountsDir(), name)
+
 export const configPath = () => path.join(inscopeHome(), "inscope.json")
 
 export const hookPath = () => path.join(inscopeHome(), "inscope.zsh")

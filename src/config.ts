@@ -49,6 +49,12 @@ export type Workspace = {
   // login). Omit to run on the shared ~/.claude like every unmapped directory.
   // Kept first so an isolated workspace is flagged at the top of its block.
   isolate?: boolean
+  // An ordered pool of registry account names (priority order), each a signed-in
+  // Claude config dir under ~/.config/inscope/accounts/<name>. Requires isolate.
+  // `<path>/.inscope` becomes a symlink to the active account; `inscope switch`
+  // re-points it (e.g. after a usage-limit hit) so work continues on the next
+  // allowed account. The generated hook is unchanged (it still bakes `.inscope`).
+  accounts?: string[]
   name: string
   path: string
   gh?: string
@@ -362,6 +368,19 @@ export const validateConfig = (cfg: Config) => {
     }
     if (ws.isolate !== undefined && typeof ws.isolate !== "boolean")
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
+    if (ws.accounts !== undefined) {
+      if (!Array.isArray(ws.accounts) || ws.accounts.some((a) => typeof a !== "string"))
+        throw new Error(`workspace "${ws.name}" accounts must be an array of account names`)
+      if (!ws.accounts.length) throw new Error(`workspace "${ws.name}" accounts must not be empty`)
+      if (!ws.isolate) throw new Error(`workspace "${ws.name}" accounts requires isolate: true`)
+      const seenAcct = new Set<string>()
+      for (const a of ws.accounts) {
+        const acctErr = workspaceNameError(a)
+        if (acctErr) throw new Error(`workspace "${ws.name}" account "${a}" is invalid: ${acctErr}`)
+        if (seenAcct.has(a)) throw new Error(`workspace "${ws.name}" has duplicate account "${a}"`)
+        seenAcct.add(a)
+      }
+    }
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
     if (ws.git?.email) {

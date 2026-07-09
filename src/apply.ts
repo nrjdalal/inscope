@@ -1,5 +1,6 @@
 import path from "node:path"
 
+import { ensurePool } from "@/accounts"
 import type { Config } from "@/config"
 import { home, hookPath, zshrcPath } from "@/env"
 import { applyGitconfig } from "@/generators/gitconfig"
@@ -65,9 +66,14 @@ export const applyAll = (cfg: Config): ApplyResult => {
   const mcp: string[] = []
   for (const ws of cfg.workspaces) {
     applyMcp(ws)
-    applyIsolation(ws)
-    // After applyIsolation has scaffolded the .inscope dir, write (or clear) the
-    // bypass setting in that isolated login. A no-op for a non-isolated workspace.
+    // A pooled workspace makes `.inscope` a symlink to the active account (migrating
+    // a legacy real dir on first pool-apply); a single-isolate workspace keeps the
+    // plain `.inscope` dir. Either way `.inscope` is the path the hook baked.
+    if (ws.accounts?.length) ensurePool(ws)
+    else applyIsolation(ws)
+    // After the .inscope dir/symlink exists, write (or clear) the bypass setting in
+    // that login (through the symlink, into the active account for a pooled ws). A
+    // no-op for a non-isolated workspace.
     applyBypass(ws, cfg.bypass ?? false)
     mcp.push(mcpFilePath(ws))
   }

@@ -28,7 +28,7 @@ export const baseClaudeDir = (): string => {
   return env && path.basename(env) !== INSCOPE_DIR ? env : path.join(home(), ".claude")
 }
 
-const gitignorePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".gitignore")
+export const gitignorePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".gitignore")
 
 // `.inscope/` holds a Claude login, so it must never be committed. The entry is
 // appended once with no managed-block markers (like the ~/.zshrc source line): it
@@ -64,10 +64,14 @@ export const inscopeSignedIn = (dir: string): boolean => {
 
 const GITIGNORE_COMMENT = "# inscope: workspace-local Claude config dir (holds a login)"
 
-export const renderGitignore = (current: string): string => {
+export const renderGitignore = (current: string, pooled = false): string => {
   if (isInscopeIgnored(current)) return current
+  // A pooled workspace's `.inscope` is a SYMLINK; the dir-only pattern `.inscope/`
+  // would not ignore it, so use the bare `.inscope`. isInscopeIgnored normalizes
+  // both forms, so re-runs (and a switch between pooled/single) stay idempotent.
+  const entry = pooled ? INSCOPE_DIR : GITIGNORE_ENTRY
   const base = current.replace(/\n*$/, "")
-  const block = `${GITIGNORE_COMMENT}\n${GITIGNORE_ENTRY}`
+  const block = `${GITIGNORE_COMMENT}\n${entry}`
   return base.length ? `${base}\n\n${block}\n` : `${block}\n`
 }
 
