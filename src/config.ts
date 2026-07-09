@@ -19,11 +19,8 @@ export type SlackServer = { keychain: string; addMessageTool?: boolean; package?
 
 export type HttpServer = { url?: string }
 
-export const keychainServiceFor = (prefix: string, label: string): string =>
-  `${prefix}_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
-
 export const slackKeychainFor = (label: string): string =>
-  keychainServiceFor("SLACK_MCP_XOXP_TOKEN", label)
+  `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
 export type Servers = {
   github?: boolean

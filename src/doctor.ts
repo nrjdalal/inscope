@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { zshrcSourcesHook } from "@/apply"
-import { type Config, type Workspace } from "@/config"
+import type { Config, Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
 import { contractTilde, gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
