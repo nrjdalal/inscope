@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.12.1
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.12.0...v0.12.1)
+
+### 📖 Documentation
+
+- **readme:** Lead with a static status hero, refresh package metadata ([#33](https://github.com/nrjdalal/inscope/pull/33))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.12.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.11.0...v0.12.0)
