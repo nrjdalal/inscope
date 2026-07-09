@@ -11,12 +11,13 @@ Usage:
   $ ${name} list
 
 Options:
+      --json  Print the workspaces as JSON
   -h, --help  Display help message`
 
 export const list = (args: string[]) => {
   const { values } = parseArgs({
     allowPositionals: true,
-    options: { help: { type: "boolean", short: "h" } },
+    options: { help: { type: "boolean", short: "h" }, json: { type: "boolean" } },
     args,
   })
 
@@ -31,6 +32,20 @@ export const list = (args: string[]) => {
   }
 
   const cfg = loadConfig()
+  if (values.json) {
+    const out = cfg.workspaces.map((ws) => ({
+      name: ws.name,
+      path: ws.path,
+      gh: ws.gh ?? null,
+      isolate: Boolean(ws.isolate),
+      git: ws.git?.email ?? null,
+      servers: enabledServers(ws.servers),
+      slack: ws.servers.slack ? { keychain: ws.servers.slack.keychain } : null,
+      skills: ws.skills?.map((s) => normalizeSkill(s).name) ?? [],
+    }))
+    console.log(JSON.stringify(out, null, 2))
+    process.exit(0)
+  }
   if (!cfg.workspaces.length) {
     console.log(`No workspaces yet. Add one with \`${name} add <path> --gh <account>\`.`)
     process.exit(0)

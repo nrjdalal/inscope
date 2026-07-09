@@ -13,6 +13,7 @@ Usage:
   $ ${name} doctor
 
 Options:
+      --json  Print the checks (and this shell's snapshot) as JSON
   -h, --help  Display help message`
 
 const symbol: Record<CheckStatus, string> = { ok: "✓", warn: "!", fail: "✗" }
@@ -21,7 +22,7 @@ const paint: Record<CheckStatus, (s: string) => string> = { ok: green, warn: yel
 export const doctor = (args: string[]) => {
   const { values } = parseArgs({
     allowPositionals: true,
-    options: { help: { type: "boolean", short: "h" } },
+    options: { help: { type: "boolean", short: "h" }, json: { type: "boolean" } },
     args,
   })
 
@@ -37,6 +38,14 @@ export const doctor = (args: string[]) => {
 
   const cfg = loadConfig()
   const checks = runDoctor(cfg)
+  const failed = checks.filter((c) => c.status === "fail").length
+
+  if (values.json) {
+    const here = currentWorkspace(cfg)
+    const shell = here ? { workspace: here.name, ...liveSnapshot() } : null
+    console.log(JSON.stringify({ checks, shell, ok: failed === 0, failed }, null, 2))
+    process.exit(failed ? 1 : 0)
+  }
 
   const report = checks
     .map((c) => `${paint[c.status](symbol[c.status])} ${c.label}${c.detail ? `  ${c.detail}` : ""}`)
@@ -53,7 +62,6 @@ export const doctor = (args: string[]) => {
     console.log(`  token  ${snap.tokenSet ? "set" : "unset"}`)
   }
 
-  const failed = checks.filter((c) => c.status === "fail").length
   if (failed) {
     console.log(`\n${red(`${failed} check(s) failed.`)}`)
     process.exit(1)
