@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.13.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.12.1...v0.13.0)
+
+### 🚀 Enhancements
+
+- **mcp:** Add Xquik as a built-in OAuth server ([#29](https://github.com/nrjdalal/inscope/pull/29))
+
+### ❤️ Contributors
+
+- Burak Bayır @kriptoburak
+
 ## v0.12.1
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.12.0...v0.12.1)
