@@ -27,7 +27,7 @@ export const apply = (args: string[]) => {
   }
 
   if (!configExists()) {
-    console.error(`No config found. Run \`${name} init\` first.`)
+    console.error(`No config found. Run \`${name} add <path>\` first.`)
     process.exit(1)
   }
 

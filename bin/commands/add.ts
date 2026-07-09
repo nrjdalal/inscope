@@ -99,7 +99,7 @@ export const add = async (args: string[]) => {
   // --- path ---
   let target = positionals[0]
   if (!target) {
-    if (interactive) target = await promptText("Workspace directory", process.cwd())
+    if (interactive) target = await promptText("Workspace directory", contractTilde(process.cwd()))
     else throw new Error(helpMessage)
   }
   const pathErr = workspacePathError(target)
@@ -249,6 +249,7 @@ export const add = async (args: string[]) => {
     ),
   }
 
+  const firstRun = !configExists()
   persist(ws)
   console.log(`\n✓ workspace "${label}" -> ${ws.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
@@ -257,6 +258,10 @@ export const add = async (args: string[]) => {
       `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
   await finalizeSlack(ws, seedSlack)
+  if (firstRun)
+    console.log(
+      `\nFirst run: reload your shell to load the hook: source ~/.zshrc (or open a new terminal).`,
+    )
   console.log(
     ws.isolate
       ? `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`

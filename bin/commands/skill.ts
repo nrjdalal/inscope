@@ -479,7 +479,7 @@ export const skill = async (args: string[]) => {
     process.exit(0)
   }
   if (!configExists()) {
-    console.error(`No config found. Run \`${name} init\` first.`)
+    console.error(`No config found. Run \`${name} add <path>\` first.`)
     process.exit(1)
   }
   const rest = args.slice(1)

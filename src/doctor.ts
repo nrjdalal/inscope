@@ -163,7 +163,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
     checks.push({
       status: "fail",
       label: "hook",
-      detail: `missing ${hookFile}; run \`inscope init\``,
+      detail: `missing ${hookFile}; run \`inscope apply\``,
     })
   } else if (current !== renderHook(cfg)) {
     checks.push({
@@ -181,7 +181,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       : {
           status: "warn",
           label: "zshrc",
-          detail: "does not source the hook; run `inscope init`",
+          detail: "does not source the hook; run `inscope apply`",
         },
   )
 

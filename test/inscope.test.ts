@@ -4,7 +4,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-import { applyAll, renderZshrcSource } from "@/apply"
+import { applyAll, renderZshrcSource, zshrcSourcesHook } from "@/apply"
 import {
   absolutizeLocalSource,
   CONFIG_VERSION,
@@ -1368,6 +1368,57 @@ test("applyAll scaffolds an isolated workspace and wires its wrapper into the ho
     // the generated hook carries the launch wrapper pointing at it (HOME=sb, so the
     // sandbox path renders as $HOME/acme)
     expect(fs.readFileSync(hookPath(), "utf8")).toContain(`dir="$HOME/acme/.inscope"`)
+  })
+})
+
+// `add` maps a workspace through applyAll, which must also wire the ~/.zshrc source
+// line so a fresh machine gets the hook with no separate `init`. Lock that: dropping
+// ensureZshrcSource() from applyAll would silently break bootstrap.
+test("applyAll bootstraps the shell: appends the ~/.zshrc source line (no separate init)", () => {
+  withSandbox(() => {
+    const cfg: Config = {
+      version: 1,
+      workspaces: [{ name: "acme", path: "~/acme", servers: { github: true } }],
+    }
+    expect(zshrcSourcesHook()).toBe(false) // fresh machine: nothing sources the hook yet
+    applyAll(cfg)
+    expect(zshrcSourcesHook()).toBe(true) // apply wired it, so new shells load the hook
+    expect(fs.readFileSync(zshrcPath(), "utf8")).toContain("# inscope:")
+  })
+})
+
+// The first-run "reload your shell" nudge must fire on the first add (fresh config)
+// and not the second. Runs the real CLI so it catches `firstRun` being captured after
+// persist() (which would make configExists() always true and silence the nudge).
+test("add prints the first-run reload nudge on the first add only", () => {
+  withSandbox((sb) => {
+    const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
+    const run = (name: string) =>
+      spawnSync(
+        "bun",
+        [
+          entry,
+          "add",
+          path.join(sb, name),
+          "--gh",
+          "acct",
+          "--email",
+          "e@x.dev",
+          "--servers",
+          "github",
+          "-y",
+        ],
+        {
+          encoding: "utf8",
+          env: { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") },
+        },
+      )
+    const first = run("alpha")
+    const second = run("beta")
+    expect(first.status).toBe(0)
+    expect(first.stdout).toContain("First run") // fresh config: the nudge fires
+    expect(second.status).toBe(0)
+    expect(second.stdout).not.toContain("First run") // config exists: no nudge
   })
 })
 

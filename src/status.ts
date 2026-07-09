@@ -84,6 +84,9 @@ export const renderStatus = (snap: StatusSnapshot, c: StatusPainters = PLAIN): s
   lines.push(row("Claude", `${scope} · ${who}`))
   lines.push(`${CONT}${c.dim(snap.claude.configDir)}`)
 
+  if (snap.workspace)
+    lines.push(row("MCP", snap.servers.length ? snap.servers.join(", ") : c.dim("none")))
+
   if (snap.github) {
     const tok = snap.github.token ? c.ok("token ok") : c.warn("no token; run `gh auth login`")
     lines.push(row("GitHub", `${snap.github.account} · ${tok}`))
@@ -91,10 +94,7 @@ export const renderStatus = (snap: StatusSnapshot, c: StatusPainters = PLAIN): s
 
   lines.push(row("Git", `${snap.git.email ?? c.dim("(unset)")} ${c.dim(`(${snap.git.source})`)}`))
 
-  if (snap.workspace) {
-    lines.push(row("MCP", snap.servers.length ? snap.servers.join(", ") : c.dim("none")))
-    if (snap.skills.length) lines.push(row("Skills", snap.skills.join(", ")))
-  }
+  if (snap.workspace && snap.skills.length) lines.push(row("Skills", snap.skills.join(", ")))
 
   return lines.join("\n")
 }

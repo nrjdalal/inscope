@@ -4,6 +4,8 @@
 export SB="/tmp/inscope-demo"
 rm -rf "$SB"
 mkdir -p "$SB"
+# physical path (macOS /tmp -> /private/tmp) so a cwd-based `add` contracts to ~/...
+export SB="$(cd "$SB" && pwd -P)"
 export HOME="$SB"
 export XDG_CONFIG_HOME="$SB/.config"
 export USER="neeraj" # so keychain hints show a safe name, not the real macOS user

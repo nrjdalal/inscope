@@ -4,7 +4,6 @@ import { apply } from "~/bin/commands/apply"
 import { diff } from "~/bin/commands/diff"
 import { doctor } from "~/bin/commands/doctor"
 import { edit } from "~/bin/commands/edit"
-import { init } from "~/bin/commands/init"
 import { list } from "~/bin/commands/list"
 import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
@@ -21,8 +20,7 @@ Usage:
   $ ${name} <command> [options]
 
 Commands:
-  init           Create the config, generate the hook, source it from ~/.zshrc
-  add [path]     Map a workspace to a GitHub account, git email, MCP servers, and skills
+  add [path]     Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run
   status         Show the identity resolved for the current directory (alias: whoami)
   list           List configured workspaces (alias: ls)
   edit [path]    Edit a workspace interactively, then re-apply
@@ -46,8 +44,6 @@ const main = async () => {
     const rest = args.slice(1)
 
     switch (cmd) {
-      case "init":
-        return init(rest)
       case "add":
         return await add(rest)
       case "edit":

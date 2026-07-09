@@ -32,7 +32,6 @@ export PATH="$SB/bin:$PATH"
 INSCOPE_BIN="$PWD/dist/bin/index.mjs"
 inscope() { node "$INSCOPE_BIN" "$@"; }
 
-inscope init >/dev/null
 inscope add ~/personal --gh neeraj-personal --email neeraj@personal.com --servers github -y >/dev/null
 inscope add ~/work --gh neeraj-work --email neeraj@work.com --servers github,linear --isolate -y >/dev/null
 inscope add ~/clients/acme --gh neeraj-acme --email neeraj@acme.org --servers github,linear,notion --isolate -y >/dev/null
