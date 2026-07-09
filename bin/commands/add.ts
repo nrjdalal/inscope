@@ -34,7 +34,7 @@ import {
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
-const helpMessage = `Map a directory to a GitHub account, git email, and MCP servers.
+const helpMessage = `Map a workspace: a Claude login (shared or isolated), MCP servers, a GitHub account, a git commit email, and skills.
 Runs interactively in a terminal; pass flags or -y to skip the prompts. Re-running
 with the same label updates that workspace; each directory maps to one workspace.
 

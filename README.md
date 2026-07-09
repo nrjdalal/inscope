@@ -20,7 +20,7 @@
 ## Why inscope
 
 - 🎫 **Its own Claude login.** Run a client on their subscription, your personal on your Max, work on work, each from its own directory. Shared by default, isolated when you want it.
-- 🤖 **MCP servers per workspace.** GitHub, Slack, Xquik, and 13 one-click OAuth connectors, uniquely named so nothing ever collides between projects.
+- 🤖 **MCP servers per workspace.** GitHub, Slack, and 14 one-click OAuth connectors (Notion, Linear, Stripe, Xquik, and more), uniquely named so nothing ever collides between workspaces.
 - 🪪 **The right git identity, always.** GitHub token and commit email resolved live from `$PWD`, so every commit lands as the right you.
 - 🎓 **Skills per workspace.** A curated `/` menu per directory, shared into your Claude skills dir with zero per-repo setup.
 - 🔐 **Nothing sensitive on disk.** Tokens come from the `gh` keyring and the macOS Keychain. 🧵 Race-free across sessions. 🚀 Works under any launcher (terminal, IDE, cmux, `--resume`).

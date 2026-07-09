@@ -502,7 +502,7 @@ export const skill = async (args: string[]) => {
         console.error(
           `\`${name} skill ${sub}\` is planned but not available yet (${DEFERRED[sub]}).`,
         )
-        console.error(`Available now: add, list, rm, update.`)
+        console.error(`Available now: add, list, rename, rm, update.`)
         process.exit(1)
       }
       console.error(`unknown skill command: ${sub}\n`)
