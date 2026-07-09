@@ -65,7 +65,8 @@ import {
 } from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
-import { ghAccounts, gitGlobal, type Runner } from "@/secrets"
+import { claudeAuthStatus, ghAccounts, gitGlobal, type Runner } from "@/secrets"
+import { resolveStatus } from "@/status"
 import {
   buildServers,
   enabledServers,
@@ -2206,4 +2207,93 @@ test("resolveSkillDir clones a git source once and does not pull without --updat
     resolveSkillDir(skill, fakeGit) // clone present, no update: no further git calls
     expect(calls.length).toBe(before)
   })
+})
+
+test("claudeAuthStatus parses `claude auth status --json` and pins CLAUDE_CONFIG_DIR", () => {
+  const run: Runner = (cmd, args, opts) => {
+    expect(cmd).toBe("claude")
+    expect(args).toEqual(["auth", "status", "--json"])
+    expect(opts?.env?.CLAUDE_CONFIG_DIR).toBe("/x/.inscope")
+    return {
+      status: 0,
+      stdout: JSON.stringify({
+        loggedIn: true,
+        email: "a@b.com",
+        subscriptionType: "team",
+        orgName: "Acme",
+      }),
+      stderr: "",
+    }
+  }
+  expect(claudeAuthStatus("/x/.inscope", run)).toEqual({
+    signedIn: true,
+    email: "a@b.com",
+    subscriptionType: "team",
+    orgName: "Acme",
+  })
+})
+
+test("claudeAuthStatus degrades to signed-out when claude is missing, junk, or logged out", () => {
+  const missing: Runner = () => ({ status: 127, stdout: "", stderr: "not found" })
+  expect(claudeAuthStatus("/x", missing)).toEqual({ signedIn: false })
+  const junk: Runner = () => ({ status: 0, stdout: "not json", stderr: "" })
+  expect(claudeAuthStatus("/x", junk)).toEqual({ signedIn: false })
+  const out: Runner = () => ({ status: 0, stdout: JSON.stringify({ loggedIn: false }), stderr: "" })
+  expect(claudeAuthStatus("/x", out)).toEqual({ signedIn: false })
+})
+
+test("resolveStatus resolves the current workspace identity", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      {
+        name: "acme",
+        path: "~/acme",
+        gh: "neeraj-acme-org",
+        isolate: true,
+        git: { email: "you@acme.org" },
+        servers: { github: true, linear: true },
+      },
+    ],
+  }
+  const run: Runner = (cmd, args) => {
+    if (cmd === "claude")
+      return {
+        status: 0,
+        stdout: JSON.stringify({ loggedIn: true, email: "you@acme.org", subscriptionType: "team" }),
+        stderr: "",
+      }
+    if (cmd === "gh" && args[0] === "auth") return { status: 0, stdout: "tok\n", stderr: "" }
+    return { status: 1, stdout: "", stderr: "" }
+  }
+  const snap = resolveStatus(cfg, { cwd: path.join(home(), "acme", "api"), run })
+  expect(snap.workspace).toBe("acme")
+  expect(snap.claude.isolated).toBe(true)
+  expect(snap.claude.email).toBe("you@acme.org")
+  expect(snap.claude.subscription).toBe("team")
+  expect(snap.github).toEqual({ account: "neeraj-acme-org", token: true })
+  expect(snap.git).toEqual({ email: "you@acme.org", source: "workspace" })
+  expect(snap.servers).toEqual(["github", "linear"])
+  expect(snap.skills).toContain("inscope")
+})
+
+test("resolveStatus outside any workspace reports the shared login and global git", () => {
+  const cfg: Config = { version: 1, workspaces: [{ name: "acme", path: "~/acme", servers: {} }] }
+  const run: Runner = (cmd) => {
+    if (cmd === "claude")
+      return {
+        status: 0,
+        stdout: JSON.stringify({ loggedIn: true, email: "me@me.com", subscriptionType: "max" }),
+        stderr: "",
+      }
+    if (cmd === "git") return { status: 0, stdout: "me@me.com\n", stderr: "" }
+    return { status: 1, stdout: "", stderr: "" }
+  }
+  const snap = resolveStatus(cfg, { cwd: path.join(home(), "elsewhere"), run })
+  expect(snap.workspace).toBeNull()
+  expect(snap.claude.isolated).toBe(false)
+  expect(snap.claude.email).toBe("me@me.com")
+  expect(snap.github).toBeNull()
+  expect(snap.git).toEqual({ email: "me@me.com", source: "global" })
+  expect(snap.servers).toEqual([])
 })

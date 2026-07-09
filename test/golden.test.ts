@@ -5,6 +5,7 @@ import type { Config, Workspace } from "@/config"
 import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { renderMcp, SERVER_TYPES } from "@/generators/mcp"
+import { renderStatus, type StatusSnapshot } from "@/status"
 import { slackKeychainFor } from "~/bin/commands/_workspace"
 
 // Golden suite: lock the EXACT generated artifacts (chpwd hook, .mcp.json, git
@@ -307,4 +308,80 @@ test("golden: slack keychain naming for tricky labels", () => {
     "a.b c": slackKeychainFor("a.b c"),
     "Weird Name!": slackKeychainFor("Weird Name!"),
   }).toMatchSnapshot()
+})
+
+// --- inscope status card ---
+
+// Locks the identity card `inscope status` prints (plain, painters default to
+// no-ops), across the branches that shape it: an isolated signed-in workspace,
+// a shared login, outside any workspace, and an isolated dir not yet signed in.
+test("golden: status card, isolated signed-in workspace", () => {
+  const snap: StatusSnapshot = {
+    workspace: "acme",
+    path: "~/acme",
+    claude: {
+      isolated: true,
+      configDir: "~/acme/.inscope",
+      signedIn: true,
+      email: "you@acme.org",
+      subscription: "team",
+      org: "Acme Inc",
+    },
+    github: { account: "neeraj-acme-org", token: true },
+    git: { email: "you@acme.org", source: "workspace" },
+    servers: ["github", "linear", "slack"],
+    skills: ["inscope", "readme-audit"],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
+})
+
+test("golden: status card, shared login workspace", () => {
+  const snap: StatusSnapshot = {
+    workspace: "personal",
+    path: "~/personal",
+    claude: {
+      isolated: false,
+      configDir: "~/.claude",
+      signedIn: true,
+      email: "you@personal.com",
+      subscription: "max",
+    },
+    github: { account: "nrjdalal", token: true },
+    git: { email: "you@personal.com", source: "global" },
+    servers: ["github"],
+    skills: ["inscope"],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
+})
+
+test("golden: status card, outside any workspace", () => {
+  const snap: StatusSnapshot = {
+    workspace: null,
+    path: "~/scratch",
+    claude: {
+      isolated: false,
+      configDir: "~/.claude",
+      signedIn: true,
+      email: "you@personal.com",
+      subscription: "max",
+    },
+    github: null,
+    git: { email: "you@personal.com", source: "global" },
+    servers: [],
+    skills: [],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
+})
+
+test("golden: status card, isolated login not signed in", () => {
+  const snap: StatusSnapshot = {
+    workspace: "acme",
+    path: "~/acme",
+    claude: { isolated: true, configDir: "~/acme/.inscope", signedIn: false },
+    github: { account: "neeraj-acme-org", token: false },
+    git: { email: null, source: "global" },
+    servers: ["github"],
+    skills: ["inscope"],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
 })

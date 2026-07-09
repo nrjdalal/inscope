@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import type { Workspace } from "@/config"
-import { resolveAbsolute } from "@/env"
+import { home, resolveAbsolute } from "@/env"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 // The workspace-local Claude config dir an isolated workspace runs from. Named
@@ -13,6 +13,20 @@ import { readFileOrEmpty, writeFileAtomic } from "@/io"
 export const INSCOPE_DIR = ".inscope"
 
 export const inscopeDirPath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), INSCOPE_DIR)
+
+// The non-isolated base login dir, matching the hook's `${__inscope_base_ccd:-$HOME/.claude}`
+// and the counterpart to inscopeDirPath: a user's global CLAUDE_CONFIG_DIR when they set
+// one, else ~/.claude. The current process's CLAUDE_CONFIG_DIR counts only when it is NOT
+// one of inscope's own isolated dirs (the shell may sit in an isolated workspace, whose hook
+// exported that dir), so a non-isolated workspace always lands on the base, never a sibling
+// isolated login. Edge: a user with a *global* CLAUDE_CONFIG_DIR who runs from inside an
+// isolated workspace falls back to ~/.claude here, since the isolation export overwrote the
+// global in the env and the hook keeps the true base only in the non-exported
+// `__inscope_base_ccd` shell var. Shared by generators/skills and status.
+export const baseClaudeDir = (): string => {
+  const env = process.env.CLAUDE_CONFIG_DIR?.trim()
+  return env && path.basename(env) !== INSCOPE_DIR ? env : path.join(home(), ".claude")
+}
 
 const gitignorePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".gitignore")
 
