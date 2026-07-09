@@ -242,6 +242,11 @@ export const classifySkillSource = (s: string): SkillSource => {
   // A leading "-" would be parsed as an option by the `git clone` inscope shells
   // out to; reject it up front (no legitimate source starts with a dash).
   if (s.startsWith("-")) throw new Error(`skill source "${s}" must not start with "-"`)
+  // git's `transport::address` remote-helper syntax (e.g. `ext::`, `fd::`) runs an
+  // external helper program at clone time, and a `.git` suffix would otherwise let
+  // it slip through isGitUrl below. No legitimate skill source uses it.
+  if (/^[A-Za-z][\w+.-]*::/.test(s))
+    throw new Error(`skill source "${s}" must not use a git remote-helper transport (e.g. "ext::")`)
   if (isLocalSource(s)) return { kind: "local", path: s }
   // Normalize a github.com URL and an `owner/repo(.git)` to the github kind, so the
   // same repo caches once regardless of how it was written (URL vs shorthand).

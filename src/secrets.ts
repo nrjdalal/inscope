@@ -73,8 +73,13 @@ export const keychainSet = (service: string, token: string, run: Runner = defaul
   }
 }
 
+// Single-quote the service: it comes from config (the Slack `keychain` value) and
+// this string is meant to be copy-pasted into a shell, so an unquoted value with
+// shell metacharacters would inject into the pasted command.
+const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
+
 export const keychainSetCommand = (service: string) =>
-  `security add-generic-password -U -a "${user() || "$USER"}" -s ${service} -w 'xoxp-...'`
+  `security add-generic-password -U -a "${user() || "$USER"}" -s ${shSingleQuote(service)} -w 'xoxp-...'`
 
 export const gitEmailForFile = (file: string, run: Runner = defaultRunner) => {
   const r = run("git", ["config", "--file", file, "user.email"])
