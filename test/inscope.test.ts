@@ -65,7 +65,6 @@ import {
 } from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
-import { handleMcpRequest } from "@/mcp"
 import { claudeAuthStatus, ghAccounts, gitGlobal, keychainSetCommand, type Runner } from "@/secrets"
 import { resolveStatus } from "@/status"
 import {
@@ -1430,70 +1429,6 @@ test("add prints the first-run reload nudge on the first add only", () => {
     expect(first.stdout).toContain("First run") // fresh config: the nudge fires
     expect(second.status).toBe(0)
     expect(second.stdout).not.toContain("First run") // config exists: no nudge
-  })
-})
-
-test("handleMcpRequest: initialize echoes the client protocol version and advertises tools", () => {
-  const res = handleMcpRequest({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: { protocolVersion: "2025-03-26" },
-  })
-  expect(res?.result).toMatchObject({
-    protocolVersion: "2025-03-26",
-    capabilities: { tools: {} },
-    serverInfo: { name: "inscope" },
-  })
-})
-
-test("handleMcpRequest: a notification (no id) gets no response", () => {
-  expect(handleMcpRequest({ jsonrpc: "2.0", method: "notifications/initialized" })).toBeNull()
-})
-
-test("handleMcpRequest: tools/list returns the inscope tools", () => {
-  const res = handleMcpRequest({ jsonrpc: "2.0", id: 2, method: "tools/list" })
-  const result = res?.result as { tools: { name: string }[] }
-  expect(result.tools.map((t) => t.name)).toEqual([
-    "inscope_status",
-    "inscope_list",
-    "inscope_doctor",
-  ])
-})
-
-test("handleMcpRequest: an unknown method is JSON-RPC method-not-found", () => {
-  const res = handleMcpRequest({ jsonrpc: "2.0", id: 3, method: "bogus" })
-  expect(res?.error?.code).toBe(-32601)
-})
-
-test("handleMcpRequest: tools/call inscope_list returns the configured workspaces", () => {
-  withSandbox(() => {
-    saveConfig({
-      version: 1,
-      workspaces: [{ name: "work", path: "~/work", servers: { github: true } }],
-    })
-    const res = handleMcpRequest({
-      jsonrpc: "2.0",
-      id: 4,
-      method: "tools/call",
-      params: { name: "inscope_list", arguments: {} },
-    })
-    const result = res?.result as { content: { text: string }[]; isError?: boolean }
-    expect(result.isError).toBeUndefined()
-    expect(JSON.parse(result.content[0].text)[0].name).toBe("work")
-  })
-})
-
-test("handleMcpRequest: tools/call with no config returns an isError result, not a crash", () => {
-  withSandbox(() => {
-    const res = handleMcpRequest({
-      jsonrpc: "2.0",
-      id: 5,
-      method: "tools/call",
-      params: { name: "inscope_list", arguments: {} },
-    })
-    const result = res?.result as { isError?: boolean }
-    expect(result.isError).toBe(true)
   })
 })
 

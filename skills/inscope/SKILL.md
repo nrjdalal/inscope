@@ -43,7 +43,6 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 - `inscope doctor`: verify tokens, identities, the hook, and skill links resolve, each with its fix.
 - `inscope diff`: preview what apply would change (hook, git includes, `.mcp.json`, skills). `--adopt` folds config-expressible on-disk `.mcp.json` settings back in; `--exit-code` gates CI.
-- `inscope mcp`: run inscope itself as an MCP server over stdio (tools: `inscope_status`, `inscope_list`, `inscope_doctor`), so a client introspects identity without the CLI. Register with `claude mcp add inscope -- inscope mcp`.
 
 ## Recipes
 
