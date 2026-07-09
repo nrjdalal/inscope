@@ -4,7 +4,6 @@ The README GIFs and the [vhs](https://github.com/charmbracelet/vhs) tapes that g
 
 | GIF          | Tape          | Shows                                                                                            |
 | ------------ | ------------- | ------------------------------------------------------------------------------------------------ |
-| `init.gif`   | `init.tape`   | `init` creating the config, hook, and zshrc source line                                          |
 | `add.gif`    | `add.tape`    | interactive `add`: gh picker, git identity, servers, Slack prompts, isolate                      |
 | `edit.gif`   | `edit.tape`   | interactive `edit` pre-filled with current values; enables Slack + isolate                       |
 | `rm.gif`     | `rm.tape`     | `rm` with a type-the-label confirm                                                               |
@@ -22,7 +21,7 @@ The README GIFs and the [vhs](https://github.com/charmbracelet/vhs) tapes that g
 brew install vhs        # one-time (pulls ttyd)
 bun run build           # tapes run dist/bin/index.mjs
 # from the repo root, render any (or all):
-for t in init add edit rm list status apply diff doctor; do vhs ".github/assets/$t.tape"; done
+for t in add edit rm list status apply diff doctor; do vhs ".github/assets/$t.tape"; done
 ```
 
 Prompts use a leading-newline `PROMPT` to put a blank line between commands; bump `Set Height` in a tape if output is taller than the frame.
