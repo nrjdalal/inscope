@@ -6,6 +6,7 @@ import { diff } from "~/bin/commands/diff"
 import { doctor } from "~/bin/commands/doctor"
 import { edit } from "~/bin/commands/edit"
 import { list } from "~/bin/commands/list"
+import { mcp } from "~/bin/commands/mcp"
 import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
 import { status } from "~/bin/commands/status"
@@ -33,6 +34,7 @@ Commands:
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
   account        Manage the pool of Claude logins a workspace can switch between (add, list)
   switch [acct]  Switch a workspace to another pooled account (alias: use); no arg picks the next signed-in
+  mcp            Run inscope as an MCP server (stdio), so Claude can drive it
 
 Options:
   -v, --version  Display version
@@ -76,6 +78,8 @@ const main = async () => {
         return use(rest)
       case "switch":
         return switchAccount(rest)
+      case "mcp":
+        return mcp()
     }
 
     if (cmd === "-v" || cmd === "--version") {
