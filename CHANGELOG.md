@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.13.1
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.13.0...v0.13.1)
+
+### 🩹 Fixes
+
+- **security:** Reject git remote-helper transports in skill sources (ext:: RCE) ([#36](https://github.com/nrjdalal/inscope/pull/36))
+- **cli:** Stale help strings, connector count, and atomic-write temp cleanup ([#37](https://github.com/nrjdalal/inscope/pull/37))
+
+### 📖 Documentation
+
+- **audit:** Single consolidated codebase audit at v0.13.0 ([#34](https://github.com/nrjdalal/inscope/pull/34))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.13.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.12.1...v0.13.0)
