@@ -149,6 +149,9 @@ Map a directory. Run it bare and it walks you through everything: pick the GitHu
                         (default, kept on latest) or slack-mcp-server (pinned)
   --slack-message       allow the Slack MCP server to post messages
   --seed-slack          prompt for the Slack token and store it in the keychain
+  --xquik-keychain <s>  keychain service for the Xquik API key
+                        (default: XQUIK_API_KEY_<LABEL> when xquik is on)
+  --seed-xquik          prompt for the Xquik API key and store it in the keychain
   -y, --yes             accept defaults, skip all prompts (non-interactive)
 ```
 
@@ -288,10 +291,10 @@ Each enabled server is written into the workspace `.mcp.json` with a name suffix
 | `stripe`    | http      | OAuth                                                      |
 | `vercel`    | http      | OAuth                                                      |
 | `webflow`   | http      | OAuth                                                      |
-| `xquik`     | http      | `XQUIK_API_KEY` environment variable                      |
+| `xquik`     | http      | `XQUIK_API_KEY` from the macOS Keychain                    |
 
 GitHub auth is fetched at connect time (a `headersHelper` in `.mcp.json` runs `gh auth token` for the workspace's account), so it works under any launcher, a terminal, an IDE, cmux, or a `--resume`, not just a shell that pre-set an env var. Slack reads `SLACK_MCP_XOXP_TOKEN`, which the hook exports from the Keychain on `cd`.
-Xquik uses `XQUIK_API_KEY` in the generated `.mcp.json`; when it is unset, only that server receives an empty bearer token.
+Xquik reads `XQUIK_API_KEY`, which the hook exports from the Keychain on `cd`. The generated `.mcp.json` sends it with the `x-api-key` header; when it is unset, only that server receives an empty key.
 
 Because `.mcp.json` is project-scoped, Claude Code asks you to trust the workspace's MCP servers the first time you open `claude` there (its own project-server approval, not inscope's); approve once and github/slack connect. This is unchanged from any project `.mcp.json`.
 
@@ -302,6 +305,14 @@ npx inscope add ~/acme --gh neeraj-acme-org --servers github,slack --seed-slack
 ```
 
 `--seed-slack` prompts for the `xoxp` token and writes it to the Keychain. Pass `--slack-message` to allow the Slack MCP server to post messages.
+
+Enable Xquik the same way and store the API key once:
+
+```sh
+npx inscope add ~/acme --gh neeraj-acme-org --servers github,xquik --seed-xquik
+```
+
+Pass `--xquik-keychain <service>` when you already keep the API key under a custom Keychain service name.
 
 The Slack setup also lets you pick the server package: [`@nrjdalal/slack-mcp-server`](https://www.npmjs.com/package/@nrjdalal/slack-mcp-server) (kept on `latest`, the default) or the original [`slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server) (pinned to a known-good version). Choose it in the prompt, or pass `--slack-package slack-mcp-server`.
 
@@ -334,7 +345,10 @@ The source of truth is `~/.config/inscope/inscope.json`:
           "keychain": "SLACK_MCP_XOXP_TOKEN_ACME",
           "addMessageTool": false,
         },
-        // every other server (atlassian, canva, … xquik) defaults to false
+        "xquik": {
+          "keychain": "XQUIK_API_KEY_ACME",
+        },
+        // every other server (atlassian, canva, ...) defaults to false
       },
       // optional: Claude skills, symlinked into your personal skills dir (~/.claude/skills,
       // or the workspace's own .inscope/skills when isolated)

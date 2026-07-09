@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { zshrcSourcesHook } from "@/apply"
-import type { Config, Workspace } from "@/config"
+import { xquikKeychainFor, type Config, type Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
 import { contractTilde, gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
@@ -227,6 +227,21 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
           : {
               status: "fail",
               label: `${tag} slack`,
+              detail: `${svc} not in keychain; run \`${keychainSetCommand(svc)}\``,
+            },
+      )
+    }
+
+    if (ws.servers.xquik) {
+      const xquik = ws.servers.xquik
+      const svc =
+        typeof xquik === "object" && xquik.keychain ? xquik.keychain : xquikKeychainFor(ws.name)
+      checks.push(
+        keychainHas(svc, run)
+          ? { status: "ok", label: `${tag} xquik`, detail: svc }
+          : {
+              status: "fail",
+              label: `${tag} xquik`,
               detail: `${svc} not in keychain; run \`${keychainSetCommand(svc)}\``,
             },
       )

@@ -22,10 +22,12 @@ import {
   buildServers,
   enabledServers,
   finalizeSlack,
+  finalizeXquik,
   persist,
   SERVER_LABELS,
   SLACK_PACKAGE_CHOICES,
   slackKeychainFor,
+  xquikKeychainFor,
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
@@ -155,12 +157,33 @@ export const edit = async (args: string[]) => {
     if (!keychainHas(slackSvc)) seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
+  const wantXquik = serverList.includes("xquik")
+  const currentXquik = ws.servers.xquik
+  let xquikSvc =
+    currentXquik && typeof currentXquik === "object" && currentXquik.keychain
+      ? currentXquik.keychain
+      : xquikKeychainFor(ws.name)
+  let seedXquik = false
+  if (wantXquik) {
+    console.log(`\nXquik uses an API key stored in the macOS Keychain.`)
+    xquikSvc = await promptText("Xquik keychain service", xquikSvc)
+    if (!keychainHas(xquikSvc))
+      seedXquik = await promptConfirm("Store the Xquik API key now?", true)
+  }
+
   // The keychain service is typed at the prompt and interpolated into the hook;
   // reject values that would break out of the quoting.
   if (wantSlack) {
     const svcErr = hookValueError(slackSvc)
     if (svcErr) {
       console.error(`\nInvalid Slack keychain service "${slackSvc}": ${svcErr}`)
+      process.exit(1)
+    }
+  }
+  if (wantXquik) {
+    const svcErr = hookValueError(xquikSvc)
+    if (svcErr) {
+      console.error(`\nInvalid Xquik keychain service "${xquikSvc}": ${svcErr}`)
       process.exit(1)
     }
   }
@@ -182,6 +205,7 @@ export const edit = async (args: string[]) => {
       wantSlack
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
+      wantXquik ? { keychain: xquikSvc } : null,
     ),
   }
 
@@ -197,6 +221,7 @@ export const edit = async (args: string[]) => {
         `Delete it with: ${orange(`rm -rf ${next.path}/.inscope`)}`,
     )
   await finalizeSlack(next, seedSlack)
+  await finalizeXquik(next, seedXquik)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)
   process.exit(0)
 }

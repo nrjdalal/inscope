@@ -26,11 +26,13 @@ import {
 import {
   buildServers,
   finalizeSlack,
+  finalizeXquik,
   gitGlobalHint,
   persist,
   resolveSlackPackage,
   SLACK_PACKAGE_CHOICES,
   slackKeychainFor,
+  xquikKeychainFor,
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
@@ -59,6 +61,9 @@ Options:
                         (default, kept on latest) or slack-mcp-server (pinned)
   --slack-message       allow the Slack MCP server to post messages
   --seed-slack          prompt for the Slack token and store it in the keychain
+  --xquik-keychain <s>  keychain service for the Xquik API key
+                        (default: XQUIK_API_KEY_<LABEL> when xquik is on)
+  --seed-xquik          prompt for the Xquik API key and store it in the keychain
   -y, --yes             accept defaults, skip all prompts (non-interactive)
   -h, --help            Display help message`
 
@@ -84,6 +89,8 @@ export const add = async (args: string[]) => {
       "slack-package": { type: "string" },
       "slack-message": { type: "boolean" },
       "seed-slack": { type: "boolean" },
+      "xquik-keychain": { type: "string" },
+      "seed-xquik": { type: "boolean" },
     },
     args,
   })
@@ -213,6 +220,16 @@ export const add = async (args: string[]) => {
     if (!values["seed-slack"]) seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
+  const wantXquik =
+    serverList.includes("xquik") || !!values["xquik-keychain"] || !!values["seed-xquik"]
+  let xquikSvc = values["xquik-keychain"] || xquikKeychainFor(label)
+  let seedXquik = !!values["seed-xquik"]
+  if (wantXquik && interactive) {
+    console.log(`\nXquik uses an API key stored in the macOS Keychain.`)
+    if (!values["xquik-keychain"]) xquikSvc = await promptText("Xquik keychain service", xquikSvc)
+    if (!values["seed-xquik"]) seedXquik = await promptConfirm("Store the Xquik API key now?", true)
+  }
+
   // --- isolate: give this workspace its own Claude login in a local .inscope ---
   let isolate = Boolean(values.isolate)
   if (values.isolate === undefined && interactive) {
@@ -234,6 +251,13 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
+  if (wantXquik) {
+    const svcErr = hookValueError(xquikSvc)
+    if (svcErr) {
+      console.error(`\nInvalid Xquik keychain service "${xquikSvc}": ${svcErr}`)
+      process.exit(1)
+    }
+  }
 
   const ws: Workspace = {
     isolate: isolate || undefined,
@@ -246,6 +270,7 @@ export const add = async (args: string[]) => {
       wantSlack
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
+      wantXquik ? { keychain: xquikSvc } : null,
     ),
   }
 
@@ -257,6 +282,7 @@ export const add = async (args: string[]) => {
       `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
   await finalizeSlack(ws, seedSlack)
+  await finalizeXquik(ws, seedXquik)
   console.log(
     ws.isolate
       ? `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`

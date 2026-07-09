@@ -10,19 +10,20 @@ import {
   type SlackServer,
   upsertWorkspace,
   type Workspace,
+  type XquikServer,
+  xquikKeychainFor,
 } from "@/config"
 import { resolveAbsolute } from "@/env"
 import { removeMcp, SERVER_TYPES } from "@/generators/mcp"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
 
+export { slackKeychainFor, xquikKeychainFor } from "@/config"
+
 export const SLACK_AUTH_DOCS =
   "https://github.com/korotovsky/slack-mcp-server/blob/HEAD/docs/01-authentication-setup.md#option-2-using-slack_mcp_xoxp_token-user-oauth"
 
 export const SERVER_LABELS = SERVER_TYPES
-
-export const slackKeychainFor = (label: string) =>
-  `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
 export const enabledServers = (s: Servers): string[] =>
   SERVER_TYPES.filter((t) => Boolean((s as Record<string, unknown>)[t]))
@@ -30,6 +31,7 @@ export const enabledServers = (s: Servers): string[] =>
 export const buildServers = (
   list: string[],
   slack: { keychain: string; addMessageTool: boolean; package?: SlackPackage } | null,
+  xquik: { keychain: string } | null = null,
 ): Servers => {
   const out: Record<string, unknown> = {}
   for (const t of SERVER_TYPES) {
@@ -44,6 +46,12 @@ export const buildServers = (
       // package: "slack-mcp-server".
       if (slack.package && slack.package !== DEFAULT_SLACK_PACKAGE) entry.package = slack.package
       out[t] = entry
+    } else if (t === "xquik") {
+      if (!list.includes(t)) {
+        out[t] = false
+        continue
+      }
+      out[t] = xquik ? ({ keychain: xquik.keychain } satisfies XquikServer) : true
     } else {
       out[t] = list.includes(t)
     }
@@ -105,6 +113,26 @@ export const finalizeSlack = async (ws: Workspace, seed: boolean) => {
   } else if (!keychainHas(svc)) {
     console.log(
       `\nSlack token not in the keychain yet. Store it once with:\n${orange(keychainSetCommand(svc))}\n\nSetup guide: ${orange(hyperlink(SLACK_AUTH_DOCS))}`,
+    )
+  }
+}
+
+export const finalizeXquik = async (ws: Workspace, seed: boolean) => {
+  const server = ws.servers.xquik
+  if (!server) return
+  const svc =
+    typeof server === "object" && server.keychain ? server.keychain : xquikKeychainFor(ws.name)
+  if (seed) {
+    const token = await promptHidden(`Paste the Xquik API key for ${svc}: `)
+    if (!token) {
+      console.error("\nNo API key entered; skipped keychain write.")
+    } else {
+      keychainSet(svc, token)
+      console.log(`\n✓ stored ${svc} in the macOS keychain`)
+    }
+  } else if (!keychainHas(svc)) {
+    console.log(
+      `\nXquik API key not in the keychain yet. Store it once with:\n${orange(keychainSetCommand(svc))}`,
     )
   }
 }

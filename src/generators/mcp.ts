@@ -145,7 +145,7 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       out[name] = {
         type: "http",
         url: httpUrl(v as boolean | HttpServer, REMOTE.xquik),
-        headers: { Authorization: "Bearer ${XQUIK_API_KEY:-}" },
+        headers: { "x-api-key": "${XQUIK_API_KEY:-}" },
       }
     } else {
       out[name] = {
