@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.12.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.11.0...v0.12.0)
+
+### 💅 Refactors
+
+- **cli:** Drop init, simplify the README, tidy add's path prompt ([#32](https://github.com/nrjdalal/inscope/pull/32))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.11.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.10.0...v0.11.0)
