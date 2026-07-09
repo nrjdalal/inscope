@@ -31,4 +31,7 @@ Type "cd ~/work && inscope status" Sleep 200ms Enter
 Sleep 2000ms
 
 Type "cd ~/clients/acme && inscope status" Sleep 200ms Enter
-Sleep 7s
+Sleep 2s
+# Freeze the final frame (all three workspaces) as the static README hero.
+Screenshot .github/assets/status-hero.png
+Sleep 5s
