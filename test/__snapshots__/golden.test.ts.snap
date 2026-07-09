@@ -662,3 +662,44 @@ exports[`golden: Xquik keychain naming for tricky labels 1`] = `
   "brand-new": "XQUIK_API_KEY_BRAND_NEW",
 }
 `;
+
+exports[`golden: status card, isolated signed-in workspace 1`] = `
+"  acme  ~/acme
+
+  Claude  isolated · you@acme.org · team
+          ~/acme/.inscope
+  GitHub  neeraj-acme-org · token ok
+  Git     you@acme.org (workspace)
+  MCP     github, linear, slack
+  Skills  inscope, readme-audit"
+`;
+
+exports[`golden: status card, shared login workspace 1`] = `
+"  personal  ~/personal
+
+  Claude  shared · you@personal.com · max
+          ~/.claude
+  GitHub  nrjdalal · token ok
+  Git     you@personal.com (global)
+  MCP     github
+  Skills  inscope"
+`;
+
+exports[`golden: status card, outside any workspace 1`] = `
+"  no workspace  ~/scratch
+
+  Claude  shared · you@personal.com · max
+          ~/.claude
+  Git     you@personal.com (global)"
+`;
+
+exports[`golden: status card, isolated login not signed in 1`] = `
+"  acme  ~/acme
+
+  Claude  isolated · not signed in; launch \`claude\` here and log in
+          ~/acme/.inscope
+  GitHub  neeraj-acme-org · no token; run \`gh auth login\`
+  Git     (unset) (global)
+  MCP     github
+  Skills  inscope"
+`;

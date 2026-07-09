@@ -9,7 +9,7 @@ Set Shell zsh
 Set FontSize 18
 Set FontFamily "Berkeley Mono"
 Set Width 1280
-Set Height 640
+Set Height 1554
 Set Padding 22
 Set Theme { "name": "GitHub Dark", "background": "#101216", "foreground": "#e6edf3", "black": "#000000", "red": "#f78166", "green": "#56d364", "yellow": "#e3b341", "blue": "#6ca4f8", "magenta": "#db61a2", "cyan": "#39c5cf", "white": "#ffffff", "brightBlack": "#4d4d4d", "brightRed": "#f78166", "brightGreen": "#56d364", "brightYellow": "#e3b341", "brightBlue": "#6ca4f8", "brightMagenta": "#db61a2", "brightCyan": "#56d4dd", "brightWhite": "#ffffff", "cursor": "#c9d1d9", "selection": "#3b5070" }
 Set TypingSpeed 55ms
@@ -21,13 +21,13 @@ Type "clear" Enter
 Show
 
 Sleep 800ms
-Type "inscope add ~/acme" Sleep 300ms Enter
+Type "inscope add ~/work" Sleep 300ms Enter
 Sleep 1500ms
 Enter
 Sleep 1200ms
 Down Sleep 400ms Enter
 Sleep 1200ms
-Type "neeraj@acme.org" Sleep 300ms Enter
+Type "neeraj@work.com" Sleep 300ms Enter
 Sleep 1100ms
 Enter
 Sleep 1300ms
@@ -43,9 +43,9 @@ Sleep 1300ms
 Down Sleep 800ms Enter
 Sleep 2800ms
 
-# Dedicated Claude login for this workspace: keep the default (No) for the shared login
-Enter
+# Dedicated Claude login for this workspace: pick Yes to give work its own login
+Up Sleep 400ms Enter
 Sleep 2600ms
 
 Type "inscope list" Sleep 300ms Enter
-Sleep 3400ms
+Sleep 7s

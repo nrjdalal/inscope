@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.11.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.10.0...v0.11.0)
+
+### 🚀 Enhancements
+
+- **status:** Add `inscope status` for the identity resolved per directory ([#30](https://github.com/nrjdalal/inscope/pull/30))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.10.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.9.0...v0.10.0)

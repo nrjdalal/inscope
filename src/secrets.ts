@@ -2,10 +2,19 @@ import { spawnSync } from "node:child_process"
 
 export type RunResult = { status: number; stdout: string; stderr: string }
 
-export type Runner = (cmd: string, args: string[], opts?: { input?: string }) => RunResult
+export type RunOpts = { input?: string; env?: Record<string, string>; timeoutMs?: number }
+
+export type Runner = (cmd: string, args: string[], opts?: RunOpts) => RunResult
 
 export const defaultRunner: Runner = (cmd, args, opts) => {
-  const res = spawnSync(cmd, args, { encoding: "utf8", input: opts?.input })
+  const res = spawnSync(cmd, args, {
+    encoding: "utf8",
+    input: opts?.input,
+    // Overlay onto the current env so a caller can pin one var (e.g.
+    // CLAUDE_CONFIG_DIR for `claude auth status`) without dropping PATH/HOME.
+    env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+    timeout: opts?.timeoutMs,
+  })
   return {
     status: res.status ?? (res.error ? 127 : 1),
     stdout: res.stdout ?? "",
@@ -70,4 +79,37 @@ export const keychainSetCommand = (service: string) =>
 export const gitEmailForFile = (file: string, run: Runner = defaultRunner) => {
   const r = run("git", ["config", "--file", file, "user.email"])
   return r.status === 0 ? r.stdout.trim() : null
+}
+
+// The Claude login a config dir is signed into, read from `claude auth status
+// --json` with CLAUDE_CONFIG_DIR pinned to that dir (an isolated workspace's own
+// `.inscope`, or the shared base). Any failure, claude not installed, an older
+// CLI without `--json`, an unparseable body, or a signed-out dir, degrades to
+// { signedIn: false } so `inscope status` reports "not signed in" instead of
+// throwing. The short timeout keeps status snappy if claude ever hangs.
+export type ClaudeAuth = {
+  signedIn: boolean
+  email?: string
+  subscriptionType?: string
+  orgName?: string
+}
+
+export const claudeAuthStatus = (configDir: string, run: Runner = defaultRunner): ClaudeAuth => {
+  const r = run("claude", ["auth", "status", "--json"], {
+    env: { CLAUDE_CONFIG_DIR: configDir },
+    timeoutMs: 5000,
+  })
+  if (r.status !== 0 || !r.stdout.trim()) return { signedIn: false }
+  try {
+    const j = JSON.parse(r.stdout) as Record<string, unknown>
+    const str = (v: unknown) => (typeof v === "string" && v ? v : undefined)
+    return {
+      signedIn: j.loggedIn === true,
+      email: str(j.email),
+      subscriptionType: str(j.subscriptionType),
+      orgName: str(j.orgName),
+    }
+  } catch {
+    return { signedIn: false }
+  }
 }
