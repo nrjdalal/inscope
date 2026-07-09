@@ -143,7 +143,7 @@ export const loadConfig = (): Config => {
 
 export const saveConfig = (cfg: Config) => {
   // Validate at the write boundary so every path that persists config (add,
-  // edit, init, remove, diff --adopt) is guarded by construction, not by each
+  // edit, remove, diff --adopt) is guarded by construction, not by each
   // caller remembering to validate first.
   validateConfig(cfg)
   const file = configPath()

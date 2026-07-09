@@ -668,9 +668,9 @@ exports[`golden: status card, isolated signed-in workspace 1`] = `
 
   Claude  isolated · you@acme.org · team
           ~/acme/.inscope
+  MCP     github, linear, slack
   GitHub  neeraj-acme-org · token ok
   Git     you@acme.org (workspace)
-  MCP     github, linear, slack
   Skills  inscope, readme-audit"
 `;
 
@@ -679,9 +679,9 @@ exports[`golden: status card, shared login workspace 1`] = `
 
   Claude  shared · you@personal.com · max
           ~/.claude
+  MCP     github
   GitHub  nrjdalal · token ok
   Git     you@personal.com (global)
-  MCP     github
   Skills  inscope"
 `;
 
@@ -698,8 +698,8 @@ exports[`golden: status card, isolated login not signed in 1`] = `
 
   Claude  isolated · not signed in; launch \`claude\` here and log in
           ~/acme/.inscope
+  MCP     github
   GitHub  neeraj-acme-org · no token; run \`gh auth login\`
   Git     (unset) (global)
-  MCP     github
   Skills  inscope"
 `;
