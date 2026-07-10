@@ -1527,11 +1527,14 @@ test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code
     expect(io.ok).toBe(io.failed === 0)
     expect(inside.status).toBe(io.ok ? 0 : 1)
 
-    // From outside any workspace: `shell` is null, structured output still emits.
+    // From outside any workspace: `shell` is null, but structured output and the
+    // exit-code contract still hold (asserted symmetrically with the inside case).
     const outside = cli(["doctor", "--json"], { cwd: base })
     const oo = JSON.parse(outside.stdout)
+    expect(Array.isArray(oo.checks)).toBe(true)
     expect(oo.shell).toBeNull()
     expect(oo.ok).toBe(oo.failed === 0)
+    expect(outside.status).toBe(oo.ok ? 0 : 1)
   })
   // Generous timeout: this test spawns three real `bun` subprocesses; the stub
   // removes network latency but cold transpile under load can still be slow.
