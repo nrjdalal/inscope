@@ -29,7 +29,7 @@ import {
 } from "@/config"
 import { currentWorkspace, runDoctor } from "@/doctor"
 import { adoptable, computeDrift, diffLines, mcpError, mcpTarget } from "@/drift"
-import { configPath, gitIncludeDir, home, hookPath, zshrcPath } from "@/env"
+import { configPath, gitIncludeDir, home, hookPath, resolveAbsolute, zshrcPath } from "@/env"
 import {
   applyGitconfig,
   perWorkspaceGitconfigPath,
@@ -795,6 +795,27 @@ test("config upsert and remove by name or path", () => {
   const { cfg: after, removed } = removeWorkspace(cfg, "~/acme")
   expect(removed?.name).toBe("acme")
   expect(after.workspaces).toHaveLength(0)
+})
+
+test("upsertWorkspace resolves a cwd-relative path to a stable absolute one", () => {
+  const dir = tmpDir()
+  const prev = process.cwd()
+  try {
+    process.chdir(dir)
+    const cfg = upsertWorkspace(
+      { version: 1, workspaces: [] },
+      { name: "here", path: ".", servers: { github: true } },
+    )
+    const stored = cfg.workspaces[0].path
+    // never persisted cwd-relative: no bare `.`/`./…`, and it re-resolves back to cwd
+    expect(stored.startsWith(".")).toBe(false)
+    expect(path.isAbsolute(stored) || stored.startsWith("~")).toBe(true)
+    // compare against process.cwd() (already realpath'd) so the macOS
+    // /var -> /private/var symlink doesn't break the equality
+    expect(resolveAbsolute(stored)).toBe(process.cwd())
+  } finally {
+    process.chdir(prev)
+  }
 })
 
 test("slugify and labelFromPath produce hook-safe names", () => {

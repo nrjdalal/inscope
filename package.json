@@ -1,6 +1,6 @@
 {
   "name": "inscope",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "Per-workspace identity for Claude Code: each directory auto-resolves its own login/subscription, MCP servers, GitHub account, and skills.",
   "keywords": [
     "chpwd",

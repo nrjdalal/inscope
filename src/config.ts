@@ -463,7 +463,11 @@ export const pathConflict = (cfg: Config, target: string, label: string): Worksp
 
 export const upsertWorkspace = (cfg: Config, ws: Workspace): Config => {
   const next = cfg.workspaces.filter((w) => w.name !== ws.name)
-  next.push({ ...ws, path: contractTilde(ws.path) })
+  // Store a stable, cwd-independent path: resolve a relative input (`.`, `./x`,
+  // `myproj`) to absolute before contracting. Left cwd-relative, it is later
+  // re-resolved against whatever cwd apply/the hook runs from, pointing the hook
+  // arm, .mcp.json, and git include at the wrong directory.
+  next.push({ ...ws, path: contractTilde(resolveAbsolute(ws.path)) })
   next.sort((a, b) => a.name.localeCompare(b.name))
   return { ...cfg, workspaces: next }
 }

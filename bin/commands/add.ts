@@ -102,6 +102,10 @@ export const add = async (args: string[]) => {
     if (interactive) target = await promptText("Workspace directory", contractTilde(process.cwd()))
     else throw new Error(helpMessage)
   }
+  // Resolve a relative input (`.`, `./sub`, `myproj`) to a stable, cwd-independent
+  // path up front, so the existence warning, conflict check, and success output
+  // all reflect the same path that gets stored (upsertWorkspace resolves too).
+  target = contractTilde(resolveAbsolute(target))
   const pathErr = workspacePathError(target)
   if (pathErr) {
     console.error(`\nInvalid workspace path "${target}": ${pathErr}`)
