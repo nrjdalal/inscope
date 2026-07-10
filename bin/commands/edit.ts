@@ -9,6 +9,7 @@ import {
   type SlackPackage,
   type Workspace,
 } from "@/config"
+import { contractTilde, resolveAbsolute } from "@/env"
 import { ghAccounts, keychainHas } from "@/secrets"
 import {
   isInteractive,
@@ -173,7 +174,10 @@ export const edit = async (args: string[]) => {
   const next: Workspace = {
     isolate: isolate || undefined,
     name: ws.name,
-    path: ws.path,
+    // Resolve here too so the success output below prints the same path that
+    // persist stores; also normalizes a legacy config whose path was saved
+    // cwd-relative (best-effort: resolves against the current cwd).
+    path: contractTilde(resolveAbsolute(ws.path)),
     gh,
     git: email || gitName ? { email, name: gitName } : undefined,
     servers: buildServers(
