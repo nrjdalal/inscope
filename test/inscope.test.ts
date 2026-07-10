@@ -1519,6 +1519,10 @@ test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code
     expect(io.shell).not.toBeNull()
     expect(io.shell.workspace).toBe("work")
     expect(io.shell).toHaveProperty("pwd")
+    // Self-check the stub actually intercepted `gh`: it fast-fails, so the snapshot
+    // resolves gh to "none". Without this, a broken PATH stub would silently pass on
+    // CI (gh unauthed there anyway) and reintroduce the timing flake for authed devs.
+    expect(io.shell.gh).toBe("none")
     expect(typeof io.failed).toBe("number")
     expect(io.ok).toBe(io.failed === 0)
     expect(inside.status).toBe(io.ok ? 0 : 1)
