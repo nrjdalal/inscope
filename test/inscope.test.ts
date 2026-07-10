@@ -1478,27 +1478,39 @@ test("list --json emits the workspaces as a JSON array", () => {
   })
 })
 
-test("doctor --json emits structured checks with an ok flag", () => {
+test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code", () => {
   withSandbox((sb) => {
+    // A spawned child's process.cwd() is realpath-resolved (macOS /var ->
+    // /private/var), while a workspace path is stored relative to HOME. Anchor
+    // HOME to the sandbox's real path so the stored path and the child cwd share
+    // one namespace and currentWorkspace() can match to populate `shell`.
+    const base = fs.realpathSync(sb)
     const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
-    const env = { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") }
-    const cli = (args: string[]) => spawnSync("bun", [entry, ...args], { encoding: "utf8", env })
-    cli([
-      "add",
-      path.join(sb, "work"),
-      "--gh",
-      "acct",
-      "--email",
-      "e@x.dev",
-      "--servers",
-      "github",
-      "-y",
-    ])
-    const r = cli(["doctor", "--json"]) // status may be 1 (checks fail without a real gh); JSON is still emitted
-    const out = JSON.parse(r.stdout)
-    expect(Array.isArray(out.checks)).toBe(true)
-    expect(out.checks.length).toBeGreaterThan(0)
-    expect(typeof out.ok).toBe("boolean")
+    const env = { ...process.env, HOME: base, XDG_CONFIG_HOME: path.join(base, ".config") }
+    const work = path.join(base, "work")
+    const cli = (args: string[], opts: { cwd?: string } = {}) =>
+      spawnSync("bun", [entry, ...args], { encoding: "utf8", env, ...opts })
+    cli(["add", work, "--gh", "acct", "--email", "e@x.dev", "--servers", "github", "-y"])
+
+    // From inside the workspace: `shell` is populated and tagged with the workspace,
+    // and the process exit code is gated on `ok` (the contract that makes --json
+    // usable in CI). status is 1 here because the checks fail without a real gh.
+    const inside = cli(["doctor", "--json"], { cwd: work })
+    const io = JSON.parse(inside.stdout)
+    expect(Array.isArray(io.checks)).toBe(true)
+    expect(io.checks.length).toBeGreaterThan(0)
+    expect(io.shell).not.toBeNull()
+    expect(io.shell.workspace).toBe("work")
+    expect(io.shell).toHaveProperty("pwd")
+    expect(typeof io.failed).toBe("number")
+    expect(io.ok).toBe(io.failed === 0)
+    expect(inside.status).toBe(io.ok ? 0 : 1)
+
+    // From outside any workspace: `shell` is null, structured output still emits.
+    const outside = cli(["doctor", "--json"], { cwd: base })
+    const oo = JSON.parse(outside.stdout)
+    expect(oo.shell).toBeNull()
+    expect(oo.ok).toBe(oo.failed === 0)
   })
 })
 
