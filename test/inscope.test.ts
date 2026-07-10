@@ -1478,29 +1478,67 @@ test("list --json emits the workspaces as a JSON array", () => {
   })
 })
 
-test("doctor --json emits structured checks with an ok flag", () => {
+test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code", () => {
   withSandbox((sb) => {
+    // A spawned child's process.cwd() is realpath-resolved (macOS /var ->
+    // /private/var), while a workspace path is stored relative to HOME. Anchor
+    // HOME to the sandbox's real path so the stored path and the child cwd share
+    // one namespace and currentWorkspace() can match to populate `shell`.
+    const base = fs.realpathSync(sb)
     const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
-    const env = { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") }
-    const cli = (args: string[]) => spawnSync("bun", [entry, ...args], { encoding: "utf8", env })
-    cli([
-      "add",
-      path.join(sb, "work"),
-      "--gh",
-      "acct",
-      "--email",
-      "e@x.dev",
-      "--servers",
-      "github",
-      "-y",
-    ])
-    const r = cli(["doctor", "--json"]) // status may be 1 (checks fail without a real gh); JSON is still emitted
-    const out = JSON.parse(r.stdout)
-    expect(Array.isArray(out.checks)).toBe(true)
-    expect(out.checks.length).toBeGreaterThan(0)
-    expect(typeof out.ok).toBe("boolean")
+
+    // `doctor` inside a workspace runs liveSnapshot()/runDoctor(), which shell out
+    // to `gh` (resolved via PATH). Prepend a fast-failing stub `gh` so the test is
+    // hermetic: no live `gh api user` round-trip (~1.4s when the dev's gh is authed,
+    // which stacks with cold transpile to blow the default 5s test timeout) and no
+    // dependence on local auth state. CI stays fast only because gh is unauthed there.
+    const stubBin = path.join(base, "stub-bin")
+    fs.mkdirSync(stubBin, { recursive: true })
+    const ghStub = path.join(stubBin, "gh")
+    fs.writeFileSync(ghStub, "#!/bin/sh\nexit 1\n")
+    fs.chmodSync(ghStub, 0o755)
+    const childPath = `${stubBin}${path.delimiter}${process.env.PATH ?? ""}`
+    const env = {
+      ...process.env,
+      HOME: base,
+      XDG_CONFIG_HOME: path.join(base, ".config"),
+      PATH: childPath,
+    }
+    const work = path.join(base, "work")
+    const cli = (args: string[], opts: { cwd?: string } = {}) =>
+      spawnSync("bun", [entry, ...args], { encoding: "utf8", env, ...opts })
+    cli(["add", work, "--gh", "acct", "--email", "e@x.dev", "--servers", "github", "-y"])
+
+    // From inside the workspace: `shell` is populated and tagged with the workspace,
+    // and the process exit code is gated on `ok` (the contract that makes --json
+    // usable in CI). status is 1 here because the checks fail without a resolvable gh.
+    const inside = cli(["doctor", "--json"], { cwd: work })
+    const io = JSON.parse(inside.stdout)
+    expect(Array.isArray(io.checks)).toBe(true)
+    expect(io.checks.length).toBeGreaterThan(0)
+    expect(io.shell).not.toBeNull()
+    expect(io.shell.workspace).toBe("work")
+    expect(io.shell).toHaveProperty("pwd")
+    // Self-check the stub actually intercepted `gh`: it fast-fails, so the snapshot
+    // resolves gh to "none". Without this, a broken PATH stub would silently pass on
+    // CI (gh unauthed there anyway) and reintroduce the timing flake for authed devs.
+    expect(io.shell.gh).toBe("none")
+    expect(typeof io.failed).toBe("number")
+    expect(io.ok).toBe(io.failed === 0)
+    expect(inside.status).toBe(io.ok ? 0 : 1)
+
+    // From outside any workspace: `shell` is null, but structured output and the
+    // exit-code contract still hold (asserted symmetrically with the inside case).
+    const outside = cli(["doctor", "--json"], { cwd: base })
+    const oo = JSON.parse(outside.stdout)
+    expect(Array.isArray(oo.checks)).toBe(true)
+    expect(oo.shell).toBeNull()
+    expect(oo.ok).toBe(oo.failed === 0)
+    expect(outside.status).toBe(oo.ok ? 0 : 1)
   })
-})
+  // Generous timeout: this test spawns three real `bun` subprocesses; the stub
+  // removes network latency but cold transpile under load can still be slow.
+}, 15000)
 
 test("writeFileAtomic writes through a symlink, preserving the link", () => {
   const dir = tmpDir()
