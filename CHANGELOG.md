@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.14.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.13.1...v0.14.0)
+
+### 🚀 Enhancements
+
+- **mcp:** Run inscope as an MCP server (`inscope mcp`) ([#39](https://github.com/nrjdalal/inscope/pull/39))
+
+### 🩹 Fixes
+
+- **add:** Resolve a relative workspace path to absolute before storing ([#46](https://github.com/nrjdalal/inscope/pull/46))
+
+### 📖 Documentation
+
+- Unify the tagline (login/subscription) across repo and self-skill ([#45](https://github.com/nrjdalal/inscope/pull/45))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.13.1
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.13.0...v0.13.1)
