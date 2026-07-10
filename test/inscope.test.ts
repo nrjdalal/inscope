@@ -1486,7 +1486,24 @@ test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code
     // one namespace and currentWorkspace() can match to populate `shell`.
     const base = fs.realpathSync(sb)
     const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
-    const env = { ...process.env, HOME: base, XDG_CONFIG_HOME: path.join(base, ".config") }
+
+    // `doctor` inside a workspace runs liveSnapshot()/runDoctor(), which shell out
+    // to `gh` (resolved via PATH). Prepend a fast-failing stub `gh` so the test is
+    // hermetic: no live `gh api user` round-trip (~1.4s when the dev's gh is authed,
+    // which stacks with cold transpile to blow the default 5s test timeout) and no
+    // dependence on local auth state. CI stays fast only because gh is unauthed there.
+    const stubBin = path.join(base, "stub-bin")
+    fs.mkdirSync(stubBin, { recursive: true })
+    const ghStub = path.join(stubBin, "gh")
+    fs.writeFileSync(ghStub, "#!/bin/sh\nexit 1\n")
+    fs.chmodSync(ghStub, 0o755)
+    const childPath = `${stubBin}${path.delimiter}${process.env.PATH ?? ""}`
+    const env = {
+      ...process.env,
+      HOME: base,
+      XDG_CONFIG_HOME: path.join(base, ".config"),
+      PATH: childPath,
+    }
     const work = path.join(base, "work")
     const cli = (args: string[], opts: { cwd?: string } = {}) =>
       spawnSync("bun", [entry, ...args], { encoding: "utf8", env, ...opts })
@@ -1494,7 +1511,7 @@ test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code
 
     // From inside the workspace: `shell` is populated and tagged with the workspace,
     // and the process exit code is gated on `ok` (the contract that makes --json
-    // usable in CI). status is 1 here because the checks fail without a real gh.
+    // usable in CI). status is 1 here because the checks fail without a resolvable gh.
     const inside = cli(["doctor", "--json"], { cwd: work })
     const io = JSON.parse(inside.stdout)
     expect(Array.isArray(io.checks)).toBe(true)
@@ -1512,7 +1529,9 @@ test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code
     expect(oo.shell).toBeNull()
     expect(oo.ok).toBe(oo.failed === 0)
   })
-})
+  // Generous timeout: this test spawns three real `bun` subprocesses; the stub
+  // removes network latency but cold transpile under load can still be slow.
+}, 15000)
 
 test("writeFileAtomic writes through a symlink, preserving the link", () => {
   const dir = tmpDir()
