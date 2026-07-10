@@ -27,7 +27,7 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 - `inscope add [path]`: map a workspace; on the first run it also creates the config, the chpwd hook, and the `~/.zshrc` source line (there is no separate init). Flags skip prompts: `--gh <account>`, `--email`/`--git-name` (per-workspace git identity, else inherits global), `--isolate` (own Claude login in a gitignored `<path>/.inscope`), `--servers <list>`, `--label`, the Slack options, `-y`.
 - `inscope status` (`whoami`): show the identity resolved for the current directory, the Claude login (email + subscription, from `claude auth status`) and whether it is shared or isolated, the GitHub account and token, the git email, MCP servers, and skills. `--json` for scripting.
-- `inscope list` (`ls`): show workspaces with their identity, servers, and skills.
+- `inscope list` (`ls`): show workspaces with their identity, servers, and skills. `--json` for scripting.
 - `inscope edit [path|label]`: change a workspace through the same prompts.
 - `inscope rm [path|label]`: unmap a workspace (drops its git include, managed MCP servers, and skill links). Confirms by typing the label; `-y` skips it.
 
@@ -41,7 +41,7 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 ### Checking
 
-- `inscope doctor`: verify tokens, identities, the hook, and skill links resolve, each with its fix.
+- `inscope doctor`: verify tokens, identities, the hook, and skill links resolve, each with its fix. `--json` for scripting (exits non-zero if any check fails).
 - `inscope diff`: preview what apply would change (hook, git includes, `.mcp.json`, skills). `--adopt` folds config-expressible on-disk `.mcp.json` settings back in; `--exit-code` gates CI.
 
 ## Recipes

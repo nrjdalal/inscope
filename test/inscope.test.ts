@@ -1453,6 +1453,55 @@ test("add prints the first-run reload nudge on the first add only", () => {
   })
 })
 
+test("list --json emits the workspaces as a JSON array", () => {
+  withSandbox((sb) => {
+    const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
+    const env = { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") }
+    const cli = (args: string[]) => spawnSync("bun", [entry, ...args], { encoding: "utf8", env })
+    cli([
+      "add",
+      path.join(sb, "work"),
+      "--gh",
+      "acct",
+      "--email",
+      "e@x.dev",
+      "--servers",
+      "github,linear",
+      "-y",
+    ])
+    const r = cli(["list", "--json"])
+    expect(r.status).toBe(0)
+    const out = JSON.parse(r.stdout)
+    expect(Array.isArray(out)).toBe(true)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ name: "work", gh: "acct", servers: ["github", "linear"] })
+  })
+})
+
+test("doctor --json emits structured checks with an ok flag", () => {
+  withSandbox((sb) => {
+    const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
+    const env = { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") }
+    const cli = (args: string[]) => spawnSync("bun", [entry, ...args], { encoding: "utf8", env })
+    cli([
+      "add",
+      path.join(sb, "work"),
+      "--gh",
+      "acct",
+      "--email",
+      "e@x.dev",
+      "--servers",
+      "github",
+      "-y",
+    ])
+    const r = cli(["doctor", "--json"]) // status may be 1 (checks fail without a real gh); JSON is still emitted
+    const out = JSON.parse(r.stdout)
+    expect(Array.isArray(out.checks)).toBe(true)
+    expect(out.checks.length).toBeGreaterThan(0)
+    expect(typeof out.ok).toBe("boolean")
+  })
+})
+
 test("writeFileAtomic writes through a symlink, preserving the link", () => {
   const dir = tmpDir()
   const real = path.join(dir, "real.txt")
