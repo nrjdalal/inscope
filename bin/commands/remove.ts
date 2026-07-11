@@ -1,17 +1,11 @@
 import { parseArgs } from "node:util"
 
 import { applyAll } from "@/apply"
-import {
-  configExists,
-  findWorkspace,
-  loadConfig,
-  removeWorkspace,
-  saveConfig,
-  type Workspace,
-} from "@/config"
+import { findWorkspace, removeWorkspace, saveConfig, type Workspace } from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
 import { removeSkills } from "@/generators/skills"
+import { requireConfig } from "~/bin/commands/_config"
 import { isInteractive, orange, promptText, selectOne } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -41,12 +35,7 @@ export const remove = async (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const cfg = loadConfig()
+  const cfg = requireConfig()
   if (!cfg.workspaces.length) {
     console.error("No workspaces to remove.")
     process.exit(1)

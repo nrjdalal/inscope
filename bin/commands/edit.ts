@@ -1,16 +1,15 @@
 import { parseArgs } from "node:util"
 
 import {
-  configExists,
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
   hookValueError,
-  loadConfig,
   type SlackPackage,
   type Workspace,
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
 import { ghAccounts, keychainHas } from "@/secrets"
+import { requireConfig } from "~/bin/commands/_config"
 import {
   isInteractive,
   orange,
@@ -52,12 +51,7 @@ export const edit = async (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const cfg = loadConfig()
+  const cfg = requireConfig()
   if (!cfg.workspaces.length) {
     console.error(`No workspaces yet. Add one with \`${name} add <path>\`.`)
     process.exit(1)

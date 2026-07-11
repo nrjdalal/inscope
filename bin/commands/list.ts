@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util"
 
-import { configExists, loadConfig, normalizeSkill } from "@/config"
+import { normalizeSkill } from "@/config"
+import { requireConfig } from "~/bin/commands/_config"
 import { enabledServers } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
@@ -26,12 +27,7 @@ export const list = (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const cfg = loadConfig()
+  const cfg = requireConfig()
   if (values.json) {
     const out = cfg.workspaces.map((ws) => ({
       name: ws.name,

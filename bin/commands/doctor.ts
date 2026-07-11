@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
-import { configExists, loadConfig } from "@/config"
 import { currentWorkspace, liveSnapshot, runDoctor, type CheckStatus } from "@/doctor"
+import { requireConfig } from "~/bin/commands/_config"
 import { green, red, yellow } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -31,12 +31,7 @@ export const doctor = (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const cfg = loadConfig()
+  const cfg = requireConfig()
   const checks = runDoctor(cfg)
   const failed = checks.filter((c) => c.status === "fail").length
 

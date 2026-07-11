@@ -3,7 +3,6 @@ import { parseArgs } from "node:util"
 import {
   absolutizeLocalSource,
   type Config,
-  configExists,
   currentWorkspace,
   findWorkspace,
   loadConfig,
@@ -26,6 +25,7 @@ import {
   unlinkSkillLink,
 } from "@/generators/skills"
 import { defaultRunner } from "@/secrets"
+import { requireConfigExists } from "~/bin/commands/_config"
 import { green, isInteractive, orange, selectMany, yellow } from "~/bin/commands/_prompt"
 import { persist } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
@@ -478,10 +478,7 @@ export const skill = async (args: string[]) => {
     console.log(helpMessage)
     process.exit(0)
   }
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
+  requireConfigExists()
   const rest = args.slice(1)
   switch (sub) {
     case "add":

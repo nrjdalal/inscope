@@ -1,8 +1,9 @@
 import { parseArgs } from "node:util"
 
-import { configExists, loadConfig, saveConfig, validateConfig } from "@/config"
+import { saveConfig, validateConfig } from "@/config"
 import { adoptable, computeDrift, diffLines } from "@/drift"
 import { contractTilde } from "@/env"
+import { requireConfig } from "~/bin/commands/_config"
 import { orange, red } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -60,12 +61,7 @@ export const diff = (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const cfg = loadConfig()
+  const cfg = requireConfig()
 
   if (values.adopt) {
     const { cfg: next, changes } = adoptable(cfg)
