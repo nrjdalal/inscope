@@ -38,13 +38,14 @@ jobs:
         run: bun run test
 
   release:
-    # Only the main-branch push path may publish to `latest`. A version-bumped
-    # feature branch (e.g. release-prep opening its PR) would otherwise publish
-    # before review. The issue_comment path is a maintainer `/release` slash
-    # command and publishes a throwaway test version, never `latest`.
+    # Every branch push reaches the release job; the script decides what it may
+    # publish. Only the default branch can publish to `latest` (on a version
+    # bump), so a version-bumped feature branch publishes a canary, never
+    # `latest`, before review. The issue_comment path is a maintainer `/release`
+    # slash command and publishes a throwaway test version.
     if: |
       always() && !failure() && !cancelled() && (
-        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        github.event_name == 'push' ||
         (github.event_name == 'issue_comment' && github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '/release'))
       )
     needs: [test]
@@ -58,13 +59,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: lts/*
+          # 24 bundles npm >= 11.5.1, the floor for npm Trusted Publishing
+          node-version: 24
           registry-url: https://registry.npmjs.org
-
-      # npm Trusted Publishing (OIDC) needs npm >= 11.5.1; float on latest
-      # rather than trusting whatever the LTS runner bundles.
-      - name: Update npm for trusted publishing
-        run: npm install -g npm@latest
+          package-manager-cache: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -84,7 +82,11 @@ jobs:
             git checkout $LATEST_COMMIT_SHA
             TAG="test"
             RELEASE_VERSION="0.0.0-${LATEST_COMMIT_SHA:0:7}"
-          elif [[ $PACKAGE_VERSION != $LATEST_VERSION ]]; then
+          elif [[ $GITHUB_REF_NAME == "${{ github.event.repository.default_branch }}" ]]; then
+            if [[ $PACKAGE_VERSION == $LATEST_VERSION ]]; then
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION is already the latest release. Skipping publish."
+              exit 0
+            fi
             RELEASE_VERSION=$PACKAGE_VERSION
             HAS_TAG=$(echo $PACKAGE_VERSION | grep -o '[a-zA-Z]*' | head -n 1)
             TAG=$([[ -n "$HAS_TAG" ]] && echo $HAS_TAG || echo "latest")
@@ -103,8 +105,9 @@ jobs:
           bunx json -I -f package.json -e 'delete this.devDependencies'
           bunx json -I -f package.json -e 'delete this.overrides'
           # Auth is npm Trusted Publishing (OIDC): the registry trusts this
-          # repo+workflow via the id-token permission; no NPM_TOKEN secret.
-          npm publish --provenance --access public --no-git-checks --tag $TAG
+          # repo+workflow via the id-token permission; no NPM_TOKEN secret, and
+          # provenance is generated natively (no --provenance flag needed).
+          npm publish --access public --no-git-checks --tag $TAG
 
           PACKAGE_URL="https://www.npmjs.com/package/$PACKAGE_NAME/v/$RELEASE_VERSION"
           if [[ $GITHUB_EVENT_NAME == 'issue_comment' ]]; then
