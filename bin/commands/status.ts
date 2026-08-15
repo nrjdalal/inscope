@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
-import { configExists, loadConfig } from "@/config"
 import { renderStatus, resolveStatus } from "@/status"
+import { requireConfig } from "~/bin/commands/_config"
 import { dim, green, orange, yellow } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -28,12 +28,7 @@ export const status = (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const snap = resolveStatus(loadConfig())
+  const snap = resolveStatus(requireConfig())
   if (values.json) {
     console.log(JSON.stringify(snap, null, 2))
     process.exit(0)

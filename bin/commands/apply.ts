@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
 import { applyAll } from "@/apply"
-import { configExists, loadConfig } from "@/config"
+import { requireConfig } from "~/bin/commands/_config"
 import { name } from "~/package.json"
 
 const helpMessage = `Regenerate the chpwd hook, git includes, every .mcp.json, and
@@ -26,12 +26,7 @@ export const apply = (args: string[]) => {
     process.exit(0)
   }
 
-  if (!configExists()) {
-    console.error(`No config found. Run \`${name} add <path>\` first.`)
-    process.exit(1)
-  }
-
-  const cfg = loadConfig()
+  const cfg = requireConfig()
   const res = applyAll(cfg)
 
   console.log(`\n✓ hook       ${res.hook}`)
