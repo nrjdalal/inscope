@@ -13,10 +13,21 @@ export const inscopeSettingsPath = (ws: Workspace) => path.join(inscopeDirPath(w
 
 const BYPASS_MODE = "bypassPermissions"
 
-// Set or clear inscope's one managed key, `permissions.defaultMode`, while
-// preserving everything else the login wrote to settings.json. Turning bypass off
-// only removes the key when it is exactly inscope's value, so a mode a user set by
-// hand is left alone. Pure (doc in, doc out) so it is unit-testable.
+// Claude Code's one-time "accept responsibility" dialog for bypassPermissions
+// records its acceptance in the login's own settings.json under this key (since
+// ~v2.1.223; older versions kept `bypassPermissionsModeAccepted` in .claude.json,
+// which Claude migrates). Pre-seeding it means a fresh isolated login starts
+// bypassed without the interactive dialog, and headless/background sessions are
+// not refused on a login that has never been opened interactively.
+export const BYPASS_ACCEPTANCE_KEY = "skipDangerousModePermissionPrompt"
+
+// Set or clear inscope's managed keys, `permissions.defaultMode` and the bypass
+// dialog acceptance, while preserving everything else the login wrote to
+// settings.json. Turning bypass off only removes the mode when it is exactly
+// inscope's value, so a mode a user set by hand is left alone; the acceptance
+// flag grants nothing on its own (it only suppresses the one-time dialog) and a
+// hand-accepted `true` is indistinguishable from inscope's, so it is removed
+// symmetrically. Pure (doc in, doc out) so it is unit-testable.
 export const mergeBypassSettings = (
   doc: Record<string, any>,
   bypass: boolean,
@@ -26,8 +37,13 @@ export const mergeBypassSettings = (
   const perms: Record<string, any> = {
     ...(cur && typeof cur === "object" && !Array.isArray(cur) ? cur : {}),
   }
-  if (bypass) perms.defaultMode = BYPASS_MODE
-  else if (perms.defaultMode === BYPASS_MODE) delete perms.defaultMode
+  if (bypass) {
+    perms.defaultMode = BYPASS_MODE
+    next[BYPASS_ACCEPTANCE_KEY] = true
+  } else {
+    if (perms.defaultMode === BYPASS_MODE) delete perms.defaultMode
+    if (next[BYPASS_ACCEPTANCE_KEY] === true) delete next[BYPASS_ACCEPTANCE_KEY]
+  }
   // Drop a permissions object we emptied so an off toggle leaves no `{}` noise.
   if (Object.keys(perms).length) next.permissions = perms
   else delete next.permissions
@@ -71,6 +87,19 @@ export const hasBypassSetting = (ws: Workspace): boolean => {
   try {
     const doc = JSON.parse(fs.readFileSync(inscopeSettingsPath(ws), "utf8"))
     return doc?.permissions?.defaultMode === BYPASS_MODE
+  } catch {
+    return false
+  }
+}
+
+// Whether the login also carries the pre-seeded bypass dialog acceptance. A login
+// written by an older inscope has only defaultMode; doctor flags that so a re-run
+// of apply can seed it (without it, Claude shows the dialog on first interactive
+// launch and refuses background sessions until then).
+export const hasBypassAcceptance = (ws: Workspace): boolean => {
+  try {
+    const doc = JSON.parse(fs.readFileSync(inscopeSettingsPath(ws), "utf8"))
+    return doc?.[BYPASS_ACCEPTANCE_KEY] === true
   } catch {
     return false
   }

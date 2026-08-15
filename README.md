@@ -51,7 +51,7 @@ npx inscope add ~/clients/acme --isolate   # any flag pre-fills a prompt (--isol
 
 Sign each GitHub account into `gh` once (`gh auth login`); inscope reads their tokens. The first `add` prompts you to reload your shell (a new terminal works too) so the hook loads; then `cd ~/work` and you're the work account with work servers and email, `cd ~/clients/acme` and you're on the client's isolated login.
 
-`--isolate` (or the "Dedicated Claude login?" prompt) runs that workspace's `claude` on its own account from a gitignored `.inscope` dir, so a client's subscription or a work/personal split stays fully separate. Sign in once; the hook exports `CLAUDE_CONFIG_DIR` (not a `claude` wrapper), so any launcher (terminal, IDE, cmux, `--resume`) lands on the right login. Set top-level `bypass: true` to skip permission prompts there; your shared `~/.claude` is never touched.
+`--isolate` (or the "Dedicated Claude login?" prompt) runs that workspace's `claude` on its own account from a gitignored `.inscope` dir, so a client's subscription or a work/personal split stays fully separate. Sign in once; the hook exports `CLAUDE_CONFIG_DIR` (not a `claude` wrapper), so any launcher (terminal, IDE, cmux, `--resume`) lands on the right login. Set top-level `bypass: true` to skip permission prompts there (Claude Code v2.1.228+ otherwise starts sessions in its auto-mode default); it also pre-accepts Claude's one-time bypass warning, so fresh logins and background sessions start bypassed right away. Your shared `~/.claude` is never touched.
 
 Prefer flags or CI? Every prompt has one, and `-y` takes the defaults. Reaching for it a lot? `npm i -g inscope` and drop the `npx`.
 

@@ -27,7 +27,7 @@ import {
   type SkillSpec,
   type Workspace,
 } from "@/config"
-import { currentWorkspace, runDoctor } from "@/doctor"
+import { bypassDisabledByPolicy, currentWorkspace, runDoctor } from "@/doctor"
 import { adoptable, computeDrift, diffLines, mcpError, mcpTarget } from "@/drift"
 import { configPath, gitIncludeDir, home, hookPath, resolveAbsolute, zshrcPath } from "@/env"
 import {
@@ -47,6 +47,7 @@ import {
 import { applyMcp, removeMcp, renderServers, slackPackageFromArgs } from "@/generators/mcp"
 import {
   applyBypass,
+  hasBypassAcceptance,
   hasBypassSetting,
   inscopeSettingsPath,
   mergeBypassSettings,
@@ -983,26 +984,45 @@ test("applyIsolation scaffolds .inscope and gitignores it, only when isolate is 
   expect(fs.existsSync(path.join(plain, ".gitignore"))).toBe(false)
 })
 
-test("mergeBypassSettings sets/clears only its own key, preserving the rest", () => {
-  // on: adds defaultMode without disturbing other settings or other permission keys
+test("mergeBypassSettings sets/clears only its own keys, preserving the rest", () => {
+  // on: adds defaultMode + the dialog acceptance without disturbing other
+  // settings or other permission keys
   expect(mergeBypassSettings({ model: "opus", permissions: { allow: ["Bash"] } }, true)).toEqual({
     model: "opus",
     permissions: { allow: ["Bash"], defaultMode: "bypassPermissions" },
+    skipDangerousModePermissionPrompt: true,
   })
-  // off: removes inscope's mode, and drops a now-empty permissions object
-  expect(mergeBypassSettings({ permissions: { defaultMode: "bypassPermissions" } }, false)).toEqual(
-    {},
-  )
-  // off: leaves a mode the user set to something else alone
-  expect(mergeBypassSettings({ permissions: { defaultMode: "acceptEdits" } }, false)).toEqual({
+  // off: removes inscope's mode and acceptance, and drops a now-empty permissions object
+  expect(
+    mergeBypassSettings(
+      {
+        permissions: { defaultMode: "bypassPermissions" },
+        skipDangerousModePermissionPrompt: true,
+      },
+      false,
+    ),
+  ).toEqual({})
+  // off: leaves a mode the user set to something else alone (the acceptance flag
+  // still goes; on its own it only suppresses the one-time dialog)
+  expect(
+    mergeBypassSettings(
+      { permissions: { defaultMode: "acceptEdits" }, skipDangerousModePermissionPrompt: true },
+      false,
+    ),
+  ).toEqual({
     permissions: { defaultMode: "acceptEdits" },
   })
+  // off: a non-true acceptance value is not inscope's; left alone
+  expect(
+    mergeBypassSettings({ skipDangerousModePermissionPrompt: false as unknown as true }, false),
+  ).toEqual({ skipDangerousModePermissionPrompt: false })
   // on is idempotent
   const once = mergeBypassSettings({}, true)
   expect(mergeBypassSettings(once, true)).toEqual(once)
   // a malformed array `permissions` is treated as absent, not spread to numeric keys
   expect(mergeBypassSettings({ permissions: ["x"] as unknown as object }, true)).toEqual({
     permissions: { defaultMode: "bypassPermissions" },
+    skipDangerousModePermissionPrompt: true,
   })
 })
 
@@ -1017,8 +1037,10 @@ test("applyBypass writes an isolated login's settings.json, no-ops elsewhere", (
   expect(JSON.parse(fs.readFileSync(inscopeSettingsPath(ws), "utf8"))).toEqual({
     model: "opus",
     permissions: { defaultMode: "bypassPermissions" },
+    skipDangerousModePermissionPrompt: true,
   })
   expect(hasBypassSetting(ws)).toBe(true)
+  expect(hasBypassAcceptance(ws)).toBe(true)
 
   // turning it off strips the key but keeps the rest
   applyBypass(ws, false)
@@ -1121,6 +1143,31 @@ test("runDoctor flags bypass drift in both directions", () => {
   const ok = mk()
   applyBypass({ name: "acme", path: ok, isolate: true, servers: {} }, true)
   expect(details(ok, true).some((d) => d.includes("bypass"))).toBe(false)
+
+  // an older-inscope login: mode present but no dialog acceptance -> seed warn
+  const stale = mk()
+  const staleWs = { name: "acme", path: stale, isolate: true, servers: {} }
+  fs.writeFileSync(
+    inscopeSettingsPath(staleWs),
+    JSON.stringify({ permissions: { defaultMode: "bypassPermissions" } }) + "\n",
+  )
+  expect(details(stale, true).some((d) => d.includes("acceptance"))).toBe(true)
+})
+
+test("bypassDisabledByPolicy reads the managed-settings org policy", () => {
+  const file = path.join(tmpDir(), "managed-settings.json")
+  // no managed settings at all -> no policy
+  expect(bypassDisabledByPolicy(file)).toBe(false)
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ permissions: { disableBypassPermissionsMode: "disable" } }),
+  )
+  expect(bypassDisabledByPolicy(file)).toBe(true)
+  // any other value (or a malformed file) is not a disable
+  fs.writeFileSync(file, JSON.stringify({ permissions: {} }))
+  expect(bypassDisabledByPolicy(file)).toBe(false)
+  fs.writeFileSync(file, "{nope")
+  expect(bypassDisabledByPolicy(file)).toBe(false)
 })
 
 test("diffLines marks unchanged, removed, and added lines", () => {
