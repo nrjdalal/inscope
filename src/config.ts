@@ -92,10 +92,13 @@ export type NormalizedSkill = {
 export type Config = {
   version: number
   // Bypass Claude's permission prompts in each ISOLATED workspace's own login, by
-  // writing `permissions.defaultMode: "bypassPermissions"` into its
-  // `<path>/.inscope/settings.json` (launcher-agnostic: any launcher that runs on
-  // that login honors it). The shared ~/.claude base login is yours to manage;
-  // inscope never writes there. Dangerous, so it is opt-in and never implied.
+  // writing `permissions.defaultMode: "bypassPermissions"` plus the pre-seeded
+  // bypass dialog acceptance into its `<path>/.inscope/settings.json`
+  // (launcher-agnostic: any launcher that runs on that login honors it, and a
+  // fresh login skips the one-time warning dialog). Without it, Claude Code
+  // v2.1.228+ starts sessions in its own auto-mode default. The shared ~/.claude
+  // base login is yours to manage; inscope never writes there. Dangerous, so it
+  // is opt-in and never implied.
   bypass?: boolean
   workspaces: Workspace[]
 }

@@ -13,7 +13,7 @@ import {
 import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
-import { hasBypassSetting } from "@/generators/settings"
+import { hasBypassAcceptance, hasBypassSetting } from "@/generators/settings"
 import { desiredSkillLinks, skillLinkTarget } from "@/generators/skills"
 import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
@@ -56,6 +56,23 @@ const unpinnedServers = (doc: Record<string, any> | null): string[] => {
 // doctor command and existing tests keep importing it from @/doctor.
 export { currentWorkspace } from "@/config"
 
+// Org-managed Claude Code settings on macOS. When they set
+// `permissions.disableBypassPermissionsMode: "disable"`, Claude ignores a
+// `bypassPermissions` defaultMode from every other settings file, so inscope's
+// bypass would be silently inert; doctor surfaces that instead.
+export const MANAGED_SETTINGS_PATH = "/Library/Application Support/ClaudeCode/managed-settings.json"
+
+export const bypassDisabledByPolicy = (file: string = MANAGED_SETTINGS_PATH): boolean => {
+  try {
+    const doc = JSON.parse(fs.readFileSync(file, "utf8"))
+    return doc?.permissions?.disableBypassPermissionsMode === "disable"
+  } catch {
+    // Missing or unreadable managed settings mean no policy; a malformed file is
+    // Claude's to complain about, not doctor's.
+    return false
+  }
+}
+
 export const liveSnapshot = (run: Runner = defaultRunner) => {
   const gh = run("gh", ["api", "user", "--jq", ".login"])
   const email = run("git", ["config", "user.email"])
@@ -85,7 +102,10 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
         },
   )
   // bypass drift, both directions: configured but not applied, and the dangerous
-  // reverse, turned off in config but the login still auto-approves on disk.
+  // reverse, turned off in config but the login still auto-approves on disk. A
+  // login written by an older inscope has the mode without the dialog acceptance,
+  // so Claude still shows the one-time bypass dialog and refuses background
+  // sessions there; a re-run of apply seeds it.
   if (bypass && !hasBypassSetting(ws))
     out.push({
       status: "warn",
@@ -97,6 +117,12 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
       status: "warn",
       label: tag,
       detail: "bypass is off in config but this login still has it; run `inscope apply`",
+    })
+  else if (bypass && !hasBypassAcceptance(ws))
+    out.push({
+      status: "warn",
+      label: tag,
+      detail: "bypass applied without the dialog acceptance seeded; run `inscope apply`",
     })
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
@@ -184,6 +210,15 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
           detail: "does not source the hook; run `inscope apply`",
         },
   )
+
+  if (cfg.bypass && bypassDisabledByPolicy()) {
+    checks.push({
+      status: "warn",
+      label: "bypass",
+      detail:
+        "org managed settings disable bypassPermissions; the bypass setting in isolated logins is ignored",
+    })
+  }
 
   const needsGit = cfg.workspaces.some(hasGitIdentity)
   if (needsGit) {

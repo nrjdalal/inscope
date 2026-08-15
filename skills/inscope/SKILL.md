@@ -17,7 +17,7 @@ Change identity through inscope so its generated files stay in sync. The source 
 - After adding a skill, start a fresh `claude` session to pick it up (personal skills load at launch); editing a linked local skill's content updates live, unless it was added under a custom `--name` (a rewritten copy), which `inscope skill update` refreshes.
 - Skills are symlinked from a shared cache into the workspace's personal Claude skills dir, so Claude lists them in the `/` menu everywhere: an isolated workspace keeps them private in its own `.inscope/skills`, a non-isolated one shares `~/.claude/skills`.
 - An isolated login is delivered by exporting `CLAUDE_CONFIG_DIR` from the hook (not a `claude` wrapper), so any launcher that inherits the shell (a terminal, cmux, an IDE) runs on it and cmux session restore still works.
-- To skip Claude's permission prompts in isolated logins, set top-level `bypass: true` in `inscope.json` (no CLI flag), then `inscope apply`; it writes `defaultMode: bypassPermissions` into each `.inscope/settings.json`. The shared `~/.claude` login is the user's own to configure.
+- To skip Claude's permission prompts in isolated logins, set top-level `bypass: true` in `inscope.json` (no CLI flag), then `inscope apply`; it writes `defaultMode: bypassPermissions` plus the pre-accepted bypass dialog (`skipDangerousModePermissionPrompt: true`) into each `.inscope/settings.json`, so a fresh login skips the one-time warning and background sessions are not refused. Without it, Claude Code v2.1.228+ starts sessions in its auto-mode default (a classifier reviews actions). The shared `~/.claude` login is the user's own to configure, and an org's managed settings can disable bypass entirely (`inscope doctor` flags that).
 
 ## Commands
 
