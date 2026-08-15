@@ -42,4 +42,4 @@ lefthook runs format + lint + build on pre-commit and commitlint on the message;
 
 ## Releasing
 
-Bump the `package.json` version manually and push to `main`. `release.yml` publishes to npm; `auto-release.yml` then generates the `CHANGELOG.md` section, tags `vX.Y.Z`, and creates the GitHub release. Do not hand-write the changelog. Any non-main branch push publishes a `canary` prerelease; a main push without a version bump publishes nothing. Publishing authenticates via npm Trusted Publishing (OIDC, tied to this repo + `release.yml`); there is no `NPM_TOKEN` secret, so never add one back.
+Bump the `package.json` version manually and push to `main`. `release.yml` publishes to npm; `auto-release.yml` then generates the `CHANGELOG.md` section, tags `vX.Y.Z`, and creates the GitHub release. Do not hand-write the changelog. Publishing authenticates via npm Trusted Publishing (OIDC, tied to this repo + `release.yml`); there is no `NPM_TOKEN` secret, so never add one back.
