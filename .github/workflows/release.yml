@@ -61,6 +61,11 @@ jobs:
           node-version: lts/*
           registry-url: https://registry.npmjs.org
 
+      # npm Trusted Publishing (OIDC) needs npm >= 11.5.1; float on latest
+      # rather than trusting whatever the LTS runner bundles.
+      - name: Update npm for trusted publishing
+        run: npm install -g npm@latest
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -97,6 +102,8 @@ jobs:
           bunx json -I -f package.json -e 'delete this.commitlint'
           bunx json -I -f package.json -e 'delete this.devDependencies'
           bunx json -I -f package.json -e 'delete this.overrides'
+          # Auth is npm Trusted Publishing (OIDC): the registry trusts this
+          # repo+workflow via the id-token permission; no NPM_TOKEN secret.
           npm publish --provenance --access public --no-git-checks --tag $TAG
 
           PACKAGE_URL="https://www.npmjs.com/package/$PACKAGE_NAME/v/$RELEASE_VERSION"
@@ -114,5 +121,3 @@ jobs:
               -d "{\"state\": \"success\", \"context\": \"Package released\", \"description\": \"$PACKAGE_NAME@$RELEASE_VERSION\", \"target_url\": \"$PACKAGE_URL\"}" >/dev/null \
               && echo "🟢 Release status updated!" || echo "🔴 Failed to update release status."
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
