@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.15.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.14.0...v0.15.0)
+
+### 🚀 Enhancements
+
+- **cli:** --json output for doctor and list ([#38](https://github.com/nrjdalal/inscope/pull/38))
+- **settings:** Pre-seed the bypass dialog acceptance and flag org-disabled bypass ([#51](https://github.com/nrjdalal/inscope/pull/51))
+
+### 💅 Refactors
+
+- **cli:** Consolidate the "No config" guard into requireConfig() ([#49](https://github.com/nrjdalal/inscope/pull/49))
+
+### 📖 Documentation
+
+- **audit:** Plan workspace capability provisioning beyond .mcp.json ([#18](https://github.com/nrjdalal/inscope/pull/18))
+
+### ✅ Tests
+
+- **cli:** Cover doctor --json shell snapshot and exit-code gating ([#48](https://github.com/nrjdalal/inscope/pull/48))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.14.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.13.1...v0.14.0)
