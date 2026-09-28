@@ -25,9 +25,11 @@ import {
 } from "~/bin/commands/_prompt"
 import {
   buildServers,
+  DATADOG_SITE_CHOICES,
   finalizeSlack,
   gitGlobalHint,
   persist,
+  resolveDatadogSite,
   resolveSlackPackage,
   SLACK_PACKAGE_CHOICES,
   slackKeychainFor,
@@ -50,9 +52,12 @@ Options:
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
   --servers <list>      comma-separated, any of: github, atlassian, canva,
-                        clickup, hubspot, intercom, linear, monday, notion,
-                        plane, sentry, slack, stripe, vercel, webflow, xquik
-                        (default: github)
+                        clickup, datadog, hubspot, intercom, linear, monday,
+                        notion, plane, sentry, slack, stripe, vercel, webflow,
+                        xquik (default: github)
+  --datadog-site <s>    Datadog site for the datadog server: us1 (default),
+                        us3, us5, eu, ap1, ap2, uk1, or the site host
+                        (e.g. datadoghq.eu)
   --slack-keychain <s>  keychain service for the Slack token
                         (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
   --slack-package <p>   Slack MCP server package: @nrjdalal/slack-mcp-server
@@ -80,6 +85,7 @@ export const add = async (args: string[]) => {
       "git-name": { type: "string" },
       label: { type: "string" },
       servers: { type: "string" },
+      "datadog-site": { type: "string" },
       "slack-keychain": { type: "string" },
       "slack-package": { type: "string" },
       "slack-message": { type: "boolean" },
@@ -185,6 +191,20 @@ export const add = async (args: string[]) => {
     serverList = ["github"]
   }
 
+  // --- datadog site ---
+  const flagSite = resolveDatadogSite(values["datadog-site"])
+  if (flagSite === null) {
+    console.error(
+      `\nInvalid --datadog-site "${values["datadog-site"]}": use us1, us3, us5, eu, ap1, ap2, uk1, or a Datadog site host`,
+    )
+    process.exit(1)
+  }
+  let datadogSite = flagSite
+  if (values["datadog-site"] && !serverList.includes("datadog")) serverList.push("datadog")
+  if (serverList.includes("datadog") && interactive && !values["datadog-site"]) {
+    datadogSite = await selectOne("\nDatadog site", DATADOG_SITE_CHOICES)
+  }
+
   // --- slack details ---
   const wantSlack =
     serverList.includes("slack") ||
@@ -249,6 +269,7 @@ export const add = async (args: string[]) => {
       wantSlack
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
+      datadogSite,
     ),
   }
 

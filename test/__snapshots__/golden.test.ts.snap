@@ -15,6 +15,10 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       "type": "http",
       "url": "https://mcp.clickup.com/mcp",
     },
+    "datadog-acme": {
+      "type": "http",
+      "url": "https://mcp.datadoghq.eu/v1/mcp",
+    },
     "github-acme": {
       "headersHelper": "printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u 'neeraj-acme-org' 2>/dev/null)"",
       "type": "http",
@@ -585,6 +589,7 @@ exports[`golden: SERVER_TYPES registry order is locked 1`] = `
   "atlassian",
   "canva",
   "clickup",
+  "datadog",
   "hubspot",
   "intercom",
   "linear",

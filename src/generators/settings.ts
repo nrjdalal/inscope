@@ -7,8 +7,8 @@ import { writeFileAtomic } from "@/io"
 
 // An isolated workspace's own Claude user-scope settings live at the root of its
 // config dir, so `permissions.defaultMode` there governs that login under any
-// launcher (unlike a project `.claude/settings.json`, where bypassPermissions is
-// ignored).
+// launcher (unlike a project `.claude/settings.json`, where bypassPermissions does
+// not take effect and the session starts in Manual mode).
 export const inscopeSettingsPath = (ws: Workspace) => path.join(inscopeDirPath(ws), "settings.json")
 
 const BYPASS_MODE = "bypassPermissions"
@@ -81,16 +81,20 @@ export const applyBypass = (ws: Workspace, bypass: boolean) => {
   writeFileAtomic(file, JSON.stringify(next, null, 2) + "\n")
 }
 
-// Whether an isolated workspace's settings.json already declares inscope's bypass
-// mode; used by doctor to flag drift (bypass configured but not yet applied).
-export const hasBypassSetting = (ws: Workspace): boolean => {
+// The `permissions.defaultMode` an isolated login's settings.json declares, if any.
+export const loginDefaultMode = (ws: Workspace): string | undefined => {
   try {
     const doc = JSON.parse(fs.readFileSync(inscopeSettingsPath(ws), "utf8"))
-    return doc?.permissions?.defaultMode === BYPASS_MODE
+    const mode = doc?.permissions?.defaultMode
+    return typeof mode === "string" ? mode : undefined
   } catch {
-    return false
+    return undefined
   }
 }
+
+// Whether an isolated workspace's settings.json already declares inscope's bypass
+// mode; used by doctor to flag drift (bypass configured but not yet applied).
+export const hasBypassSetting = (ws: Workspace): boolean => loginDefaultMode(ws) === BYPASS_MODE
 
 // Whether the login also carries the pre-seeded bypass dialog acceptance. A login
 // written by an older inscope has only defaultMode; doctor flags that so a re-run

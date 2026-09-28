@@ -13,7 +13,7 @@ import {
 import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
-import { hasBypassAcceptance, hasBypassSetting } from "@/generators/settings"
+import { hasBypassAcceptance, hasBypassSetting, loginDefaultMode } from "@/generators/settings"
 import { desiredSkillLinks, skillLinkTarget } from "@/generators/skills"
 import { readFileOrNull } from "@/io"
 import { readBlock } from "@/managed-block"
@@ -105,8 +105,17 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
   // reverse, turned off in config but the login still auto-approves on disk. A
   // login written by an older inscope has the mode without the dialog acceptance,
   // so Claude still shows the one-time bypass dialog and refuses background
-  // sessions there; a re-run of apply seeds it.
-  if (bypass && !hasBypassSetting(ws))
+  // sessions there; a re-run of apply seeds it. Claude Code (v2.1.283+ makes auto
+  // the built-in default) offers once to switch a login's defaultMode to auto, and
+  // accepting rewrites it in place, so that case gets its own hint.
+  if (bypass && loginDefaultMode(ws) === "auto")
+    out.push({
+      status: "warn",
+      label: tag,
+      detail:
+        "bypass configured but this login was switched to auto mode (Claude's one-time auto-mode offer); run `inscope apply` and decline the offer",
+    })
+  else if (bypass && !hasBypassSetting(ws))
     out.push({
       status: "warn",
       label: tag,

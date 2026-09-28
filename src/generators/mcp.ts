@@ -2,6 +2,10 @@ import fs from "node:fs"
 import path from "node:path"
 
 import {
+  DATADOG_SITES,
+  type DatadogServer,
+  type DatadogSite,
+  DEFAULT_DATADOG_SITE,
   DEFAULT_SLACK_PACKAGE,
   type HttpServer,
   type SlackPackage,
@@ -58,12 +62,16 @@ const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
 export const githubHeadersHelper = (account: string) =>
   `printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u ${shSingleQuote(account)} 2>/dev/null)"`
 
+// Datadog's MCP endpoint for a regional site (US1 when unset).
+export const datadogUrl = (site: DatadogSite = DEFAULT_DATADOG_SITE) => `https://mcp.${site}/v1/mcp`
+
 // Remote servers Claude Code authenticates via OAuth over streamable HTTP
-// (just a URL each).
+// (just a URL each; datadog's is its US1 default, see remoteUrl for the site).
 export const REMOTE: Record<string, string> = {
   atlassian: "https://mcp.atlassian.com/v1/mcp",
   canva: "https://mcp.canva.com/mcp",
   clickup: "https://mcp.clickup.com/mcp",
+  datadog: datadogUrl(),
   hubspot: "https://mcp.hubspot.com",
   intercom: "https://mcp.intercom.com/mcp",
   linear: "https://mcp.linear.app/mcp",
@@ -83,6 +91,7 @@ export const SERVER_TYPES = [
   "atlassian",
   "canva",
   "clickup",
+  "datadog",
   "hubspot",
   "intercom",
   "linear",
@@ -101,8 +110,25 @@ export const managedKeys = (name: string) => SERVER_TYPES.map((t) => `${t}-${nam
 
 export const mcpFilePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".mcp.json")
 
-const httpUrl = (v: boolean | HttpServer | undefined, fallback: string) =>
-  v && typeof v === "object" && v.url ? v.url : fallback
+// The URL a configured remote server renders to: an explicit `url` wins, then
+// datadog's regional site, then the server's default.
+export const remoteUrl = (key: string, v: unknown): string => {
+  const o: DatadogServer = v && typeof v === "object" ? v : {}
+  if (o.url) return o.url
+  if (key === "datadog") return datadogUrl(o.site)
+  return REMOTE[key]
+}
+
+// Inverse of remoteUrl, for `diff --adopt`: the minimal config value that renders
+// `url` (true for the default, a known datadog site as `site`, else a custom url).
+export const remoteConfigFor = (key: string, url: string): true | HttpServer | DatadogServer => {
+  if (url === REMOTE[key]) return true
+  if (key === "datadog") {
+    const site = DATADOG_SITES.find((s) => datadogUrl(s) === url)
+    if (site) return { site }
+  }
+  return { url }
+}
 
 export const renderServers = (ws: Workspace): Record<string, unknown> => {
   const s = ws.servers as Record<string, unknown>
@@ -142,10 +168,7 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       }
       out[name] = { type: "stdio", command: "npx", args, env }
     } else {
-      out[name] = {
-        type: "http",
-        url: httpUrl(v as boolean | HttpServer, REMOTE[key]),
-      }
+      out[name] = { type: "http", url: remoteUrl(key, v) }
     }
   }
   return out

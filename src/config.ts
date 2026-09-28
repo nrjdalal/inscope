@@ -19,6 +19,25 @@ export type SlackServer = { keychain: string; addMessageTool?: boolean; package?
 
 export type HttpServer = { url?: string }
 
+// Datadog runs its MCP server per regional site (https://mcp.<site>/v1/mcp), so a
+// workspace picks its site; omitting `site` means US1 (datadoghq.com). A `url`
+// still overrides the whole endpoint like any other remote server.
+export const DATADOG_SITES = [
+  "datadoghq.com",
+  "us3.datadoghq.com",
+  "us5.datadoghq.com",
+  "datadoghq.eu",
+  "ap1.datadoghq.com",
+  "ap2.datadoghq.com",
+  "uk1.datadoghq.com",
+] as const
+
+export type DatadogSite = (typeof DATADOG_SITES)[number]
+
+export const DEFAULT_DATADOG_SITE: DatadogSite = "datadoghq.com"
+
+export type DatadogServer = HttpServer & { site?: DatadogSite }
+
 export const slackKeychainFor = (label: string): string =>
   `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
@@ -27,6 +46,7 @@ export type Servers = {
   atlassian?: boolean | HttpServer
   canva?: boolean | HttpServer
   clickup?: boolean | HttpServer
+  datadog?: boolean | DatadogServer
   hubspot?: boolean | HttpServer
   intercom?: boolean | HttpServer
   linear?: boolean | HttpServer
@@ -96,9 +116,9 @@ export type Config = {
   // bypass dialog acceptance into its `<path>/.inscope/settings.json`
   // (launcher-agnostic: any launcher that runs on that login honors it, and a
   // fresh login skips the one-time warning dialog). Without it, Claude Code
-  // v2.1.228+ starts sessions in its own auto-mode default. The shared ~/.claude
-  // base login is yours to manage; inscope never writes there. Dangerous, so it
-  // is opt-in and never implied.
+  // v2.1.283+ starts interactive sessions in auto mode (v2.1.228+ on Pro, Max,
+  // and Team plans). The shared ~/.claude base login is yours to manage; inscope
+  // never writes there. Dangerous, so it is opt-in and never implied.
   bypass?: boolean
   workspaces: Workspace[]
 }
@@ -395,6 +415,15 @@ export const validateConfig = (cfg: Config) => {
     if (slackPkg && !(SLACK_PACKAGES as readonly string[]).includes(slackPkg)) {
       throw new Error(
         `workspace "${ws.name}" Slack package "${slackPkg}" is invalid: use one of ${SLACK_PACKAGES.join(", ")}`,
+      )
+    }
+    // site picks the host the .mcp.json points at, so restrict it to Datadog's
+    // known sites: a hand-edited typo fails here instead of as a dead server.
+    const datadog = ws.servers?.datadog
+    const ddSite = datadog && typeof datadog === "object" ? datadog.site : undefined
+    if (ddSite !== undefined && !(DATADOG_SITES as readonly string[]).includes(ddSite)) {
+      throw new Error(
+        `workspace "${ws.name}" Datadog site "${ddSite}" is invalid: use one of ${DATADOG_SITES.join(", ")}`,
       )
     }
     if (ws.skills !== undefined) {
