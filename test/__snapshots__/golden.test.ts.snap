@@ -44,9 +44,18 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
       "type": "http",
       "url": "https://mcp.notion.com/mcp",
     },
+    "nylas-acme": {
+      "headersHelper": "printf '{"Authorization":"Bearer %s"}' "$(security find-generic-password -a "$USER" -s 'NYLAS_API_KEY_ACME' -w 2>/dev/null)"",
+      "type": "http",
+      "url": "https://mcp.eu.nylas.com",
+    },
     "plane-acme": {
       "type": "http",
       "url": "https://mcp.plane.so/http/mcp",
+    },
+    "posthog-acme": {
+      "type": "http",
+      "url": "https://mcp.posthog.com/mcp",
     },
     "sentry-acme": {
       "type": "http",
@@ -595,7 +604,9 @@ exports[`golden: SERVER_TYPES registry order is locked 1`] = `
   "linear",
   "monday",
   "notion",
+  "nylas",
   "plane",
+  "posthog",
   "sentry",
   "slack",
   "stripe",

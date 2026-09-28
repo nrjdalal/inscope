@@ -276,6 +276,19 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       )
     }
 
+    if (ws.servers.nylas) {
+      const svc = ws.servers.nylas.keychain
+      checks.push(
+        keychainHas(svc, run)
+          ? { status: "ok", label: `${tag} nylas`, detail: svc }
+          : {
+              status: "fail",
+              label: `${tag} nylas`,
+              detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "nyk_...")}\``,
+            },
+      )
+    }
+
     if (hasGitIdentity(ws)) {
       const file = perWorkspaceGitconfigPath(ws.name)
       if (!fs.existsSync(file)) {

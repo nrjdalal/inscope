@@ -38,6 +38,18 @@ export const DEFAULT_DATADOG_SITE: DatadogSite = "datadoghq.com"
 
 export type DatadogServer = HttpServer & { site?: DatadogSite }
 
+// Nylas authenticates with an API key (no OAuth), sent as a Bearer header that
+// the .mcp.json fetches from the macOS keychain at connect time; `region` picks
+// the US (default) or EU host, matching the Nylas application's data residency.
+export const NYLAS_REGIONS = ["us", "eu"] as const
+
+export type NylasRegion = (typeof NYLAS_REGIONS)[number]
+
+export type NylasServer = { keychain: string; region?: NylasRegion }
+
+export const nylasKeychainFor = (label: string): string =>
+  `NYLAS_API_KEY_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
+
 export const slackKeychainFor = (label: string): string =>
   `SLACK_MCP_XOXP_TOKEN_${label.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
 
@@ -52,7 +64,9 @@ export type Servers = {
   linear?: boolean | HttpServer
   monday?: boolean | HttpServer
   notion?: boolean | HttpServer
+  nylas?: NylasServer | false
   plane?: boolean | HttpServer
+  posthog?: boolean | HttpServer
   sentry?: boolean | HttpServer
   slack?: SlackServer | false
   stripe?: boolean | HttpServer
@@ -425,6 +439,22 @@ export const validateConfig = (cfg: Config) => {
       throw new Error(
         `workspace "${ws.name}" Datadog site "${ddSite}" is invalid: use one of ${DATADOG_SITES.join(", ")}`,
       )
+    }
+    // The Nylas keychain service is interpolated into the headersHelper command.
+    const nylas = ws.servers?.nylas
+    if (nylas) {
+      const kcErr = typeof nylas.keychain === "string" ? hookValueError(nylas.keychain) : "missing"
+      if (kcErr)
+        throw new Error(
+          `workspace "${ws.name}" Nylas keychain "${nylas.keychain}" is invalid: ${kcErr}`,
+        )
+      if (
+        nylas.region !== undefined &&
+        !(NYLAS_REGIONS as readonly string[]).includes(nylas.region)
+      )
+        throw new Error(
+          `workspace "${ws.name}" Nylas region "${nylas.region}" is invalid: use one of ${NYLAS_REGIONS.join(", ")}`,
+        )
     }
     if (ws.skills !== undefined) {
       if (!Array.isArray(ws.skills))

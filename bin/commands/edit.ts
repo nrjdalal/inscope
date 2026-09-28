@@ -4,6 +4,7 @@ import {
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
   hookValueError,
+  type NylasServer,
   type SlackPackage,
   type Workspace,
 } from "@/config"
@@ -23,7 +24,10 @@ import {
   DATADOG_SITE_CHOICES,
   datadogSiteOf,
   enabledServers,
+  finalizeNylas,
   finalizeSlack,
+  NYLAS_REGION_CHOICES,
+  nylasKeychainFor,
   persist,
   SERVER_LABELS,
   SLACK_PACKAGE_CHOICES,
@@ -142,6 +146,31 @@ export const edit = async (args: string[]) => {
     datadogSite = await selectOne("\nDatadog site", DATADOG_SITE_CHOICES, siteInitial)
   }
 
+  // --- nylas details, pre-filled from the current config ---
+  const curNylas = ws.servers.nylas || null
+  let nylas: NylasServer | null = null
+  let seedNylas = false
+  if (serverList.includes("nylas")) {
+    console.log(`\nNylas uses an API key from your Nylas dashboard.`)
+    const region = await selectOne(
+      "Nylas region",
+      NYLAS_REGION_CHOICES,
+      curNylas?.region === "eu" ? 1 : 0,
+    )
+    const keychain = await promptText(
+      "Nylas keychain service",
+      curNylas?.keychain ?? nylasKeychainFor(ws.name),
+    )
+    const svcErr = hookValueError(keychain)
+    if (svcErr) {
+      console.error(`\nInvalid Nylas keychain service "${keychain}": ${svcErr}`)
+      process.exit(1)
+    }
+    nylas = { keychain, region }
+    if (!keychainHas(keychain))
+      seedNylas = await promptConfirm("Store the Nylas API key now?", true)
+  }
+
   // --- slack details, pre-filled from the current config ---
   const wantSlack = serverList.includes("slack")
   let slackSvc = ws.servers.slack ? ws.servers.slack.keychain : slackKeychainFor(ws.name)
@@ -191,7 +220,7 @@ export const edit = async (args: string[]) => {
       wantSlack
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
-      datadogSite,
+      { datadogSite, nylas },
     ),
   }
 
@@ -207,6 +236,7 @@ export const edit = async (args: string[]) => {
         `Delete it with: ${orange(`rm -rf ${next.path}/.inscope`)}`,
     )
   await finalizeSlack(next, seedSlack)
+  await finalizeNylas(next, seedNylas)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)
   process.exit(0)
 }

@@ -8,6 +8,8 @@ import {
   DEFAULT_DATADOG_SITE,
   DEFAULT_SLACK_PACKAGE,
   type HttpServer,
+  type NylasRegion,
+  type NylasServer,
   type SlackPackage,
   type SlackServer,
   type Workspace,
@@ -62,6 +64,14 @@ const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
 export const githubHeadersHelper = (account: string) =>
   `printf '{"Authorization":"Bearer %s"}' "$(gh auth token -u ${shSingleQuote(account)} 2>/dev/null)"`
 
+// Fetch a Nylas API key from the macOS keychain at MCP-connect time and emit it
+// as the Bearer header, like githubHeadersHelper: launcher-agnostic, and a missing
+// key degrades just this server. The service is validated and single-quoted.
+export const nylasHeadersHelper = (service: string) =>
+  `printf '{"Authorization":"Bearer %s"}' "$(security find-generic-password -a "$USER" -s ${shSingleQuote(service)} -w 2>/dev/null)"`
+
+export const nylasUrl = (region: NylasRegion = "us") => `https://mcp.${region}.nylas.com`
+
 // Datadog's MCP endpoint for a regional site (US1 when unset).
 export const datadogUrl = (site: DatadogSite = DEFAULT_DATADOG_SITE) => `https://mcp.${site}/v1/mcp`
 
@@ -78,6 +88,8 @@ export const REMOTE: Record<string, string> = {
   monday: "https://mcp.monday.com/mcp",
   notion: "https://mcp.notion.com/mcp",
   plane: "https://mcp.plane.so/http/mcp",
+  // one host for US and EU: PostHog's OAuth routes to the account's region
+  posthog: "https://mcp.posthog.com/mcp",
   sentry: "https://mcp.sentry.dev/mcp",
   stripe: "https://mcp.stripe.com",
   vercel: "https://mcp.vercel.com",
@@ -97,7 +109,9 @@ export const SERVER_TYPES = [
   "linear",
   "monday",
   "notion",
+  "nylas",
   "plane",
+  "posthog",
   "sentry",
   "slack",
   "stripe",
@@ -144,6 +158,13 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       out[name] = ws.gh
         ? { type: "http", url: GITHUB_URL, headersHelper: githubHeadersHelper(ws.gh) }
         : { type: "http", url: GITHUB_URL, headers: { Authorization: "Bearer ${GITHUB_TOKEN:-}" } }
+    } else if (key === "nylas") {
+      const nylas = v as NylasServer
+      out[name] = {
+        type: "http",
+        url: nylasUrl(nylas.region),
+        headersHelper: nylasHeadersHelper(nylas.keychain),
+      }
     } else if (key === "slack") {
       const slack = v as SlackServer
       const pkg = slack.package ?? DEFAULT_SLACK_PACKAGE

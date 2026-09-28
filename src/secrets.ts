@@ -78,8 +78,8 @@ export const keychainSet = (service: string, token: string, run: Runner = defaul
 // shell metacharacters would inject into the pasted command.
 const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
 
-export const keychainSetCommand = (service: string) =>
-  `security add-generic-password -U -a "${user() || "$USER"}" -s ${shSingleQuote(service)} -w 'xoxp-...'`
+export const keychainSetCommand = (service: string, placeholder = "xoxp-...") =>
+  `security add-generic-password -U -a "${user() || "$USER"}" -s ${shSingleQuote(service)} -w '${placeholder}'`
 
 export const gitEmailForFile = (file: string, run: Runner = defaultRunner) => {
   const r = run("git", ["config", "--file", file, "user.email"])
