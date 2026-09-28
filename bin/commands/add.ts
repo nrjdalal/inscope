@@ -5,6 +5,7 @@ import {
   configExists,
   hookValueError,
   labelFromPath,
+  type NylasServer,
   loadConfig,
   pathConflict,
   type SlackPackage,
@@ -26,10 +27,14 @@ import {
 import {
   buildServers,
   DATADOG_SITE_CHOICES,
+  finalizeNylas,
   finalizeSlack,
   gitGlobalHint,
+  NYLAS_REGION_CHOICES,
+  nylasKeychainFor,
   persist,
   resolveDatadogSite,
+  resolveNylasRegion,
   resolveSlackPackage,
   SLACK_PACKAGE_CHOICES,
   slackKeychainFor,
@@ -53,11 +58,15 @@ Options:
   --label <name>        workspace name; defaults to the directory basename
   --servers <list>      comma-separated, any of: github, atlassian, canva,
                         clickup, datadog, hubspot, intercom, linear, monday,
-                        notion, plane, sentry, slack, stripe, vercel, webflow,
-                        xquik (default: github)
+                        notion, nylas, plane, posthog, sentry, slack, stripe,
+                        vercel, webflow, xquik (default: github)
   --datadog-site <s>    Datadog site for the datadog server: us1 (default),
                         us3, us5, eu, ap1, ap2, uk1, or the site host
                         (e.g. datadoghq.eu)
+  --nylas-keychain <s>  keychain service for the Nylas API key
+                        (default: NYLAS_API_KEY_<LABEL> when nylas is on)
+  --nylas-region <r>    Nylas region: us (default) or eu
+  --seed-nylas          prompt for the Nylas API key and store it in the keychain
   --slack-keychain <s>  keychain service for the Slack token
                         (default: SLACK_MCP_XOXP_TOKEN_<LABEL> when slack is on)
   --slack-package <p>   Slack MCP server package: @nrjdalal/slack-mcp-server
@@ -86,6 +95,9 @@ export const add = async (args: string[]) => {
       label: { type: "string" },
       servers: { type: "string" },
       "datadog-site": { type: "string" },
+      "nylas-keychain": { type: "string" },
+      "nylas-region": { type: "string" },
+      "seed-nylas": { type: "boolean" },
       "slack-keychain": { type: "string" },
       "slack-package": { type: "string" },
       "slack-message": { type: "boolean" },
@@ -205,6 +217,29 @@ export const add = async (args: string[]) => {
     datadogSite = await selectOne("\nDatadog site", DATADOG_SITE_CHOICES)
   }
 
+  // --- nylas details ---
+  const wantNylas =
+    serverList.includes("nylas") ||
+    !!values["nylas-keychain"] ||
+    !!values["nylas-region"] ||
+    !!values["seed-nylas"]
+  if (wantNylas && !serverList.includes("nylas")) serverList.push("nylas")
+  const flagRegion = resolveNylasRegion(values["nylas-region"])
+  if (flagRegion === null) {
+    console.error(`\nInvalid --nylas-region "${values["nylas-region"]}": use us or eu`)
+    process.exit(1)
+  }
+  let nylasRegion = flagRegion
+  let nylasSvc = values["nylas-keychain"] || nylasKeychainFor(label)
+  let seedNylas = !!values["seed-nylas"]
+  if (wantNylas && interactive) {
+    console.log(`\nNylas uses an API key from your Nylas dashboard.`)
+    if (!values["nylas-region"]) nylasRegion = await selectOne("Nylas region", NYLAS_REGION_CHOICES)
+    if (!values["nylas-keychain"]) nylasSvc = await promptText("Nylas keychain service", nylasSvc)
+    if (!values["seed-nylas"]) seedNylas = await promptConfirm("Store the Nylas API key now?", true)
+  }
+  const nylas: NylasServer | null = wantNylas ? { keychain: nylasSvc, region: nylasRegion } : null
+
   // --- slack details ---
   const wantSlack =
     serverList.includes("slack") ||
@@ -251,6 +286,13 @@ export const add = async (args: string[]) => {
     console.error(`\nInvalid gh account "${gh}": ${ghErr}`)
     process.exit(1)
   }
+  if (nylas) {
+    const svcErr = hookValueError(nylas.keychain)
+    if (svcErr) {
+      console.error(`\nInvalid Nylas keychain service "${nylas.keychain}": ${svcErr}`)
+      process.exit(1)
+    }
+  }
   if (wantSlack) {
     const svcErr = hookValueError(slackSvc)
     if (svcErr) {
@@ -269,7 +311,7 @@ export const add = async (args: string[]) => {
       wantSlack
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
-      datadogSite,
+      { datadogSite, nylas },
     ),
   }
 
@@ -282,6 +324,7 @@ export const add = async (args: string[]) => {
       `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
   await finalizeSlack(ws, seedSlack)
+  await finalizeNylas(ws, seedNylas)
   if (firstRun)
     console.log(
       `\nFirst run: reload your shell to load the hook: source ~/.zshrc (or open a new terminal).`,

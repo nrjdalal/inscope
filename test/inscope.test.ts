@@ -82,6 +82,7 @@ import {
   gitGlobalHint,
   persist,
   resolveDatadogSite,
+  resolveNylasRegion,
   resolveSlackPackage,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
@@ -2564,9 +2565,11 @@ test("renderServers points datadog at its regional site, US1 by default", () => 
 
 test("buildServers persists only a non-default datadog site", () => {
   expect(buildServers(["datadog"], null).datadog).toBe(true)
-  expect(buildServers(["datadog"], null, "datadoghq.com").datadog).toBe(true)
-  expect(buildServers(["datadog"], null, "datadoghq.eu").datadog).toEqual({ site: "datadoghq.eu" })
-  expect(buildServers(["github"], null, "datadoghq.eu").datadog).toBe(false)
+  expect(buildServers(["datadog"], null, { datadogSite: "datadoghq.com" }).datadog).toBe(true)
+  expect(buildServers(["datadog"], null, { datadogSite: "datadoghq.eu" }).datadog).toEqual({
+    site: "datadoghq.eu",
+  })
+  expect(buildServers(["github"], null, { datadogSite: "datadoghq.eu" }).datadog).toBe(false)
 })
 
 test("resolveDatadogSite accepts region codes and site hosts", () => {
@@ -2643,4 +2646,74 @@ test("runDoctor names Claude's auto-mode offer when it rewrote a bypass login", 
   // apply restores bypass
   applyBypass(ws, true)
   expect(loginDefaultMode(ws)).toBe("bypassPermissions")
+})
+
+test("renderServers emits posthog's single OAuth endpoint", () => {
+  const out = renderServers({ name: "x", path: "~/x", servers: { posthog: true } })
+  expect(out["posthog-x"]).toEqual({ type: "http", url: "https://mcp.posthog.com/mcp" })
+})
+
+test("renderServers sends the nylas API key from the keychain as a Bearer header", () => {
+  const us = renderServers({
+    name: "x",
+    path: "~/x",
+    servers: { nylas: { keychain: "NYLAS_API_KEY_X" } },
+  })
+  expect(us["nylas-x"]).toEqual({
+    type: "http",
+    url: "https://mcp.us.nylas.com",
+    headersHelper: `printf '{"Authorization":"Bearer %s"}' "$(security find-generic-password -a "$USER" -s 'NYLAS_API_KEY_X' -w 2>/dev/null)"`,
+  })
+  const eu = renderServers({
+    name: "x",
+    path: "~/x",
+    servers: { nylas: { keychain: "NYLAS_API_KEY_X", region: "eu" } },
+  })
+  expect((eu["nylas-x"] as { url: string }).url).toBe("https://mcp.eu.nylas.com")
+})
+
+test("buildServers persists nylas with only a non-default region", () => {
+  expect(buildServers(["github"], null).nylas).toBe(false)
+  expect(buildServers(["nylas"], null, { nylas: { keychain: "K", region: "us" } }).nylas).toEqual({
+    keychain: "K",
+  })
+  expect(buildServers(["nylas"], null, { nylas: { keychain: "K", region: "eu" } }).nylas).toEqual({
+    keychain: "K",
+    region: "eu",
+  })
+  expect(resolveNylasRegion(undefined)).toBe("us")
+  expect(resolveNylasRegion("EU")).toBe("eu")
+  expect(resolveNylasRegion("apac")).toBeNull()
+})
+
+test("validateConfig guards the nylas keychain and region", () => {
+  const cfg = (nylas: unknown) =>
+    ({
+      version: 1,
+      workspaces: [{ name: "acme", path: "~/acme", servers: { nylas } }],
+    }) as Config
+  expect(() => validateConfig(cfg({ keychain: "NYLAS_API_KEY_ACME", region: "eu" }))).not.toThrow()
+  expect(() => validateConfig(cfg({ keychain: "K", region: "apac" }))).toThrow(
+    /Nylas region "apac" is invalid/,
+  )
+  expect(() => validateConfig(cfg({ keychain: "bad$svc" }))).toThrow(/Nylas keychain/)
+})
+
+test("runDoctor checks the nylas API key is in the keychain", () => {
+  const cfg: Config = {
+    version: 1,
+    workspaces: [
+      { name: "acme", path: tmpDir(), servers: { nylas: { keychain: "NYLAS_API_KEY_ACME" } } },
+    ],
+  }
+  const nylasCheck = (keyStored: boolean) =>
+    runDoctor(cfg, (cmd, args) =>
+      cmd === "security" && args.includes("NYLAS_API_KEY_ACME")
+        ? { status: keyStored ? 0 : 44, stdout: keyStored ? "nyk_x" : "", stderr: "" }
+        : { status: 1, stdout: "", stderr: "" },
+    ).find((c) => c.label === "[acme] nylas")
+  expect(nylasCheck(true)?.status).toBe("ok")
+  const missing = nylasCheck(false)
+  expect(missing?.status).toBe("fail")
+  expect(missing?.detail).toContain("-s 'NYLAS_API_KEY_ACME' -w 'nyk_...'")
 })

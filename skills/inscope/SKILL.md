@@ -25,7 +25,7 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 ### Workspaces
 
-- `inscope add [path]`: map a workspace; on the first run it also creates the config, the chpwd hook, and the `~/.zshrc` source line (there is no separate init). Flags skip prompts: `--gh <account>`, `--email`/`--git-name` (per-workspace git identity, else inherits global), `--isolate` (own Claude login in a gitignored `<path>/.inscope`), `--servers <list>`, `--datadog-site <us1|us3|us5|eu|ap1|ap2|uk1>` (Datadog's regional MCP host; stored as `servers.datadog.site`), `--label`, the Slack options, `-y`.
+- `inscope add [path]`: map a workspace; on the first run it also creates the config, the chpwd hook, and the `~/.zshrc` source line (there is no separate init). Flags skip prompts: `--gh <account>`, `--email`/`--git-name` (per-workspace git identity, else inherits global), `--isolate` (own Claude login in a gitignored `<path>/.inscope`), `--servers <list>`, `--datadog-site <us1|us3|us5|eu|ap1|ap2|uk1>` (Datadog's regional MCP host; stored as `servers.datadog.site`), the Nylas options (`--nylas-region us|eu`, `--nylas-keychain`, `--seed-nylas`; Nylas authenticates with an API key read from the macOS keychain at connect time, not OAuth), `--label`, the Slack options, `-y`.
 - `inscope status` (`whoami`): show the identity resolved for the current directory, the Claude login (email + subscription, from `claude auth status`) and whether it is shared or isolated, the GitHub account and token, the git email, MCP servers, and skills. `--json` for scripting.
 - `inscope list` (`ls`): show workspaces with their identity, servers, and skills. `--json` for scripting.
 - `inscope edit [path|label]`: change a workspace through the same prompts.

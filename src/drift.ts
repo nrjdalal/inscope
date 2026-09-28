@@ -237,7 +237,7 @@ export const adoptable = (cfg: Config): { cfg: Config; changes: string[] } => {
     // headers / a keychain name the .mcp.json doesn't carry), so a wholly on-disk
     // one of those isn't reconstructable here; add it via `inscope edit`.
     for (const key of SERVER_TYPES) {
-      if (key === "github" || key === "slack") continue
+      if (key === "github" || key === "slack" || key === "nylas") continue
       const diskUrl = onDisk[`${key}-${ws.name}`]?.url
       if (typeof diskUrl !== "string") continue
       const cur = (ws.servers as Record<string, unknown>)[key]

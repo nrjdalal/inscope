@@ -98,11 +98,11 @@ Run any command with `-h` for its flags. Mutating commands apply in one step; `a
 
 ## MCP servers
 
-One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Slack reads a Keychain token exported by the hook; the rest are OAuth.
+One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Nylas reads its API key from the Keychain at connect time; Slack reads a Keychain token exported by the hook; the rest are OAuth.
 
-`github` · `atlassian` · `canva` · `clickup` · `datadog` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `plane` · `sentry` · `slack` · `stripe` · `vercel` · `webflow` · `xquik`
+`github` · `atlassian` · `canva` · `clickup` · `datadog` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `nylas` · `plane` · `posthog` · `sentry` · `slack` · `stripe` · `vercel` · `webflow` · `xquik`
 
-Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). Datadog serves each region from its own host, so pick yours with `--datadog-site` (`us1` default, `us3`, `us5`, `eu`, `ap1`, `ap2`, `uk1`), stored as `"datadog": { "site": "datadoghq.eu" }`. OAuth connectors, including Datadog and Xquik, authenticate in Claude Code at connect time. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
+Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). Datadog serves each region from its own host, so pick yours with `--datadog-site` (`us1` default, `us3`, `us5`, `eu`, `ap1`, `ap2`, `uk1`), stored as `"datadog": { "site": "datadoghq.eu" }`. Nylas has no OAuth: it sends your Nylas API key as a Bearer header, read from the Keychain at connect time (`--seed-nylas` stores it, `--nylas-region eu` for EU apps). PostHog uses one endpoint and routes US and EU accounts itself. OAuth connectors, including Datadog, PostHog, and Xquik, authenticate in Claude Code at connect time. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
 
 ---
 
