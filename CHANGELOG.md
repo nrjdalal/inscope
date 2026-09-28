@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.16.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.15.0...v0.16.0)
+
+### 🚀 Enhancements
+
+- **mcp:** Add datadog with regional site selection ([#53](https://github.com/nrjdalal/inscope/pull/53))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.15.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.14.0...v0.15.0)
