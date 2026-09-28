@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.16.0...v0.17.0)
+
+### 🚀 Enhancements
+
+- **mcp:** Add posthog and nylas servers ([#54](https://github.com/nrjdalal/inscope/pull/54))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.16.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.15.0...v0.16.0)
