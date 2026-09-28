@@ -20,6 +20,8 @@ import {
 } from "~/bin/commands/_prompt"
 import {
   buildServers,
+  DATADOG_SITE_CHOICES,
+  datadogSiteOf,
   enabledServers,
   finalizeSlack,
   persist,
@@ -130,6 +132,16 @@ export const edit = async (args: string[]) => {
     })),
   )
 
+  // --- datadog site, pre-filled from the current config ---
+  let datadogSite = datadogSiteOf(ws.servers)
+  if (serverList.includes("datadog")) {
+    const siteInitial = Math.max(
+      0,
+      DATADOG_SITE_CHOICES.findIndex((c) => c.value === datadogSite),
+    )
+    datadogSite = await selectOne("\nDatadog site", DATADOG_SITE_CHOICES, siteInitial)
+  }
+
   // --- slack details, pre-filled from the current config ---
   const wantSlack = serverList.includes("slack")
   let slackSvc = ws.servers.slack ? ws.servers.slack.keychain : slackKeychainFor(ws.name)
@@ -179,6 +191,7 @@ export const edit = async (args: string[]) => {
       wantSlack
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
+      datadogSite,
     ),
   }
 

@@ -28,6 +28,7 @@ const allServers: Workspace = {
     atlassian: true,
     canva: true,
     clickup: true,
+    datadog: { site: "datadoghq.eu" },
     hubspot: true,
     intercom: true,
     linear: true,

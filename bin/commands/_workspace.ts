@@ -1,6 +1,9 @@
 import { applyAll } from "@/apply"
 import {
   configExists,
+  DATADOG_SITES,
+  type DatadogSite,
+  DEFAULT_DATADOG_SITE,
   DEFAULT_SLACK_PACKAGE,
   defaultConfig,
   loadConfig,
@@ -29,10 +32,14 @@ export const enabledServers = (s: Servers): string[] =>
 export const buildServers = (
   list: string[],
   slack: { keychain: string; addMessageTool: boolean; package?: SlackPackage } | null,
+  datadogSite: DatadogSite = DEFAULT_DATADOG_SITE,
 ): Servers => {
   const out: Record<string, unknown> = {}
   for (const t of SERVER_TYPES) {
-    if (t === "slack") {
+    if (t === "datadog") {
+      // Only persist a non-default site, so a US1 workspace stays `datadog: true`.
+      out[t] = list.includes(t) && (datadogSite === DEFAULT_DATADOG_SITE || { site: datadogSite })
+    } else if (t === "slack") {
       if (!slack) {
         out[t] = false
         continue
@@ -68,6 +75,38 @@ export const resolveSlackPackage = (input?: string): SlackPackage | null => {
   if (["slack-mcp-server", "original", "korotovsky"].includes(v)) return "slack-mcp-server"
   return null
 }
+
+// Datadog's regional sites, shared by `add` and `edit`, labeled with the region
+// code Datadog shows in its site selector. US1 (the default) is listed first.
+const DATADOG_REGIONS: Record<DatadogSite, string> = {
+  "datadoghq.com": "US1",
+  "us3.datadoghq.com": "US3",
+  "us5.datadoghq.com": "US5",
+  "datadoghq.eu": "EU1",
+  "ap1.datadoghq.com": "AP1",
+  "ap2.datadoghq.com": "AP2",
+  "uk1.datadoghq.com": "UK1",
+}
+
+export const DATADOG_SITE_CHOICES: { label: string; value: DatadogSite }[] = DATADOG_SITES.map(
+  (site) => ({ label: `${DATADOG_REGIONS[site]} (${site})`, value: site }),
+)
+
+// Resolve a --datadog-site flag value to a known site, accepting the site itself
+// or its region code (us1, eu, eu1, ap1, ...). Returns null for an unrecognized
+// value so the caller can error out.
+export const resolveDatadogSite = (input?: string): DatadogSite | null => {
+  const v = (input ?? "").trim().toLowerCase()
+  if (!v || v === "default") return DEFAULT_DATADOG_SITE
+  if (v === "eu") return "datadoghq.eu"
+  const byRegion = DATADOG_SITES.find((s) => DATADOG_REGIONS[s].toLowerCase() === v)
+  if (byRegion) return byRegion
+  return DATADOG_SITES.find((s) => s === v) ?? null
+}
+
+// The site a workspace's datadog server is on (US1 unless it names one).
+export const datadogSiteOf = (s: Servers): DatadogSite =>
+  (typeof s.datadog === "object" && s.datadog.site) || DEFAULT_DATADOG_SITE
 
 // The hint shown next to the interactive git email/name prompts. Pressing enter
 // inherits the global (the workspace stores nothing and tracks global at commit

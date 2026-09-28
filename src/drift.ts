@@ -3,7 +3,6 @@ import fs from "node:fs"
 import {
   type Config,
   DEFAULT_SLACK_PACKAGE,
-  type HttpServer,
   type Servers,
   type SlackPackage,
   type SlackServer,
@@ -21,7 +20,8 @@ import { renderHook } from "@/generators/hook"
 import {
   mcpFilePath,
   mergeMcpDoc,
-  REMOTE,
+  remoteConfigFor,
+  remoteUrl,
   SERVER_TYPES,
   serializeMcp,
   slackPackageFromArgs,
@@ -241,16 +241,13 @@ export const adoptable = (cfg: Config): { cfg: Config; changes: string[] } => {
       const diskUrl = onDisk[`${key}-${ws.name}`]?.url
       if (typeof diskUrl !== "string") continue
       const cur = (ws.servers as Record<string, unknown>)[key]
-      if (!cur) {
-        servers = { ...servers, [key]: diskUrl === REMOTE[key] ? true : { url: diskUrl } }
-        changes.push(`${ws.name}: ${key} = ${diskUrl === REMOTE[key] ? "enabled" : diskUrl}`)
-        continue
-      }
-      const curUrl = typeof cur === "object" ? (cur as HttpServer).url : undefined
-      if (diskUrl !== (curUrl ?? REMOTE[key])) {
-        servers = { ...servers, [key]: { url: diskUrl } }
-        changes.push(`${ws.name}: ${key}.url = ${diskUrl}`)
-      }
+      if (diskUrl === (cur ? remoteUrl(key, cur) : undefined)) continue
+      const next = remoteConfigFor(key, diskUrl)
+      servers = { ...servers, [key]: next }
+      const site = typeof next === "object" && "site" in next ? next.site : undefined
+      if (!cur) changes.push(`${ws.name}: ${key} = ${next === true ? "enabled" : diskUrl}`)
+      else if (site) changes.push(`${ws.name}: ${key}.site = ${site}`)
+      else changes.push(`${ws.name}: ${key}.url = ${diskUrl}`)
     }
 
     return servers === ws.servers ? ws : { ...ws, servers }

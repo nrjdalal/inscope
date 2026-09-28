@@ -44,12 +44,19 @@ import {
   isInscopeIgnored,
   renderGitignore,
 } from "@/generators/isolate"
-import { applyMcp, removeMcp, renderServers, slackPackageFromArgs } from "@/generators/mcp"
+import {
+  applyMcp,
+  datadogUrl,
+  removeMcp,
+  renderServers,
+  slackPackageFromArgs,
+} from "@/generators/mcp"
 import {
   applyBypass,
   hasBypassAcceptance,
   hasBypassSetting,
   inscopeSettingsPath,
+  loginDefaultMode,
   mergeBypassSettings,
 } from "@/generators/settings"
 import {
@@ -70,9 +77,11 @@ import { claudeAuthStatus, ghAccounts, gitGlobal, keychainSetCommand, type Runne
 import { resolveStatus } from "@/status"
 import {
   buildServers,
+  datadogSiteOf,
   enabledServers,
   gitGlobalHint,
   persist,
+  resolveDatadogSite,
   resolveSlackPackage,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
@@ -2531,4 +2540,107 @@ test("resolveStatus outside any workspace reports the shared login and global gi
   expect(snap.github).toBeNull()
   expect(snap.git).toEqual({ email: "me@me.com", source: "global" })
   expect(snap.servers).toEqual([])
+})
+
+test("renderServers points datadog at its regional site, US1 by default", () => {
+  const us = renderServers({ name: "x", path: "~/x", servers: { datadog: true } })
+  expect(us["datadog-x"]).toEqual({ type: "http", url: "https://mcp.datadoghq.com/v1/mcp" })
+
+  const eu = renderServers({
+    name: "x",
+    path: "~/x",
+    servers: { datadog: { site: "datadoghq.eu" } },
+  })
+  expect(eu["datadog-x"]).toEqual({ type: "http", url: "https://mcp.datadoghq.eu/v1/mcp" })
+
+  // an explicit url still overrides the site
+  const custom = renderServers({
+    name: "x",
+    path: "~/x",
+    servers: { datadog: { site: "datadoghq.eu", url: "https://example.test/mcp" } },
+  })
+  expect(custom["datadog-x"]).toEqual({ type: "http", url: "https://example.test/mcp" })
+})
+
+test("buildServers persists only a non-default datadog site", () => {
+  expect(buildServers(["datadog"], null).datadog).toBe(true)
+  expect(buildServers(["datadog"], null, "datadoghq.com").datadog).toBe(true)
+  expect(buildServers(["datadog"], null, "datadoghq.eu").datadog).toEqual({ site: "datadoghq.eu" })
+  expect(buildServers(["github"], null, "datadoghq.eu").datadog).toBe(false)
+})
+
+test("resolveDatadogSite accepts region codes and site hosts", () => {
+  expect(resolveDatadogSite(undefined)).toBe("datadoghq.com")
+  expect(resolveDatadogSite("us1")).toBe("datadoghq.com")
+  expect(resolveDatadogSite("EU")).toBe("datadoghq.eu")
+  expect(resolveDatadogSite("eu1")).toBe("datadoghq.eu")
+  expect(resolveDatadogSite("us5")).toBe("us5.datadoghq.com")
+  expect(resolveDatadogSite("ap2.datadoghq.com")).toBe("ap2.datadoghq.com")
+  expect(resolveDatadogSite("datadoghq.org")).toBeNull()
+  expect(datadogSiteOf({ datadog: true })).toBe("datadoghq.com")
+  expect(datadogSiteOf({ datadog: { site: "uk1.datadoghq.com" } })).toBe("uk1.datadoghq.com")
+})
+
+test("validateConfig rejects an unknown datadog site", () => {
+  const ws = (datadog: unknown) => ({
+    version: 1,
+    workspaces: [{ name: "acme", path: "~/acme", servers: { datadog } }],
+  })
+  expect(() => validateConfig(ws({ site: "datadoghq.eu" }) as Config)).not.toThrow()
+  expect(() => validateConfig(ws({ site: "datadoghq.org" }) as Config)).toThrow(
+    /Datadog site "datadoghq.org" is invalid/,
+  )
+})
+
+test("adoptable adopts an on-disk datadog site as `site`, idempotently", () => {
+  const dir = tmpDir()
+  fs.writeFileSync(
+    path.join(dir, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: { "datadog-acme": { type: "http", url: datadogUrl("datadoghq.eu") } },
+    }),
+  )
+
+  // configured on the US1 default, disk on EU -> adopt the site
+  const cfg: Config = {
+    version: 1,
+    workspaces: [{ name: "acme", path: dir, servers: { datadog: true } }],
+  }
+  const { cfg: next, changes } = adoptable(cfg)
+  expect(changes).toContain("acme: datadog.site = datadoghq.eu")
+  expect(next.workspaces[0].servers.datadog).toEqual({ site: "datadoghq.eu" })
+  expect(adoptable(next).changes).toHaveLength(0)
+
+  // present only on disk -> enabled with its site
+  const fresh: Config = {
+    version: 1,
+    workspaces: [{ name: "acme", path: dir, servers: {} }],
+  }
+  const adopted = adoptable(fresh)
+  expect(adopted.cfg.workspaces[0].servers.datadog).toEqual({ site: "datadoghq.eu" })
+})
+
+test("runDoctor names Claude's auto-mode offer when it rewrote a bypass login", () => {
+  const run: Runner = () => ({ status: 1, stdout: "", stderr: "" })
+  const dir = tmpDir()
+  fs.mkdirSync(path.join(dir, ".inscope"))
+  fs.writeFileSync(path.join(dir, ".inscope", ".credentials.json"), "{}")
+  const ws = { name: "acme", path: dir, isolate: true, servers: {} }
+  // bypass applied, then the offer rewrote defaultMode to auto in place
+  applyBypass(ws, true)
+  const file = inscopeSettingsPath(ws)
+  const doc = JSON.parse(fs.readFileSync(file, "utf8"))
+  doc.permissions.defaultMode = "auto"
+  fs.writeFileSync(file, JSON.stringify(doc))
+  expect(loginDefaultMode(ws)).toBe("auto")
+
+  const details = runDoctor({ version: 1, bypass: true, workspaces: [ws] }, run)
+    .filter((c) => c.label === "[acme] claude")
+    .map((c) => c.detail ?? "")
+  expect(details.some((d) => d.includes("switched to auto mode"))).toBe(true)
+  expect(details.some((d) => d.includes("not applied to this login"))).toBe(false)
+
+  // apply restores bypass
+  applyBypass(ws, true)
+  expect(loginDefaultMode(ws)).toBe("bypassPermissions")
 })
