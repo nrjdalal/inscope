@@ -63,6 +63,8 @@ exports[`golden: .mcp.json with every server enabled 1`] = `
     },
     "slack-acme": {
       "args": [
+        "--prefix",
+        "/",
         "-y",
         "@nrjdalal/slack-mcp-server@latest",
       ],
@@ -109,6 +111,8 @@ exports[`golden: Slack server, read-only vs post-enabled: read-only 1`] = `
   "mcpServers": {
     "slack-acme": {
       "args": [
+        "--prefix",
+        "/",
         "-y",
         "@nrjdalal/slack-mcp-server@latest",
       ],
@@ -128,6 +132,8 @@ exports[`golden: Slack server, read-only vs post-enabled: post-enabled 1`] = `
   "mcpServers": {
     "slack-acme": {
       "args": [
+        "--prefix",
+        "/",
         "-y",
         "@nrjdalal/slack-mcp-server@latest",
       ],
@@ -146,6 +152,8 @@ exports[`golden: Slack server on the @nrjdalal package (kept latest) 1`] = `
   "mcpServers": {
     "slack-acme": {
       "args": [
+        "--prefix",
+        "/",
         "-y",
         "@nrjdalal/slack-mcp-server@latest",
       ],
@@ -164,6 +172,8 @@ exports[`golden: @nrjdalal Slack fork read-only sets SLACK_MCP_ALLOW_WRITE=false
   "mcpServers": {
     "slack-acme": {
       "args": [
+        "--prefix",
+        "/",
         "-y",
         "@nrjdalal/slack-mcp-server@latest",
       ],
