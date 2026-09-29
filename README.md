@@ -98,7 +98,7 @@ Run any command with `-h` for its flags. Mutating commands apply in one step; `a
 
 ## MCP servers
 
-One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Nylas reads its API key from the Keychain at connect time; Slack reads a Keychain token exported by the hook; the rest are OAuth.
+One `.mcp.json` per workspace, each server suffixed with the workspace label (`github-work`) so nothing collides. GitHub auth is fetched at connect time (`gh auth token`); Nylas reads its API key from the Keychain at connect time; Slack reads a Keychain token exported by the hook and runs locally through `npx --prefix /`, so a project's own npm overrides can't stop it from starting; the rest are OAuth.
 
 `github` · `atlassian` · `canva` · `clickup` · `datadog` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `nylas` · `plane` · `posthog` · `sentry` · `slack` · `stripe` · `vercel` · `webflow` · `xquik`
 

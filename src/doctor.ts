@@ -34,7 +34,20 @@ export type Check = { status: CheckStatus; label: string; detail?: string }
 // accidental unpin; doctor skips it rather than nagging about it every run.
 const INTENTIONALLY_FLOATING = slackPackageSpec("@nrjdalal/slack-mcp-server")
 
-const unpinnedServers = (doc: Record<string, any> | null): string[] => {
+// The package an npx server runs: its first bare argument, skipping flags and the directory --prefix takes.
+const npxPackage = (args: unknown[]): string | undefined => {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === "--prefix") {
+      i++
+      continue
+    }
+    if (typeof a === "string" && !a.startsWith("-")) return a
+  }
+  return undefined
+}
+
+export const unpinnedServers = (doc: Record<string, any> | null): string[] => {
   const out: string[] = []
   const servers = doc?.mcpServers
   if (!servers || typeof servers !== "object") return out
@@ -45,7 +58,7 @@ const unpinnedServers = (doc: Record<string, any> | null): string[] => {
     } else if (args.some((a) => typeof a === "string" && a.endsWith("@latest"))) {
       out.push(name)
     } else if (def?.command === "npx") {
-      const pkg = args.find((a) => typeof a === "string" && !a.startsWith("-"))
+      const pkg = npxPackage(args)
       if (pkg && !pkg.includes("@")) out.push(name)
     }
   }

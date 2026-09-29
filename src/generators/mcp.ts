@@ -175,7 +175,11 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       const env: Record<string, string> = {
         SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN:-}",
       }
-      const args = ["-y", slackPackageSpec(pkg)]
+      // --prefix / stops npx from taking the current project as its root. A project whose npm
+      // overrides clash with its own dependencies makes npx exit with EOVERRIDE before the
+      // server starts, and reading a large project slows every launch. npx still installs
+      // into its own cache, never the prefix.
+      const args = ["--prefix", "/", "-y", slackPackageSpec(pkg)]
       if (pkg === "@nrjdalal/slack-mcp-server") {
         // The fork speaks stdio by default (no --transport flag) and is
         // write-enabled by default; read-only is opt-in via
