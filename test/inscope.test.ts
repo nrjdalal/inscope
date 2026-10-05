@@ -48,6 +48,7 @@ import {
   applyMcp,
   datadogUrl,
   removeMcp,
+  sameMcpFile,
   renderServers,
   slackPackageFromArgs,
 } from "@/generators/mcp"
@@ -72,7 +73,7 @@ import {
   unlinkSkillLink,
 } from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
-import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
+import { assertBlockWellFormed, readBlock, removeBlock, upsertBlock } from "@/managed-block"
 import {
   claudeAuthStatus,
   ghAccounts,
@@ -90,13 +91,21 @@ import {
   ghChoices,
   gitGlobalHint,
   persist,
-  sameDir,
   resolveDatadogSite,
   resolveNylasRegion,
   resolveSlackPackage,
   slackKeychainFor,
 } from "~/bin/commands/_workspace"
 import { parseAddSource } from "~/bin/commands/skill"
+
+// Hermetic by construction: the developer's shell (and inscope's own hook) exports
+// CLAUDE_CONFIG_DIR, and an isolated hook also INSCOPE_CCD / INSCOPE_BASE_CCD. Left in
+// process.env, any test (or spawned CLI) that applies a non-isolated workspace would
+// resolve the base skills dir to the developer's REAL ~/.claude and re-point links
+// there. Tests that exercise these set them explicitly.
+delete process.env.CLAUDE_CONFIG_DIR
+delete process.env.INSCOPE_CCD
+delete process.env.INSCOPE_BASE_CCD
 
 const blogConfig = (): Config => ({
   version: 1,
@@ -414,6 +423,171 @@ test("hook: with no isolated workspace, an inherited isolated login is dropped",
   })
   // and with nothing inherited, nothing is set
   expect(run({})).toEqual({ ccd: "unset" })
+  // a parent still running an older hook exported only the isolated login
+  expect(run({ CLAUDE_CONFIG_DIR: iso })).toEqual({ ccd: "unset" })
+  // no isolated workspace: the fallback bookkeeping is cleared, so a leftover base
+  // cannot outrank a later live value
+  const left = zshRun(
+    sb,
+    `source ${hook}; print base=\${INSCOPE_BASE_CCD-unset} mine=\${INSCOPE_CCD-unset}`,
+    { CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: "" },
+  )
+  expect(left).toEqual({ base: "unset mine=unset" })
+})
+
+test("hook: a parent shell running an older hook (isolated login exported alone) is not adopted", () => {
+  const sb = tmpDir()
+  for (const d of ["acme", "personal"]) fs.mkdirSync(path.join(sb, d))
+  const hook = path.join(sb, "inscope.zsh")
+  fs.writeFileSync(
+    hook,
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/acme", isolate: true, servers: {} },
+        { name: "personal", path: "~/personal", servers: {} },
+      ],
+    }),
+  )
+  const iso = path.join(sb, "acme", ".inscope")
+  // what main's hook left in a child's env: CLAUDE_CONFIG_DIR=<ws>/.inscope, no INSCOPE_*
+  expect(
+    zshRun(sb, `source ${hook}; cd ~/personal; print ccd=$CLAUDE_CONFIG_DIR`, {
+      CLAUDE_CONFIG_DIR: iso,
+    }),
+  ).toEqual({ ccd: path.join(sb, ".claude") })
+})
+
+// The real CLI, hermetic: sandbox HOME/XDG/GH_CONFIG_DIR, no inherited gh tokens.
+const sandboxCli = (sb: string) => {
+  const entry = path.join(import.meta.dir, "..", "bin", "index.ts")
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    HOME: sb,
+    XDG_CONFIG_HOME: path.join(sb, ".config"),
+    GH_CONFIG_DIR: path.join(sb, ".gh"),
+  }
+  delete env.GH_TOKEN
+  delete env.GITHUB_TOKEN
+  const cli = (args: string[], input = "") =>
+    spawnSync("bun", [entry, ...args], { encoding: "utf8", env, input })
+  const cfgFile = path.join(sb, ".config", "inscope", "inscope.json")
+  const writeCfg = (cfg: Config) => {
+    fs.mkdirSync(path.dirname(cfgFile), { recursive: true })
+    fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + "\n")
+  }
+  const readWs = (name: string) =>
+    (JSON.parse(fs.readFileSync(cfgFile, "utf8")) as Config).workspaces.find((w) => w.name === name)
+  return { cli, writeCfg, readWs, cfgFile }
+}
+
+// A workspace as it means the same thing: the stored path may be ~-contracted and
+// disabled servers may be listed as false.
+const sameMeaning = (w: Workspace | undefined) =>
+  w && {
+    ...w,
+    path: resolveAbsolute(w.path),
+    servers: Object.fromEntries(Object.entries(w.servers).filter(([, v]) => v !== false)),
+  }
+
+const richWorkspace = (sb: string): Workspace => {
+  const src = path.join(sb, "skillsrc", "demo")
+  fs.mkdirSync(src, { recursive: true })
+  fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: demo\ndescription: d\n---\n")
+  fs.mkdirSync(path.join(sb, "clients", "acme"), { recursive: true })
+  return {
+    isolate: true,
+    name: "acme",
+    path: path.join(sb, "clients", "acme"),
+    gh: "work-acct",
+    git: { email: "old@corp.dev", name: "Old Name" },
+    servers: {
+      github: true,
+      linear: { url: "https://mcp.example.com/linear" },
+      datadog: { site: "datadoghq.eu" },
+    },
+    skills: [src],
+    selfSkill: false,
+  }
+}
+
+test("CLI: re-running add on an existing label keeps everything it was not told to change", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    const ws = richWorkspace(sb)
+    writeCfg({ version: 1, workspaces: [ws] })
+    expect(cli(["apply"]).status).toBe(0)
+    const r = cli(["add", ws.path, "--email", "new@corp.dev", "-y"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain(`updated workspace "acme"`)
+    const after = readWs("acme")!
+    expect(sameMeaning(after)).toEqual(
+      sameMeaning({ ...ws, git: { email: "new@corp.dev", name: "Old Name" } }),
+    )
+    expect(Object.keys(after)[0]).toBe("isolate")
+    // a flag still changes just its own field
+    cli(["add", ws.path, "--servers", "github", "-y"])
+    expect(readWs("acme")!.servers.linear).toBe(false)
+    expect(readWs("acme")!.isolate).toBe(true)
+  })
+})
+
+test("CLI: edit taking every default keeps skills, selfSkill, and a gh account gh does not list", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    const ws = richWorkspace(sb)
+    writeCfg({ version: 1, workspaces: [ws] })
+    expect(cli(["apply"]).status).toBe(0)
+    const r = cli(["edit", "acme"], "\n".repeat(20))
+    expect(r.status).toBe(0)
+    expect(sameMeaning(readWs("acme"))).toEqual(sameMeaning(ws))
+  })
+})
+
+test("CLI: skill add refuses a name held by the user's own link, before saving anything", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    fs.mkdirSync(path.join(sb, "ws"))
+    writeCfg({
+      version: 1,
+      workspaces: [{ name: "ws", path: path.join(sb, "ws"), servers: {}, selfSkill: false }],
+    })
+    const theirs = path.join(sb, ".agents", "skills", "foo")
+    const src = path.join(sb, "src", "foo")
+    for (const d of [theirs, src]) {
+      fs.mkdirSync(d, { recursive: true })
+      fs.writeFileSync(path.join(d, "SKILL.md"), "---\nname: foo\ndescription: d\n---\n")
+    }
+    const link = path.join(sb, ".claude", "skills", "foo")
+    fs.mkdirSync(path.dirname(link), { recursive: true })
+    fs.symlinkSync(theirs, link)
+    // a different source, and even the very source the user's link points at
+    for (const source of [src, theirs]) {
+      const r = cli(["skill", "add", source, "-w", "ws"])
+      expect(r.status).toBe(1)
+      expect(r.stderr).toContain("your own link")
+      expect(readWs("ws")!.skills).toBeUndefined()
+      expect(fs.readlinkSync(link)).toBe(theirs)
+    }
+  })
+})
+
+test("persist refuses a malformed ~/.gitconfig before saving the config or writing anything", () => {
+  withSandbox((sb) => {
+    fs.writeFileSync(
+      path.join(sb, ".gitconfig"),
+      "# >>> inscope:gitconfig >>>\n[alias]\n\tco = checkout\n",
+    )
+    const dir = path.join(sb, "w")
+    fs.mkdirSync(dir)
+    expect(() =>
+      persist({ name: "w", path: dir, git: { email: "w@x.dev" }, servers: { github: true } }),
+    ).toThrow(/malformed inscope markers/)
+    expect(fs.existsSync(path.join(sb, ".config", "inscope", "inscope.json"))).toBe(false)
+    expect(fs.existsSync(path.join(sb, ".config", "inscope", "inscope.zsh"))).toBe(false)
+    expect(fs.existsSync(path.join(dir, ".mcp.json"))).toBe(false)
+    expect(fs.readFileSync(path.join(sb, ".gitconfig"), "utf8")).toContain("co = checkout")
+  })
 })
 
 test("git includes and per-workspace gitconfig", () => {
@@ -451,7 +625,7 @@ test("managed block is idempotent and preserves surrounding content", () => {
   expect(fs.readFileSync(file, "utf8")).toContain("pager = less")
 })
 
-test("managed block refuses unbalanced markers instead of deleting user config", () => {
+test("managed block refuses malformed markers instead of deleting user config", () => {
   const B = "# >>> inscope:gitconfig >>>"
   const E = "# <<< inscope:gitconfig <<<"
   const user = "[alias]\n\tco = checkout\n[core]\n\tpager = less\n"
@@ -460,12 +634,19 @@ test("managed block refuses unbalanced markers instead of deleting user config",
     "missing begin": `${user}[includeIf "gitdir:~/w/"]\n\tpath = x\n${E}\n`,
     "duplicated pair": `${B}\na\n${E}\n${user}${B}\nb\n${E}\n`,
     "reversed pair": `${E}\n${user}${B}\n`,
+    // a near-miss marker is still inscope's to a person; the old substring regex
+    // started a replace at an indented begin and swallowed the user's sections
+    "indented old begin above a fresh pair": `\t${B}\n[includeIf "gitdir:~/w/"]\n\tpath = x\n\t${E}\n${user}\n${B}\nnew\n${E}\n`,
+    "CRLF markers": `${B}\r\nx\r\n${E}\r\n${user}`,
+    "trailing space": `${B} \nx\n${E}\n${user}`,
   }
   for (const [label, body] of Object.entries(cases)) {
     const file = path.join(tmpDir(), ".gitconfig")
     fs.writeFileSync(file, body)
-    expect(() => upsertBlock(file, "gitconfig", "new"), label).toThrow(/unbalanced inscope markers/)
-    expect(() => removeBlock(file, "gitconfig"), label).toThrow(/unbalanced inscope markers/)
+    expect(() => upsertBlock(file, "gitconfig", "new"), label).toThrow(/malformed inscope markers/)
+    expect(() => removeBlock(file, "gitconfig"), label).toThrow(/malformed inscope markers/)
+    expect(() => assertBlockWellFormed(file, "gitconfig"), label).toThrow(/malformed/)
+    expect(readBlock(file, "gitconfig"), label).toBeNull()
     expect(fs.readFileSync(file, "utf8"), label).toBe(body)
   }
   // a well-formed pair, and no markers at all, still work
@@ -478,6 +659,18 @@ test("managed block refuses unbalanced markers instead of deleting user config",
   fs.writeFileSync(none, user)
   upsertBlock(none, "gitconfig", "x")
   expect(readBlock(none, "gitconfig")).toBe("x")
+  // a block whose body was deleted (adjacent markers) is still one block: replaced
+  // in place, never duplicated
+  const empty = path.join(tmpDir(), ".gitconfig")
+  fs.writeFileSync(empty, `${user}${B}\n${E}\n`)
+  upsertBlock(empty, "gitconfig", "x")
+  upsertBlock(empty, "gitconfig", "x")
+  expect(fs.readFileSync(empty, "utf8")).toBe(`${user}${B}\nx\n${E}\n`)
+  // removing a block that is not there leaves the file byte-identical
+  const plain = path.join(tmpDir(), ".gitconfig")
+  fs.writeFileSync(plain, `\n\n\n${user}`)
+  removeBlock(plain, "gitconfig")
+  expect(fs.readFileSync(plain, "utf8")).toBe(`\n\n\n${user}`)
 })
 
 test("shQuotePath keeps a printed path one argument, with ~/ still expanding", () => {
@@ -867,9 +1060,16 @@ test("re-adding through an aliased spelling of the same dir keeps its managed se
     // same dir through the symlink: apply rewrites the keys, nothing prunes them
     persist({ name: "acme", path: alias, servers: { github: true, linear: true } })
     expect(keys()).toEqual(["github-acme", "linear-acme"])
-    expect(sameDir(real, alias)).toBe(true)
-    expect(sameDir(real, path.join(sb, "src"))).toBe(false)
-    expect(sameDir(path.join(sb, "missing-a"), path.join(sb, "missing-b"))).toBe(false)
+    expect(sameMcpFile(real, alias)).toBe(true)
+    expect(sameMcpFile(real, path.join(sb, "src"))).toBe(false)
+    expect(sameMcpFile(path.join(sb, "missing-a"), path.join(sb, "missing-b"))).toBe(false)
+
+    // a worktree whose .mcp.json is a symlink to the main checkout's: same file
+    const wt = path.join(sb, "wt")
+    fs.mkdirSync(wt)
+    fs.symlinkSync(path.join(real, ".mcp.json"), path.join(wt, ".mcp.json"))
+    persist({ name: "acme", path: wt, servers: { github: true, linear: true } })
+    expect(keys()).toEqual(["github-acme", "linear-acme"])
   } finally {
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome
@@ -1625,6 +1825,7 @@ const withSandbox = (fn: (sb: string) => void) => {
   const prevXdg = process.env.XDG_CONFIG_HOME
   const prevCcd = process.env.CLAUDE_CONFIG_DIR
   const prevBase = process.env.INSCOPE_BASE_CCD
+  const prevInscopeCcd = process.env.INSCOPE_CCD
   const sb = tmpDir()
   process.env.HOME = sb
   process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
@@ -1633,11 +1834,14 @@ const withSandbox = (fn: (sb: string) => void) => {
   // exercise a base CCD sets it explicitly inside.
   delete process.env.CLAUDE_CONFIG_DIR
   delete process.env.INSCOPE_BASE_CCD
+  delete process.env.INSCOPE_CCD
   try {
     fn(sb)
   } finally {
     if (prevBase === undefined) delete process.env.INSCOPE_BASE_CCD
     else process.env.INSCOPE_BASE_CCD = prevBase
+    if (prevInscopeCcd === undefined) delete process.env.INSCOPE_CCD
+    else process.env.INSCOPE_CCD = prevInscopeCcd
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome
     if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
@@ -2082,13 +2286,21 @@ test("skillsDir: non-isolated tracks the base CLAUDE_CONFIG_DIR; isolated is alw
     // it so non-isolated skills never land in a sibling isolated login
     process.env.CLAUDE_CONFIG_DIR = path.join(sb, "other", ".inscope")
     expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
-    // the hook exports the true base, so a user's global survives being shadowed by
-    // an isolated workspace's export (the previous ~/.claude fallback edge) ...
+    // the isolated hook exports the true base, so a user's global survives being
+    // shadowed by an isolated workspace's export (the previous ~/.claude fallback
+    // edge) ...
+    process.env.INSCOPE_CCD = path.join(sb, "other", ".inscope")
     process.env.INSCOPE_BASE_CCD = path.join(sb, "global-claude")
     expect(skillsDir(ws)).toBe(path.join(sb, "global-claude", "skills"))
-    // ... and an empty exported base means the default ~/.claude
+    // ... an empty exported base means the default ~/.claude ...
     process.env.INSCOPE_BASE_CCD = ""
     expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
+    // ... and a leftover base with no live isolated hook is ignored for the live value
+    delete process.env.INSCOPE_CCD
+    process.env.INSCOPE_BASE_CCD = ""
+    process.env.CLAUDE_CONFIG_DIR = path.join(sb, "new-global")
+    expect(skillsDir(ws)).toBe(path.join(sb, "new-global", "skills"))
+    delete process.env.INSCOPE_BASE_CCD
   })
 })
 
@@ -2333,7 +2545,7 @@ test("a user's own symlinked skill of the same name is never replaced or removed
     }
     // left pointing at the user's own skill, with a warning
     expect(fs.readlinkSync(link)).toBe(theirs)
-    expect(errs.join("\n")).toContain("symlink inscope did not create")
+    expect(errs.join("\n")).toContain("not one inscope created")
     // skill rm of inscope's foo leaves the user's link alone
     expect(unlinkSkillLink(ws, "foo", ws.skills![0])).toBe(false)
     expect(fs.readlinkSync(link)).toBe(theirs)
@@ -2341,7 +2553,7 @@ test("a user's own symlinked skill of the same name is never replaced or removed
     // once the user's link is gone, inscope links its own, and rm removes only that
     fs.rmSync(link)
     applySkills(one(ws))
-    expect(fs.readlinkSync(link)).toBe(src)
+    expect(fs.realpathSync(link)).toBe(fs.realpathSync(src))
     expect(unlinkSkillLink(ws, "foo", ws.skills![0])).toBe(true)
     expect(fs.existsSync(link)).toBe(false)
   })
@@ -2376,7 +2588,59 @@ test("applySkills rewrites a custom-named skill's frontmatter so Claude shows th
   })
 })
 
-test("applySkills symlinks straight to the source when the name already matches the frontmatter", () => {
+test("local skill links are inscope-owned: re-pointed, pruned, removed, and migrated", () => {
+  withSandbox((sb) => {
+    const mk = (dir: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: foo\ndescription: d\n---\n")
+      return dir
+    }
+    const src1 = mk(path.join(sb, "src1", "foo"))
+    const src2 = mk(path.join(sb, "src2", "foo"))
+    const link = path.join(sb, ".claude", "skills", "foo")
+    const ws = (skills: string[]): Workspace => ({
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills,
+    })
+    const real = () => fs.realpathSync(link)
+
+    // (a) hand-editing the declared path re-points inscope's own link
+    applySkills(one(ws([src1])))
+    expect(real()).toBe(fs.realpathSync(src1))
+    applySkills(one(ws([src2])))
+    expect(real()).toBe(fs.realpathSync(src2))
+    // (d) skill rm after a re-point removes it
+    expect(unlinkSkillLink(ws([src2]), "foo", src2)).toBe(true)
+    expect(fs.existsSync(link)).toBe(false)
+
+    // (c) a local skill no longer declared is pruned by the next apply
+    applySkills(one(ws([src1])))
+    expect(fs.existsSync(link)).toBe(true)
+    applySkills(one(ws([])))
+    expect(fs.existsSync(link)).toBe(false)
+
+    // an old-style link straight at the declared source is migrated to the cache form
+    fs.mkdirSync(path.dirname(link), { recursive: true })
+    fs.symlinkSync(src1, link)
+    applySkills(one(ws([src1])))
+    expect(fs.readlinkSync(link).startsWith(skillsCacheRoot())).toBe(true)
+    expect(real()).toBe(fs.realpathSync(src1))
+
+    // a user's own link to a source inscope does not declare is never claimed
+    fs.rmSync(link)
+    const theirs = mk(path.join(sb, "theirs", "foo"))
+    fs.symlinkSync(theirs, link)
+    applySkills(one(ws([])))
+    expect(fs.readlinkSync(link)).toBe(theirs)
+    expect(unlinkSkillLink(ws([src1]), "foo", src1)).toBe(false)
+    expect(fs.readlinkSync(link)).toBe(theirs)
+  })
+})
+
+test("applySkills links a local source through the cache, with no rewritten copy when the name matches", () => {
   withSandbox((sb) => {
     const src = path.join(sb, "src")
     fs.mkdirSync(src, { recursive: true })
@@ -2389,8 +2653,13 @@ test("applySkills symlinks straight to the source when the name already matches 
       skills: [{ name: "same", source: src }],
     }
     applySkills(one(ws))
-    // no rewritten copy: the link points straight at the source
-    expect(fs.readlinkSync(path.join(sb, ".claude", "skills", "same"))).toBe(src)
+    // no rewritten copy: the personal link points at the cache's local link, which
+    // points straight at the source (so the link is inscope-owned, see isOwnedLink)
+    const link = path.join(sb, ".claude", "skills", "same")
+    const viaCache = fs.readlinkSync(link)
+    expect(viaCache.startsWith(path.join(skillsCacheRoot(), "local") + path.sep)).toBe(true)
+    expect(fs.readlinkSync(viaCache)).toBe(src)
+    expect(fs.realpathSync(link)).toBe(fs.realpathSync(src))
   })
 })
 
