@@ -15,8 +15,8 @@ import {
   workspacePathError,
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
-import { SERVER_TYPES } from "@/generators/mcp"
-import { ghAccounts, gitGlobal, shQuotePath } from "@/secrets"
+import { sameMcpFile, SERVER_TYPES } from "@/generators/mcp"
+import { ghAccounts, gitGlobal, keychainHas, shQuotePath } from "@/secrets"
 import {
   isInteractive,
   orange,
@@ -267,7 +267,8 @@ export const add = async (args: string[]) => {
         nylasRegion === "eu" ? 1 : 0,
       )
     if (!values["nylas-keychain"]) nylasSvc = await promptText("Nylas keychain service", nylasSvc)
-    if (!values["seed-nylas"]) seedNylas = await promptConfirm("Store the Nylas API key now?", true)
+    if (!values["seed-nylas"] && !keychainHas(nylasSvc))
+      seedNylas = await promptConfirm("Store the Nylas API key now?", true)
   }
   const nylas: NylasServer | null = wantNylas ? { keychain: nylasSvc, region: nylasRegion } : null
 
@@ -307,7 +308,8 @@ export const add = async (args: string[]) => {
         "Allow Slack to post messages?",
         curSlack ? slackMessage : true,
       )
-    if (!values["seed-slack"]) seedSlack = await promptConfirm("Store the Slack token now?", true)
+    if (!values["seed-slack"] && !keychainHas(slackSvc))
+      seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
   // --- isolate: give this workspace its own Claude login in a local .inscope ---
@@ -356,17 +358,20 @@ export const add = async (args: string[]) => {
   }
 
   const firstRun = !configExists()
+  const moved = !!existing && !sameMcpFile(existing.path, ws.path)
   persist(ws)
   console.log(`\n✓ ${existing ? "updated workspace" : "workspace"} "${label}" -> ${ws.path}`)
+  if (moved) console.log(`✓ moved from ${existing.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
-  if (ws.isolate && !existing?.isolate)
+  if (ws.isolate && (!existing?.isolate || moved))
     console.log(
       `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
-  else if (existing?.isolate && !ws.isolate)
+  // The old login stays where it was: after turning isolation off, or after a move.
+  if (existing?.isolate && (!ws.isolate || moved))
     console.log(
-      `\nNote: ${ws.path}/.inscope still holds a Claude login; it was left in place.\n` +
-        `Delete it with: ${orange(`rm -rf ${shQuotePath(`${ws.path}/.inscope`)}`)}`,
+      `\nNote: ${existing.path}/.inscope still holds a Claude login; it was left in place.\n` +
+        `Delete it with: ${orange(`rm -rf ${shQuotePath(`${existing.path}/.inscope`)}`)}`,
     )
   await finalizeSlack(ws, seedSlack)
   await finalizeNylas(ws, seedNylas)
