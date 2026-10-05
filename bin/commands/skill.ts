@@ -17,6 +17,7 @@ import { contractTilde } from "@/env"
 import {
   applySkills,
   discoverSkills,
+  foreignSkillAt,
   resolveSkillDir,
   SELF_SKILL_NAME,
   skillHasSkillMd,
@@ -190,6 +191,7 @@ const skillAdd = async (args: string[]) => {
   const commit = (specs: SkillSpec[]) => {
     const have = new Set((ws.skills ?? []).map((sp) => normalizeSkill(sp).name))
     const toAdd: SkillSpec[] = []
+    let clashes = 0
     for (const spec of specs) {
       const n = normalizeSkill(spec).name
       if (n === SELF_SKILL_NAME) {
@@ -200,12 +202,22 @@ const skillAdd = async (args: string[]) => {
         console.log(`skipping "${n}": already in "${ws.name}"`)
         continue
       }
+      // A skill of that name that inscope did not create (the user's own dir or link)
+      // is never replaced; refuse now rather than declare a skill that cannot link.
+      const clash = foreignSkillAt(ws, n)
+      if (clash) {
+        console.error(
+          `skipping "${n}": ${clash}; remove it, or add this one under another name with --name`,
+        )
+        clashes++
+        continue
+      }
       have.add(n)
       toAdd.push(spec)
     }
     if (!toAdd.length) {
       console.log("\nNothing to add.")
-      process.exit(0)
+      process.exit(clashes ? 1 : 0)
     }
     persist({ ...ws, skills: [...(ws.skills ?? []), ...toAdd] })
     console.log(`\n✓ added ${toAdd.length} skill${toAdd.length > 1 ? "s" : ""} to "${ws.name}"`)
