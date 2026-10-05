@@ -47,15 +47,42 @@ const nestedUnder = (child: string, parent: string): boolean => {
 // any launcher that inherits this shell (a terminal, cmux, an IDE, `--resume`) runs
 // on it, not just a `claude` typed here. An isolated workspace points
 // CLAUDE_CONFIG_DIR at its local `<path>/.inscope`; every other directory keeps your
-// base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude). Returns the in-hook
-// pieces: `block` splices into __inscope_resolve_identity, `base` captures the login
-// to fall back to. Emitted only when a workspace is isolated; a config with none
-// never touches CLAUDE_CONFIG_DIR, so its hook is byte-for-byte the pre-isolation
-// one. Arms interpolate validated, double-quoted paths. (Skills need no arm here:
-// they live in each login's personal skills dir, so Claude loads them directly.)
+// base login (the CLAUDE_CONFIG_DIR this shell had before inscope set it, else
+// ~/.claude). Returns the in-hook pieces: `block` splices into
+// __inscope_resolve_identity, `base` captures the login to fall back to when the hook
+// is sourced. Arms interpolate validated, double-quoted paths. (Skills need no arm
+// here: they live in each login's personal skills dir, so Claude loads them directly.)
+//
+// The base must never be one of inscope's own isolated logins. Re-sourcing the hook
+// (`source ~/.zshrc`, `exec zsh`) or starting a child shell (a tmux/cmux/IDE pane)
+// inside an isolated workspace inherits CLAUDE_CONFIG_DIR=<ws>/.inscope; adopting that
+// as the base would carry the isolated login into every other directory. So inscope
+// exports the value it set as INSCOPE_CCD and the true base as INSCOPE_BASE_CCD: a
+// CLAUDE_CONFIG_DIR equal to INSCOPE_CCD is inscope's own (keep the inherited base),
+// any other value is the user's own (it becomes the base), and an isolated
+// `*/.inscope` value is never a base.
+const BASE_CAPTURE = `if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
+  case "\${CLAUDE_CONFIG_DIR-}" in
+    */.inscope|*/.inscope/) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an isolated login is never the base
+    *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
+  esac
+fi
+`
+
+// With no workspace isolated the hook never sets CLAUDE_CONFIG_DIR, but a shell can
+// still inherit inscope's own export (or an isolated login) from one that had
+// isolation, or from an older config. Restore the base it came from, so no
+// directory runs on that login.
+const DROP_INHERITED = `if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+  # inherited from a shell that had an isolated workspace; none is isolated now
+  if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
+fi
+unset INSCOPE_CCD
+`
+
 const renderCcd = (cfg: Config): { block: string; base: string } => {
   const isolated = cfg.workspaces.filter((w) => w.isolate)
-  if (isolated.length === 0) return { block: "", base: "" }
+  if (isolated.length === 0) return { block: "", base: DROP_INHERITED }
 
   // A workspace nested under an isolated one gets its own arm so it reflects its own
   // login rather than inheriting the parent's broad `"<parent>/"*` arm; a
@@ -76,15 +103,15 @@ const renderCcd = (cfg: Config): { block: string; base: string } => {
   # Pin the Claude login for this location and export it, so any launcher that
   # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
   # \`claude\`. An isolated workspace uses its local .inscope login; every other
-  # directory keeps your base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude).
-  local dir="\${__inscope_base_ccd:-$HOME/.claude}"
+  # directory keeps your base login (INSCOPE_BASE_CCD, else ~/.claude). INSCOPE_CCD
+  # records what inscope set, so a re-source or child shell can tell it apart.
+  local dir="\${INSCOPE_BASE_CCD:-$HOME/.claude}"
   case "\${PWD}/" in
 ${arms}
   esac
-  export CLAUDE_CONFIG_DIR="$dir"
+  export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"
 `
-  const base = `__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"   # login to fall back to outside an isolated subtree (empty -> ~/.claude)\n`
-  return { block, base }
+  return { block, base: BASE_CAPTURE }
 }
 
 export const renderHook = (cfg: Config): string => {

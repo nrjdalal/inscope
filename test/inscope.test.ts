@@ -204,7 +204,8 @@ test("a workspace without gh or slack produces a no-op hook arm", () => {
 
 test("renderHook adds no claude() wrapper when no workspace is isolated", () => {
   expect(renderHook(blogConfig())).not.toContain("claude()")
-  expect(renderHook(blogConfig())).not.toContain("CLAUDE_CONFIG_DIR")
+  // no per-cd login pinning without an isolated workspace
+  expect(renderHook(blogConfig())).not.toContain(`export CLAUDE_CONFIG_DIR="$dir"`)
 })
 
 test("renderHook exports each isolated workspace's .inscope login, resolved from $PWD", () => {
@@ -216,15 +217,16 @@ test("renderHook exports each isolated workspace's .inscope login, resolved from
     ],
   }
   const hook = renderHook(cfg)
-  // the base login is captured once (honoring a user's global CLAUDE_CONFIG_DIR,
-  // else ~/.claude) so it can be restored outside an isolated subtree
-  expect(hook).toContain(`__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"`)
-  expect(hook).toContain(`local dir="\${__inscope_base_ccd:-$HOME/.claude}"`)
+  // the base login is captured from a value inscope did not set itself (honoring a
+  // user's global CLAUDE_CONFIG_DIR, else ~/.claude) and exported for child shells,
+  // so it can be restored outside an isolated subtree
+  expect(hook).toContain(`*) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;`)
+  expect(hook).toContain(`local dir="\${INSCOPE_BASE_CCD:-$HOME/.claude}"`)
   // each isolated workspace resolves to its local .inscope ...
   expect(hook).toContain(`"$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;`)
   // ... and the login is EXPORTED, so any launcher that inherits the shell (a
   // terminal, cmux, an IDE) runs on it, not just a `claude` typed here
-  expect(hook).toContain(`export CLAUDE_CONFIG_DIR="$dir"`)
+  expect(hook).toContain(`export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"`)
   // a non-isolated, non-nested workspace contributes no CCD arm (only its token arm)
   expect(hook).not.toContain(`"$HOME/personal/"*) dir=`)
   // the launch is no longer a claude() shell function (it collided with cmux's own)
@@ -300,9 +302,9 @@ test("renderHook exports CLAUDE_CONFIG_DIR for an isolated workspace (no claude(
   })
   // the login is resolved from $PWD and EXPORTED in the chpwd hook, so any launcher
   // that inherits the shell (a terminal, cmux, an IDE) runs on it
-  expect(hook).toContain(`export CLAUDE_CONFIG_DIR="$dir"`)
-  expect(hook).toContain(`local dir="\${__inscope_base_ccd:-$HOME/.claude}"`)
-  expect(hook).toContain(`__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"`)
+  expect(hook).toContain(`export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"`)
+  expect(hook).toContain(`local dir="\${INSCOPE_BASE_CCD:-$HOME/.claude}"`)
+  expect(hook).toContain(`*) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;`)
   expect(hook).toContain(`"$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;`)
   // the launch is no longer a claude() shell function (it collided with cmux's own),
   // and the removed top-level launch flags leave no trace
@@ -311,13 +313,106 @@ test("renderHook exports CLAUDE_CONFIG_DIR for an isolated workspace (no claude(
   expect(hook).not.toContain(`--dangerously-skip-permissions`)
 })
 
-test("renderHook never touches CLAUDE_CONFIG_DIR when no workspace is isolated", () => {
+test("renderHook pins no login when no workspace is isolated, only drops an inherited one", () => {
   const hook = renderHook({
     version: 1,
     workspaces: [{ name: "acme", path: "~/acme", gh: "x", servers: { github: true } }],
   })
-  expect(hook).not.toContain("CLAUDE_CONFIG_DIR")
+  // nothing in the per-cd resolver touches the login ...
+  const resolver = hook.slice(hook.indexOf("__inscope_resolve_identity() {"), hook.indexOf("\n}\n"))
+  expect(resolver).not.toContain("CLAUDE_CONFIG_DIR")
+  // ... the source-time block only undoes an inscope-set or isolated login inherited
+  // from a shell that had isolation
+  expect(hook).toContain(`unset CLAUDE_CONFIG_DIR`)
+  expect(hook).not.toContain(`export CLAUDE_CONFIG_DIR="$dir"`)
   expect(hook).not.toContain("claude() {")
+})
+
+// Runs the generated hook in a real zsh: the base login must survive a re-source and a
+// child shell started inside an isolated workspace, instead of the isolated login
+// leaking into every other directory.
+const zshRun = (sb: string, script: string, env: Record<string, string> = {}) => {
+  const r = spawnSync("zsh", ["-f", "-c", script], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH ?? "", HOME: sb, ...env },
+  })
+  expect(r.stderr).toBe("")
+  return Object.fromEntries(
+    r.stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
+  )
+}
+
+test("hook: a re-source or child shell inside an isolated workspace keeps the base login", () => {
+  const sb = tmpDir()
+  for (const d of ["acme", "personal"]) fs.mkdirSync(path.join(sb, d))
+  const hook = path.join(sb, "inscope.zsh")
+  fs.writeFileSync(
+    hook,
+    renderHook({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/acme", isolate: true, servers: {} },
+        { name: "personal", path: "~/personal", servers: {} },
+      ],
+    }),
+  )
+  const iso = path.join(sb, "acme", ".inscope")
+  const script = (global: string) => `
+    ${global}
+    source ${hook}
+    cd ~/acme; print in=$CLAUDE_CONFIG_DIR
+    ${global}
+    source ${hook}                                   # e.g. source ~/.zshrc
+    cd ~/personal; print resourced=$CLAUDE_CONFIG_DIR
+    cd ~; print home=$CLAUDE_CONFIG_DIR
+    cd ~/acme
+    zsh -f -c '${global}; source ${hook}; cd ~/personal; print child=$CLAUDE_CONFIG_DIR'
+  `
+  // no global: the base is ~/.claude everywhere outside acme
+  expect(zshRun(sb, script(""))).toEqual({
+    in: iso,
+    resourced: path.join(sb, ".claude"),
+    home: path.join(sb, ".claude"),
+    child: path.join(sb, ".claude"),
+  })
+  // a user's own global CLAUDE_CONFIG_DIR (re-exported by their zshrc) stays the base
+  const g = path.join(sb, "global")
+  expect(zshRun(sb, script(`export CLAUDE_CONFIG_DIR=${g}`))).toEqual({
+    in: iso,
+    resourced: g,
+    home: g,
+    child: g,
+  })
+})
+
+test("hook: with no isolated workspace, an inherited isolated login is dropped", () => {
+  const sb = tmpDir()
+  fs.mkdirSync(path.join(sb, "acme"))
+  const hook = path.join(sb, "inscope.zsh")
+  fs.writeFileSync(
+    hook,
+    renderHook({ version: 1, workspaces: [{ name: "acme", path: "~/acme", servers: {} }] }),
+  )
+  const iso = path.join(sb, "acme", ".inscope")
+  const run = (env: Record<string, string>) =>
+    zshRun(sb, `source ${hook}; cd ~/acme; print ccd=\${CLAUDE_CONFIG_DIR-unset}`, env)
+  // inherited from a shell that had isolation: restored to the exported base, else unset
+  expect(run({ CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: "" })).toEqual({
+    ccd: "unset",
+  })
+  expect(
+    run({ CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: path.join(sb, "g") }),
+  ).toEqual({ ccd: path.join(sb, "g") })
+  // a user's own value is left alone
+  expect(run({ CLAUDE_CONFIG_DIR: path.join(sb, "mine") })).toEqual({
+    ccd: path.join(sb, "mine"),
+  })
+  // and with nothing inherited, nothing is set
+  expect(run({})).toEqual({ ccd: "unset" })
 })
 
 test("git includes and per-workspace gitconfig", () => {
@@ -1485,6 +1580,7 @@ const withSandbox = (fn: (sb: string) => void) => {
   const prevHome = process.env.HOME
   const prevXdg = process.env.XDG_CONFIG_HOME
   const prevCcd = process.env.CLAUDE_CONFIG_DIR
+  const prevBase = process.env.INSCOPE_BASE_CCD
   const sb = tmpDir()
   process.env.HOME = sb
   process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
@@ -1492,9 +1588,12 @@ const withSandbox = (fn: (sb: string) => void) => {
   // is deterministic (falls back to the sandbox ~/.claude), and a test that wants to
   // exercise a base CCD sets it explicitly inside.
   delete process.env.CLAUDE_CONFIG_DIR
+  delete process.env.INSCOPE_BASE_CCD
   try {
     fn(sb)
   } finally {
+    if (prevBase === undefined) delete process.env.INSCOPE_BASE_CCD
+    else process.env.INSCOPE_BASE_CCD = prevBase
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome
     if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
@@ -1938,6 +2037,13 @@ test("skillsDir: non-isolated tracks the base CLAUDE_CONFIG_DIR; isolated is alw
     // the shell sits in an isolated workspace (CCD is an inscope .inscope dir): ignore
     // it so non-isolated skills never land in a sibling isolated login
     process.env.CLAUDE_CONFIG_DIR = path.join(sb, "other", ".inscope")
+    expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
+    // the hook exports the true base, so a user's global survives being shadowed by
+    // an isolated workspace's export (the previous ~/.claude fallback edge) ...
+    process.env.INSCOPE_BASE_CCD = path.join(sb, "global-claude")
+    expect(skillsDir(ws)).toBe(path.join(sb, "global-claude", "skills"))
+    // ... and an empty exported base means the default ~/.claude
+    process.env.INSCOPE_BASE_CCD = ""
     expect(skillsDir(ws)).toBe(path.join(sb, ".claude", "skills"))
   })
 })
