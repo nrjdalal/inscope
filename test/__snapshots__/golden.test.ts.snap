@@ -245,7 +245,7 @@ if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) |
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
-unset INSCOPE_CCD
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -299,7 +299,7 @@ if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) |
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
-unset INSCOPE_CCD
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -353,7 +353,7 @@ if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) |
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
-unset INSCOPE_CCD
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -415,7 +415,7 @@ if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) |
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
-unset INSCOPE_CCD
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "

@@ -23,8 +23,10 @@ export const inscopeDirPath = (ws: Workspace) => path.join(resolveAbsolute(ws.pa
 // lands on the base, never a sibling isolated login. Shared by generators/skills and status.
 export const baseClaudeDir = (): string => {
   const fallback = path.join(home(), ".claude")
+  // Trusted only while an isolated hook is live (it exports INSCOPE_CCD alongside); a
+  // leftover from a shell that once had isolation must not outrank the live value.
   const base = process.env.INSCOPE_BASE_CCD
-  if (base !== undefined) return base.trim() || fallback
+  if (base !== undefined && process.env.INSCOPE_CCD !== undefined) return base.trim() || fallback
   const env = process.env.CLAUDE_CONFIG_DIR?.trim()
   return env && path.basename(env) !== INSCOPE_DIR ? env : fallback
 }

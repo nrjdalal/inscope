@@ -77,7 +77,7 @@ const DROP_INHERITED = `if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
-unset INSCOPE_CCD
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 `
 
 const renderCcd = (cfg: Config): { block: string; base: string } => {
