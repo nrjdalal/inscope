@@ -70,7 +70,9 @@ export const removeBlock = (file: string, id: string) => {
   const lines = current.split("\n")
   const at = locate(file, id, lines)
   if (!at) return
-  const next = [...lines.slice(0, at.b), ...lines.slice(at.e + 1)]
+  const tail = lines.slice(at.e + 1)
+  // A block that ended the file without a newline: keep the newline before it.
+  const next = [...lines.slice(0, at.b), ...(tail.length ? tail : [""])]
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/^\n+/, "")

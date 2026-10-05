@@ -16,7 +16,7 @@ import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generator
 import { hasBypassAcceptance, hasBypassSetting, loginDefaultMode } from "@/generators/settings"
 import { desiredSkillLinks, skillLinkTarget } from "@/generators/skills"
 import { readFileOrNull } from "@/io"
-import { readBlock } from "@/managed-block"
+import { assertBlockWellFormed, readBlock } from "@/managed-block"
 import {
   defaultRunner,
   ghToken,
@@ -230,7 +230,16 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
   }
 
   const needsGit = cfg.workspaces.some(hasGitIdentity)
-  if (needsGit) {
+  let markersErr: string | null = null
+  try {
+    assertBlockWellFormed(gitconfigPath(), GITCONFIG_BLOCK_ID)
+  } catch (err) {
+    markersErr = err instanceof Error ? err.message : String(err)
+  }
+  if (markersErr) {
+    // apply refuses such a file, so "run inscope apply" would be a dead end
+    checks.push({ status: "fail", label: "gitconfig", detail: markersErr })
+  } else if (needsGit) {
     checks.push(
       readBlock(gitconfigPath(), GITCONFIG_BLOCK_ID) !== null
         ? {
