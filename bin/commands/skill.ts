@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 
+import { preflightApply } from "@/apply"
 import {
   absolutizeLocalSource,
   type Config,
@@ -11,6 +12,7 @@ import {
   renameSkillSpec,
   skillNameError,
   type SkillSpec,
+  upsertWorkspace,
   type Workspace,
 } from "@/config"
 import { contractTilde } from "@/env"
@@ -20,6 +22,7 @@ import {
   foreignSkillAt,
   resolveSkillDir,
   SELF_SKILL_NAME,
+  sharedNameClash,
   skillHasSkillMd,
   skillLinked,
   skillsDir,
@@ -158,6 +161,11 @@ const skillAdd = async (args: string[]) => {
       console.log(`\nThe inscope self-skill is already enabled for "${ws.name}".`)
       process.exit(0)
     }
+    const clash = foreignSkillAt(ws, SELF_SKILL_NAME)
+    if (clash) {
+      console.error(`Cannot enable the inscope self-skill: ${clash}; remove it first.`)
+      process.exit(1)
+    }
     const enabled: Workspace = { ...ws }
     delete enabled.selfSkill
     persist(enabled)
@@ -204,7 +212,7 @@ const skillAdd = async (args: string[]) => {
       }
       // A skill of that name that inscope did not create (the user's own dir or link)
       // is never replaced; refuse now rather than declare a skill that cannot link.
-      const clash = foreignSkillAt(ws, n)
+      const clash = foreignSkillAt(ws, n) ?? sharedNameClash(cfg, ws, spec)
       if (clash) {
         console.error(
           `skipping "${n}": ${clash}; remove it, or add this one under another name with --name`,
@@ -388,8 +396,11 @@ const skillRemove = (args: string[]) => {
   const remaining = specs.filter((_, i) => i !== idx)
   const next: Workspace = { ...ws, skills: remaining }
   if (!remaining.length) delete next.skills
-  // Drop this skill's link explicitly (a local source is not cache-backed, so the
-  // apply below would not prune it); persist then re-links anything still declared.
+  // Refuse before touching the link, so a malformed shared file leaves nothing half done.
+  preflightApply(upsertWorkspace(cfg, next))
+  // Drop this skill's link now (a link from an older version points straight at a local
+  // source, so the apply below would not prune it); persist re-links anything still
+  // declared, e.g. by another workspace sharing ~/.claude/skills.
   unlinkSkillLink(ws, target, specs[idx])
   persist(next) // re-applies: reconciles the personal skills dir
 
@@ -443,10 +454,17 @@ const skillRename = (args: string[]) => {
   // shorthand and preserves source/subdir/ref).
   const nextSkills = specs.map((sp, i) => (i === idx ? renameSkillSpec(sp, to) : sp))
 
+  const clash = foreignSkillAt(ws, to)
+  if (clash) {
+    console.error(`Cannot rename to "${to}": ${clash}; remove it or pick another name.`)
+    process.exit(1)
+  }
+  const renamed: Workspace = { ...ws, skills: nextSkills }
+  preflightApply(upsertWorkspace(cfg, renamed)) // refuse before touching the link
   // Drop the old-name link explicitly (persist re-links under the new name and
   // prunes owned links no longer declared).
   unlinkSkillLink(ws, from, specs[idx])
-  persist({ ...ws, skills: nextSkills })
+  persist(renamed)
 
   console.log(`\n✓ renamed skill "${from}" to "${to}" in "${ws.name}"`)
   console.log(`Relaunch \`claude\` from ${ws.path} to pick up the new /command name.`)

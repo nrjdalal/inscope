@@ -366,10 +366,10 @@ export const discoverSkills = (root: string): { name: string; subdir: string }[]
 // inscope did not create (one the user made by hand or with another tool, e.g.
 // `~/.claude/skills/foo -> ~/.agents/skills/foo`): only a link inscope owns (it
 // points into the cache) is ever replaced, mirroring the "touch only what we own"
-// discipline of the managed dotfile blocks. `legacy` holds declared local source
-// dirs, which older versions linked directly; such a link is inscope's and is
-// migrated to the cache-backed form.
-const linkSkill = (link: string, target: string, legacy: ReadonlySet<string>) => {
+// discipline of the managed dotfile blocks. `legacySrc` is this skill's own local
+// source dir, which older versions linked directly at this name; exactly that link is
+// inscope's and is migrated to the cache-backed form (a link to any other dir is not).
+const linkSkill = (link: string, target: string, legacySrc?: string) => {
   let existing: fs.Stats | null = null
   try {
     existing = fs.lstatSync(link)
@@ -384,9 +384,9 @@ const linkSkill = (link: string, target: string, legacy: ReadonlySet<string>) =>
       } catch {}
       if (current === target) return
       const resolved = path.resolve(path.dirname(link), current)
-      if (!isOwnedLink(link) && !legacy.has(resolved))
+      if (!isOwnedLink(link) && resolved !== legacySrc)
         throw new Error(
-          `refusing to replace ${link}: it is your own symlink (-> ${resolved}), not one inscope created; ` +
+          `refusing to replace ${link}: it is a symlink inscope does not manage (-> ${resolved}); ` +
             (path.basename(link) === SELF_SKILL_NAME
               ? "remove it, or opt this workspace out with `inscope skill rm inscope`"
               : "remove it, or install this skill under another name with --name"),
@@ -438,7 +438,24 @@ export const foreignSkillAt = (ws: Workspace, name: string): string | null => {
     return `${contractTilde(link)} already exists and is not an inscope link`
   if (isOwnedLink(link)) return null
   const to = path.resolve(path.dirname(link), fs.readlinkSync(link))
-  return `${contractTilde(link)} is your own link (-> ${contractTilde(to)}), not one inscope created`
+  return `${contractTilde(link)} is a link inscope does not manage (-> ${contractTilde(to)})`
+}
+
+// Why `ws` cannot declare `spec` at its name in a skills dir it shares with another
+// workspace (the non-isolated ~/.claude/skills) that already declares that name from a
+// different source, or null. apply keeps the first declaration and warns, so `skill add`
+// refuses up front instead of printing a misleading "added".
+export const sharedNameClash = (cfg: Config, ws: Workspace, spec: SkillSpec): string | null => {
+  const skill = normalizeSkill(spec)
+  const dir = skillsDir(ws)
+  const want = skillTargetDir(skill)
+  for (const other of cfg.workspaces) {
+    if (other.name === ws.name || skillsDir(other) !== dir) continue
+    const d = desiredSkillLinks(other).find((x) => x.name === skill.name)
+    if (d && d.target !== want)
+      return `workspace "${other.name}" already links "${skill.name}" in ${contractTilde(dir)} from a different source`
+  }
+  return null
 }
 
 // The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
@@ -487,7 +504,6 @@ const linkOne = (
   wsName: string,
   update: boolean,
   resolve: () => string,
-  legacy: ReadonlySet<string>,
   local: boolean,
 ) => {
   try {
@@ -502,7 +518,7 @@ const linkOne = (
       materializeRenamed(srcDir, name, target, update)
     }
     if (local && target === srcDir) target = ensureLocalLink(srcDir)
-    linkSkill(path.join(dir, name), target, legacy)
+    linkSkill(path.join(dir, name), target, local ? srcDir : undefined)
   } catch (err) {
     console.error(
       `inscope: skill "${name}" in "${wsName}" not applied: ${err instanceof Error ? err.message : err}`,
@@ -541,9 +557,6 @@ export const applySkills = (
   // skills were all removed still gets its now-orphaned owned links pruned below.
   const byDir = new Map<string, DesiredLink[]>()
   for (const ws of cfg.workspaces) if (!byDir.has(skillsDir(ws))) byDir.set(skillsDir(ws), [])
-  // Declared local source dirs: a link pointing straight at one is a pre-cache-link
-  // inscope link, migrated on this apply (see linkSkill).
-  const legacy = new Set<string>()
   const push = (dir: string, l: DesiredLink) => byDir.get(dir)?.push(l)
   for (const ws of cfg.workspaces) {
     const dir = skillsDir(ws)
@@ -559,7 +572,6 @@ export const applySkills = (
       const skill = normalizeSkill(spec)
       if (skill.name === SELF_SKILL_NAME) continue // reserved for the self-skill
       const local = skill.source.kind === "local"
-      if (local) legacy.add(originalTarget(skill))
       push(dir, {
         name: skill.name,
         target: skillTargetDir(skill),
@@ -584,7 +596,7 @@ export const applySkills = (
         continue
       }
       first.set(l.name, l)
-      linkOne(dir, l.name, l.wsName, !!opts?.update, l.resolve, legacy, l.local)
+      linkOne(dir, l.name, l.wsName, !!opts?.update, l.resolve, l.local)
     }
     // Prune by declared name (not link success): a still-declared skill whose link
     // just failed transiently keeps its existing link instead of being removed.
