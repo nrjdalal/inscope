@@ -89,6 +89,7 @@ import {
   enabledServers,
   gitGlobalHint,
   persist,
+  sameDir,
   resolveDatadogSite,
   resolveNylasRegion,
   resolveSlackPackage,
@@ -700,6 +701,36 @@ test("relocating a workspace to a new path prunes the old path's managed block",
     persist({ name: "foo", path: b, servers: { github: true } }) // relocate a -> b
     expect(keys(b)).toContain("github-foo")
     expect(keys(a)).not.toContain("github-foo") // old managed block pruned
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevXdg
+  }
+})
+
+test("re-adding through an aliased spelling of the same dir keeps its managed servers", () => {
+  const prevHome = process.env.HOME
+  const prevXdg = process.env.XDG_CONFIG_HOME
+  const sb = tmpDir()
+  process.env.HOME = sb
+  process.env.XDG_CONFIG_HOME = path.join(sb, ".config")
+  try {
+    const real = path.join(sb, "src", "acme")
+    fs.mkdirSync(real, { recursive: true })
+    fs.symlinkSync(path.join(sb, "src"), path.join(sb, "Code"))
+    const alias = path.join(sb, "Code", "acme")
+    const keys = () =>
+      Object.keys(JSON.parse(fs.readFileSync(path.join(real, ".mcp.json"), "utf8")).mcpServers)
+
+    persist({ name: "acme", path: real, servers: { github: true, linear: true } })
+    expect(keys()).toEqual(["github-acme", "linear-acme"])
+    // same dir through the symlink: apply rewrites the keys, nothing prunes them
+    persist({ name: "acme", path: alias, servers: { github: true, linear: true } })
+    expect(keys()).toEqual(["github-acme", "linear-acme"])
+    expect(sameDir(real, alias)).toBe(true)
+    expect(sameDir(real, path.join(sb, "src"))).toBe(false)
+    expect(sameDir(path.join(sb, "missing-a"), path.join(sb, "missing-b"))).toBe(false)
   } finally {
     if (prevHome === undefined) delete process.env.HOME
     else process.env.HOME = prevHome

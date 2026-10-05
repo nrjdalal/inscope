@@ -1,3 +1,5 @@
+import fs from "node:fs"
+
 import { applyAll } from "@/apply"
 import {
   configExists,
@@ -171,7 +173,25 @@ export const persist = (ws: Workspace) => {
   applyAll(next)
   // Relocated to a new path: applyAll only writes paths still in the config, so
   // prune the now-orphaned managed block from the old path's .mcp.json.
-  if (prior && resolveAbsolute(prior.path) !== resolveAbsolute(ws.path)) removeMcp(prior)
+  if (prior && !sameDir(prior.path, ws.path)) removeMcp(prior)
+}
+
+// Whether two workspace paths name the same directory. A symlinked spelling
+// (`~/Code/acme` -> `~/src/acme`) or a different case on a case-insensitive volume
+// is the same .mcp.json, so "relocating" between them must not prune the keys apply
+// just wrote there. Compares the real dirs (device + inode) when both exist, else
+// the resolved strings.
+export const sameDir = (a: string, b: string): boolean => {
+  const ra = resolveAbsolute(a)
+  const rb = resolveAbsolute(b)
+  if (ra === rb) return true
+  try {
+    const sa = fs.statSync(ra)
+    const sb = fs.statSync(rb)
+    return sa.dev === sb.dev && sa.ino === sb.ino
+  } catch {
+    return false
+  }
 }
 
 // After persisting: seed the Slack token now (hidden prompt), or print the
