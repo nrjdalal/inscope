@@ -317,7 +317,11 @@ export const skillLinkTarget = (ws: Workspace, name: string): string | null =>
 export const desiredSkillLinks = (ws: Workspace): { name: string; target: string }[] => {
   const out: { name: string; target: string }[] = []
   const seen = new Set<string>()
-  if (ws.selfSkill !== false && selfSkillAvailable()) {
+  if (
+    ws.selfSkill !== false &&
+    selfSkillAvailable() &&
+    !selfSkillProvidedElsewhere(skillsDir(ws))
+  ) {
     out.push({ name: SELF_SKILL_NAME, target: selfSkillCacheDir() })
     seen.add(SELF_SKILL_NAME)
   }
@@ -393,7 +397,10 @@ const linkSkill = (link: string, target: string, legacySrc?: string) => {
         )
     } else {
       throw new Error(
-        `refusing to overwrite ${link}: a non-symlink already exists there (pick a different skill name)`,
+        `refusing to overwrite ${link}: a non-symlink already exists there; ` +
+          (path.basename(link) === SELF_SKILL_NAME
+            ? "remove it, or opt this workspace out with `inscope skill rm inscope`"
+            : "remove it, or install this skill under another name with --name"),
       )
     }
   }
@@ -453,9 +460,32 @@ export const sharedNameClash = (cfg: Config, ws: Workspace, spec: SkillSpec): st
     if (other.name === ws.name || skillsDir(other) !== dir) continue
     const d = desiredSkillLinks(other).find((x) => x.name === skill.name)
     if (d && d.target !== want)
-      return `workspace "${other.name}" already links "${skill.name}" in ${contractTilde(dir)} from a different source`
+      return `workspace "${other.name}" already declares "${skill.name}" in ${contractTilde(dir)} from a different source`
   }
   return null
+}
+
+// Every shared-dir name clash `ws`'s declared skills would have in `cfg` (see
+// sharedNameClash). persist refuses a change that introduces one.
+export const sharedNameClashes = (cfg: Config, ws: Workspace): string[] =>
+  (ws.skills ?? [])
+    .map((spec) => sharedNameClash(cfg, ws, spec))
+    .filter((c): c is string => c !== null)
+
+// The bundled self-skill is often installed another way too: the README's
+// `npx skills add nrjdalal/inscope` puts the skills CLI's copy at
+// ~/.claude/skills/inscope. An entry at that name that inscope does not own but that
+// IS the inscope skill (its SKILL.md says `name: inscope`) already provides it, so
+// inscope leaves it alone and counts it as satisfied instead of refusing on every
+// write (the user's entry is still never replaced).
+export const selfSkillProvidedElsewhere = (dir: string): boolean => {
+  const entry = path.join(dir, SELF_SKILL_NAME)
+  try {
+    fs.lstatSync(entry)
+  } catch {
+    return false
+  }
+  return !isOwnedLink(entry) && readFrontmatterName(entry) === SELF_SKILL_NAME
 }
 
 // The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
@@ -560,7 +590,7 @@ export const applySkills = (
   const push = (dir: string, l: DesiredLink) => byDir.get(dir)?.push(l)
   for (const ws of cfg.workspaces) {
     const dir = skillsDir(ws)
-    if (ws.selfSkill !== false && selfDir)
+    if (ws.selfSkill !== false && selfDir && !selfSkillProvidedElsewhere(dir))
       push(dir, {
         name: SELF_SKILL_NAME,
         target: selfSkillCacheDir(),

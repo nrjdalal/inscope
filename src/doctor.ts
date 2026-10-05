@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { zshrcSourcesHook } from "@/apply"
-import type { Config, Workspace } from "@/config"
+import { type Config, normalizeSkill, type Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
 import { contractTilde, gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
@@ -14,7 +14,12 @@ import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
 import { hasBypassAcceptance, hasBypassSetting, loginDefaultMode } from "@/generators/settings"
-import { desiredSkillLinks, skillLinkTarget } from "@/generators/skills"
+import {
+  desiredSkillLinks,
+  foreignSkillAt,
+  sharedNameClash,
+  skillLinkTarget,
+} from "@/generators/skills"
 import { readFileOrNull } from "@/io"
 import { assertBlockWellFormed, readBlock } from "@/managed-block"
 import {
@@ -155,7 +160,7 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
 // Warn on any the config declares (including the default self-skill) that is not
 // linked, i.e. apply has not run since it was added, or a source went missing. All
 // present is one ok line.
-const skillChecks = (ws: Workspace): Check[] => {
+const skillChecks = (ws: Workspace, cfg: Config): Check[] => {
   const desired = desiredSkillLinks(ws)
   if (!desired.length) return []
   const tag = `[${ws.name}] skills`
@@ -163,11 +168,19 @@ const skillChecks = (ws: Workspace): Check[] => {
   // user-authored dir (skillLinkTarget returns null for a non-symlink).
   const stale = desired.filter((d) => skillLinkTarget(ws, d.name) !== d.target)
   if (!stale.length) return [{ status: "ok", label: tag, detail: `${desired.length} linked` }]
-  return stale.map((d) => ({
-    status: "warn" as const,
-    label: tag,
-    detail: `"${d.name}" not linked to its source; run \`inscope apply\``,
-  }))
+  const specs = new Map((ws.skills ?? []).map((sp) => [normalizeSkill(sp).name, sp]))
+  return stale.map((d) => {
+    // apply cannot fix a name held by something else; say what holds it instead
+    const spec = specs.get(d.name)
+    const held = foreignSkillAt(ws, d.name) ?? (spec ? sharedNameClash(cfg, ws, spec) : null)
+    return {
+      status: "warn" as const,
+      label: tag,
+      detail: held
+        ? `"${d.name}" not linked: ${held}`
+        : `"${d.name}" not linked to its source; run \`inscope apply\``,
+    }
+  })
 }
 
 export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => {
@@ -360,7 +373,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       }
     }
 
-    checks.push(...skillChecks(ws))
+    checks.push(...skillChecks(ws, cfg))
   }
 
   return checks

@@ -18,6 +18,7 @@ import {
   type Workspace,
 } from "@/config"
 import { removeMcp, sameMcpFile, SERVER_TYPES } from "@/generators/mcp"
+import { sharedNameClashes } from "@/generators/skills"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
 
@@ -203,6 +204,16 @@ export const persist = (ws: Workspace) => {
   const cfg = configExists() ? loadConfig() : defaultConfig()
   const prior = cfg.workspaces.find((w) => w.name === ws.name)
   const next = upsertWorkspace(cfg, ws)
+  // The shared ~/.claude/skills is first-wins by workspace name, so a change that puts a
+  // skill name another workspace already declares there from a different source (a
+  // rename, turning isolation off) would silently swap one of them out. Refuse a clash
+  // this change introduces; one that already existed is left for the user to resolve.
+  const before = prior ? sharedNameClashes(cfg, prior) : []
+  const introduced = sharedNameClashes(next, ws).filter((c) => !before.includes(c))
+  if (introduced.length)
+    throw new Error(
+      `${introduced.join("\n")}\nRename the skill (\`inscope skill rename\`) or keep this workspace isolated; nothing was changed.`,
+    )
   preflightApply(next) // refuse before the config is saved, not halfway through apply
   saveConfig(next)
   applyAll(next)

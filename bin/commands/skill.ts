@@ -22,6 +22,7 @@ import {
   foreignSkillAt,
   resolveSkillDir,
   SELF_SKILL_NAME,
+  selfSkillProvidedElsewhere,
   sharedNameClash,
   skillHasSkillMd,
   skillLinked,
@@ -161,7 +162,9 @@ const skillAdd = async (args: string[]) => {
       console.log(`\nThe inscope self-skill is already enabled for "${ws.name}".`)
       process.exit(0)
     }
-    const clash = foreignSkillAt(ws, SELF_SKILL_NAME)
+    const clash = selfSkillProvidedElsewhere(skillsDir(ws))
+      ? null // the user's own install of the inscope skill already provides it
+      : foreignSkillAt(ws, SELF_SKILL_NAME)
     if (clash) {
       console.error(`Cannot enable the inscope self-skill: ${clash}; remove it first.`)
       process.exit(1)
@@ -214,9 +217,7 @@ const skillAdd = async (args: string[]) => {
       // is never replaced; refuse now rather than declare a skill that cannot link.
       const clash = foreignSkillAt(ws, n) ?? sharedNameClash(cfg, ws, spec)
       if (clash) {
-        console.error(
-          `skipping "${n}": ${clash}; remove it, or add this one under another name with --name`,
-        )
+        console.error(`skipping "${n}": ${clash}; add it under another name with --name`)
         clashes++
         continue
       }
@@ -456,7 +457,7 @@ const skillRename = (args: string[]) => {
 
   const clash = foreignSkillAt(ws, to)
   if (clash) {
-    console.error(`Cannot rename to "${to}": ${clash}; remove it or pick another name.`)
+    console.error(`Cannot rename to "${to}": ${clash}; pick another name.`)
     process.exit(1)
   }
   const renamed: Workspace = { ...ws, skills: nextSkills }
