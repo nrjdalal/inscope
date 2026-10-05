@@ -73,7 +73,15 @@ import {
 } from "@/generators/skills"
 import { writeFileAtomic } from "@/io"
 import { readBlock, removeBlock, upsertBlock } from "@/managed-block"
-import { claudeAuthStatus, ghAccounts, gitGlobal, keychainSetCommand, type Runner } from "@/secrets"
+import {
+  claudeAuthStatus,
+  ghAccounts,
+  gitGlobal,
+  keychainSetCommand,
+  shQuotePath,
+  shSingleQuote,
+  type Runner,
+} from "@/secrets"
 import { resolveStatus } from "@/status"
 import {
   buildServers,
@@ -373,6 +381,24 @@ test("managed block refuses unbalanced markers instead of deleting user config",
   fs.writeFileSync(none, user)
   upsertBlock(none, "gitconfig", "x")
   expect(readBlock(none, "gitconfig")).toBe("x")
+})
+
+test("shQuotePath keeps a printed path one argument, with ~/ still expanding", () => {
+  expect(shQuotePath("~/Client Work/acme/.inscope")).toBe("~/'Client Work/acme/.inscope'")
+  expect(shQuotePath("/opt/My Dir/.inscope")).toBe("'/opt/My Dir/.inscope'")
+  expect(shQuotePath("~/it's/.inscope")).toBe("~/'it'\\''s/.inscope'")
+  expect(shQuotePath("~")).toBe("~")
+  expect(shSingleQuote("SLACK $(id)")).toBe("'SLACK $(id)'")
+  // what a shell actually receives: exactly one argument, the literal path
+  const r = spawnSync(
+    "zsh",
+    ["-f", "-c", `print -rl -- ${shQuotePath("~/Client Work/acme/.inscope")}`],
+    {
+      encoding: "utf8",
+      env: { ...process.env, HOME: "/h" },
+    },
+  )
+  expect(r.stdout).toBe("/h/Client Work/acme/.inscope\n")
 })
 
 test("managed block has no leading blank line on a fresh file", () => {

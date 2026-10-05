@@ -9,7 +9,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
-import { ghAccounts, keychainHas } from "@/secrets"
+import { ghAccounts, keychainHas, shQuotePath } from "@/secrets"
 import { requireConfig } from "~/bin/commands/_config"
 import {
   isInteractive,
@@ -236,7 +236,7 @@ export const edit = async (args: string[]) => {
   else if (ws.isolate && !next.isolate)
     console.log(
       `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
-        `Delete it with: ${orange(`rm -rf ${next.path}/.inscope`)}`,
+        `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)
