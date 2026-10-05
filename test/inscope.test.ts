@@ -876,6 +876,34 @@ test("CLI: turning isolation off refuses a skill name the shared dir already hol
   })
 })
 
+test("CLI: a clash that already existed does not block unrelated edits; doctor names the holder", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    const mk = (dir: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: foo\ndescription: d\n---\n")
+      return dir
+    }
+    const x = mk(path.join(sb, "x", "foo"))
+    const y = mk(path.join(sb, "y", "foo"))
+    for (const d of ["w1", "w2"]) fs.mkdirSync(path.join(sb, d))
+    // hand-edited into a clash: both shared workspaces declare foo from different sources
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "w1", path: path.join(sb, "w1"), servers: {}, skills: [x] },
+        { name: "w2", path: path.join(sb, "w2"), servers: {}, skills: [y] },
+      ],
+    })
+    expect(cli(["apply"]).status).toBe(0)
+    const r = cli(["add", path.join(sb, "w2"), "--label", "w2", "--email", "w2@x.dev", "-y"])
+    expect(r.status).toBe(0)
+    expect(readWs("w2")!.git?.email).toBe("w2@x.dev")
+    const doc = cli(["doctor", "--json"])
+    expect(doc.stdout).toContain(`workspace \\"w1\\" already declares \\"foo\\"`)
+  })
+})
+
 test("CLI: diff reports malformed ~/.gitconfig markers instead of In sync", () => {
   withSandbox((sb) => {
     const { cli, writeCfg } = sandboxCli(sb)
