@@ -1,3 +1,4 @@
+import { contractTilde } from "@/env"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 
 const begin = (id: string) => `# >>> inscope:${id} >>>`
@@ -31,7 +32,7 @@ const locate = (file: string, id: string, lines: string[]): { b: number; e: numb
   if (!nearMiss && bs.length === 1 && es.length === 1 && bs[0] < es[0])
     return { b: bs[0], e: es[0] }
   throw new Error(
-    `${file} has malformed inscope markers ("${B}" x${bs.length}, "${E}" x${es.length}` +
+    `${contractTilde(file)} has malformed inscope markers ("${B}" x${bs.length}, "${E}" x${es.length}` +
       `${nearMiss ? `, ${nearMiss} altered marker line(s)` : ""}); fix them by hand (one exact ` +
       `begin/end pair around inscope's block, each on its own line), then re-run. Left it untouched.`,
   )
