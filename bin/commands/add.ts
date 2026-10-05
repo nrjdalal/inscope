@@ -1,4 +1,5 @@
 import fs from "node:fs"
+import path from "node:path"
 import { parseArgs } from "node:util"
 
 import {
@@ -366,16 +367,20 @@ export const add = async (args: string[]) => {
   // A move is a different directory (and so a different .inscope login), even when a
   // worktree's .mcp.json is shared with the old one.
   const moved = !!existing && !sameDir(existing.path, ws.path)
+  // What is on disk decides the login messages: a directory moved with `mv` carries
+  // its .inscope login along, and its old path no longer holds one.
+  const loginAt = (p: string) => fs.existsSync(path.join(resolveAbsolute(p), ".inscope"))
+  const hadLogin = loginAt(ws.path)
   persist(ws)
   console.log(`\n✓ ${existing ? "updated workspace" : "workspace"} "${label}" -> ${ws.path}`)
   if (moved) console.log(`✓ moved from ${existing.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
-  if (ws.isolate && (!existing?.isolate || moved))
+  if (ws.isolate && !hadLogin)
     console.log(
       `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
   // The old login stays where it was: after turning isolation off, or after a move.
-  if (existing?.isolate && (!ws.isolate || moved))
+  if (existing?.isolate && (!ws.isolate || moved) && loginAt(existing.path))
     console.log(
       `\nNote: ${existing.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${existing.path}/.inscope`)}`)}`,
@@ -388,7 +393,9 @@ export const add = async (args: string[]) => {
     )
   console.log(
     ws.isolate
-      ? `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
+      ? hadLogin
+        ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`
+        : `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
       : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
   )
   process.exit(0)

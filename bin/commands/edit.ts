@@ -1,3 +1,5 @@
+import fs from "node:fs"
+import path from "node:path"
 import { parseArgs } from "node:util"
 
 import {
@@ -229,7 +231,11 @@ export const edit = async (args: string[]) => {
     console.log(
       `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
-  else if (ws.isolate && !next.isolate)
+  else if (
+    ws.isolate &&
+    !next.isolate &&
+    fs.existsSync(path.join(resolveAbsolute(next.path), ".inscope"))
+  )
     console.log(
       `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
