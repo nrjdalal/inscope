@@ -14,7 +14,7 @@ import {
   type SlackServer,
   type Workspace,
 } from "@/config"
-import { resolveAbsolute } from "@/env"
+import { resolveAbsolute, sameDir } from "@/env"
 import { writeFileAtomic } from "@/io"
 
 export const SLACK_MCP_VERSION = "1.3.0"
@@ -142,7 +142,7 @@ export const sameMcpFile = (a: string, b: string): boolean => {
   const da = resolveAbsolute(a)
   const db = resolveAbsolute(b)
   if (da === db) return true
-  return same(path.join(da, ".mcp.json"), path.join(db, ".mcp.json")) ?? same(da, db) ?? false
+  return same(path.join(da, ".mcp.json"), path.join(db, ".mcp.json")) ?? sameDir(da, db)
 }
 
 // The URL a configured remote server renders to: an explicit `url` wins, then

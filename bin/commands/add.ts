@@ -14,8 +14,8 @@ import {
   workspaceNameError,
   workspacePathError,
 } from "@/config"
-import { contractTilde, resolveAbsolute } from "@/env"
-import { sameMcpFile, SERVER_TYPES } from "@/generators/mcp"
+import { contractTilde, resolveAbsolute, sameDir } from "@/env"
+import { SERVER_TYPES } from "@/generators/mcp"
 import { ghAccounts, gitGlobal, keychainHas, shQuotePath } from "@/secrets"
 import {
   isInteractive,
@@ -58,7 +58,8 @@ Options:
   --gh <account>        gh account whose token this workspace uses
   --isolate             give this workspace its own Claude login: scaffold a local
                         <path>/.inscope config dir (gitignored) and launch claude
-                        there when you run it from this subtree
+                        there when you run it from this subtree (--no-isolate
+                        turns it off when updating a workspace)
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -78,6 +79,7 @@ Options:
   --slack-package <p>   Slack MCP server package: @nrjdalal/slack-mcp-server
                         (default, kept on latest) or slack-mcp-server (pinned)
   --slack-message       allow the Slack MCP server to post messages
+                        (--no-slack-message turns it off)
   --seed-slack          prompt for the Slack token and store it in the keychain
   -y, --yes             accept defaults, skip all prompts (non-interactive)
   -h, --help            Display help message`
@@ -125,6 +127,9 @@ export const add = async (args: string[]) => {
       "slack-message": { type: "boolean" },
       "seed-slack": { type: "boolean" },
     },
+    // --no-isolate / --no-slack-message: the non-interactive way to turn one off when
+    // re-running add on an existing workspace (an omitted flag keeps the stored value)
+    allowNegative: true,
     args,
   })
 
@@ -280,7 +285,7 @@ export const add = async (args: string[]) => {
     !!values["seed-slack"]
   const curSlack = existing?.servers.slack || null
   let slackSvc = values["slack-keychain"] || curSlack?.keychain || slackKeychainFor(label)
-  let slackMessage = !!values["slack-message"] || !!curSlack?.addMessageTool
+  let slackMessage = values["slack-message"] ?? !!curSlack?.addMessageTool
   let seedSlack = !!values["seed-slack"]
   const resolvedPkg =
     values["slack-package"] === undefined && curSlack
@@ -303,7 +308,7 @@ export const add = async (args: string[]) => {
       slackPackage = await selectOne("Slack MCP server package", SLACK_PACKAGE_CHOICES, initial)
     }
     if (!values["slack-keychain"]) slackSvc = await promptText("Slack keychain service", slackSvc)
-    if (!values["slack-message"])
+    if (values["slack-message"] === undefined)
       slackMessage = await promptConfirm(
         "Allow Slack to post messages?",
         curSlack ? slackMessage : true,
@@ -358,7 +363,9 @@ export const add = async (args: string[]) => {
   }
 
   const firstRun = !configExists()
-  const moved = !!existing && !sameMcpFile(existing.path, ws.path)
+  // A move is a different directory (and so a different .inscope login), even when a
+  // worktree's .mcp.json is shared with the old one.
+  const moved = !!existing && !sameDir(existing.path, ws.path)
   persist(ws)
   console.log(`\n✓ ${existing ? "updated workspace" : "workspace"} "${label}" -> ${ws.path}`)
   if (moved) console.log(`✓ moved from ${existing.path}`)

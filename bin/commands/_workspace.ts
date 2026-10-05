@@ -17,7 +17,6 @@ import {
   upsertWorkspace,
   type Workspace,
 } from "@/config"
-import { resolveAbsolute } from "@/env"
 import { removeMcp, sameMcpFile, SERVER_TYPES } from "@/generators/mcp"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
