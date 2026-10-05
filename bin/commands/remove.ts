@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util"
 
-import { applyAll } from "@/apply"
+import { applyAll, preflightApply } from "@/apply"
 import { findWorkspace, removeWorkspace, saveConfig, type Workspace } from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
@@ -74,6 +74,7 @@ export const remove = async (args: string[]) => {
   }
 
   const { cfg: next } = removeWorkspace(cfg, target.name)
+  preflightApply(next) // refuse before anything is removed or saved
   removeMcp(target)
   removePerWorkspaceGitconfig(target.name)
   // Symlinks into a shared cache are disposable, so we clean them up outright

@@ -1,14 +1,15 @@
 import path from "node:path"
 
 import type { Config } from "@/config"
-import { home, hookPath, zshrcPath } from "@/env"
-import { applyGitconfig } from "@/generators/gitconfig"
+import { gitconfigPath, home, hookPath, zshrcPath } from "@/env"
+import { applyGitconfig, GITCONFIG_BLOCK_ID } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { applyIsolation } from "@/generators/isolate"
 import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
 import { applyBypass } from "@/generators/settings"
 import { applySkills } from "@/generators/skills"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
+import { assertBlockWellFormed } from "@/managed-block"
 
 const homeVar = (abs: string) => {
   const h = home()
@@ -50,11 +51,17 @@ export type ApplyResult = {
   mcp: string[]
 }
 
-export const applyAll = (cfg: Config): ApplyResult => {
-  // Pre-flight every .mcp.json before touching anything: one unparseable file
-  // aborts the whole apply here, rather than after the hook and earlier
-  // .mcp.json files are already rewritten (a half-applied state).
+// Check every shared file apply edits in place before touching anything: one
+// unparseable .mcp.json, or a ~/.gitconfig whose inscope markers are malformed,
+// aborts here rather than after the hook and earlier files are already rewritten (a
+// half-applied state). Commands that save the config first call this before saving.
+export const preflightApply = (cfg: Config) => {
   preflightMcp(cfg.workspaces)
+  assertBlockWellFormed(gitconfigPath(), GITCONFIG_BLOCK_ID)
+}
+
+export const applyAll = (cfg: Config): ApplyResult => {
+  preflightApply(cfg)
 
   const hp = hookPath()
   writeFileAtomic(hp, renderHook(cfg))

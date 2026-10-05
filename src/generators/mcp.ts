@@ -124,6 +124,27 @@ export const managedKeys = (name: string) => SERVER_TYPES.map((t) => `${t}-${nam
 
 export const mcpFilePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".mcp.json")
 
+// Whether two workspace paths share one .mcp.json: the same file (device + inode,
+// following symlinks, e.g. a worktree's .mcp.json linked to the main checkout's) or,
+// before either file exists, the same directory (a symlinked spelling, or a different
+// case on a case-insensitive volume). Relocating a workspace between such aliases must
+// not prune the managed keys apply just wrote there.
+export const sameMcpFile = (a: string, b: string): boolean => {
+  const same = (x: string, y: string) => {
+    try {
+      const sx = fs.statSync(x)
+      const sy = fs.statSync(y)
+      return sx.dev === sy.dev && sx.ino === sy.ino
+    } catch {
+      return null
+    }
+  }
+  const da = resolveAbsolute(a)
+  const db = resolveAbsolute(b)
+  if (da === db) return true
+  return same(path.join(da, ".mcp.json"), path.join(db, ".mcp.json")) ?? same(da, db) ?? false
+}
+
 // The URL a configured remote server renders to: an explicit `url` wins, then
 // datadog's regional site, then the server's default.
 export const remoteUrl = (key: string, v: unknown): string => {
