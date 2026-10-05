@@ -87,6 +87,7 @@ import {
   buildServers,
   datadogSiteOf,
   enabledServers,
+  ghChoices,
   gitGlobalHint,
   persist,
   sameDir,
@@ -802,6 +803,49 @@ test("relocating a workspace to a new path prunes the old path's managed block",
     if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME
     else process.env.XDG_CONFIG_HOME = prevXdg
   }
+})
+
+test("ghChoices keeps a stored account selectable and preselected when gh does not list it", () => {
+  // a new workspace preselects the first account, as before
+  expect(ghChoices(["work", "personal"]).initial).toBe(0)
+  // updating: the stored account is preselected ...
+  const listed = ghChoices(["work", "personal"], "personal")
+  expect(listed.choices[listed.initial].value).toBe("personal")
+  // ... a stored account gh does not list (logged out, gh off PATH) stays the default
+  const missing = ghChoices(["personal"], "work")
+  expect(missing.choices[missing.initial]).toEqual({
+    label: "work (not in gh auth status)",
+    value: "work",
+  })
+  expect(ghChoices([], "work").choices.map((c) => c.value)).toEqual(["work", ""])
+  // a workspace with no gh keeps "(none)"
+  const none = ghChoices(["work"], "")
+  expect(none.choices[none.initial].value).toBe("")
+})
+
+test("buildServers keeps a still-enabled server's stored details when updating", () => {
+  const prev = {
+    linear: { url: "https://mcp.example.com/linear" },
+    datadog: { site: "datadoghq.eu" as const, url: "https://dd.example.com/mcp" },
+    notion: true,
+  }
+  const next = buildServers(
+    ["linear", "datadog", "github"],
+    null,
+    { datadogSite: "datadoghq.eu" },
+    prev,
+  )
+  expect(next.linear).toEqual({ url: "https://mcp.example.com/linear" })
+  expect(next.datadog).toEqual({ site: "datadoghq.eu", url: "https://dd.example.com/mcp" })
+  expect(next.github).toBe(true)
+  expect(next.notion).toBe(false) // disabled servers are dropped
+  // switching datadog back to US1 drops only the site, keeping the custom url
+  expect(buildServers(["datadog"], null, {}, prev).datadog).toEqual({
+    url: "https://dd.example.com/mcp",
+  })
+  // without prev (a new workspace) everything is plain, as before
+  expect(buildServers(["linear", "datadog"], null).linear).toBe(true)
+  expect(buildServers(["linear", "datadog"], null).datadog).toBe(true)
 })
 
 test("re-adding through an aliased spelling of the same dir keeps its managed servers", () => {

@@ -3,6 +3,7 @@ import { parseArgs } from "node:util"
 
 import {
   configExists,
+  DEFAULT_SLACK_PACKAGE,
   hookValueError,
   labelFromPath,
   type NylasServer,
@@ -15,9 +16,10 @@ import {
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
-import { ghAccounts, gitGlobal } from "@/secrets"
+import { ghAccounts, gitGlobal, shQuotePath } from "@/secrets"
 import {
   isInteractive,
+  orange,
   promptConfirm,
   promptText,
   selectMany,
@@ -27,8 +29,11 @@ import {
 import {
   buildServers,
   DATADOG_SITE_CHOICES,
+  datadogSiteOf,
+  enabledServers,
   finalizeNylas,
   finalizeSlack,
+  ghChoices,
   gitGlobalHint,
   NYLAS_REGION_CHOICES,
   nylasKeychainFor,
@@ -43,7 +48,8 @@ import { name } from "~/package.json"
 
 const helpMessage = `Map a workspace: a Claude login (shared or isolated), MCP servers, a GitHub account, a git commit email, and skills.
 Runs interactively in a terminal; pass flags or -y to skip the prompts. Re-running
-with the same label updates that workspace; each directory maps to one workspace.
+with the same label updates that workspace: the flags you pass change it and
+everything else is kept. Each directory maps to one workspace.
 
 Usage:
   $ ${name} add [path] [options]
@@ -76,11 +82,27 @@ Options:
   -y, --yes             accept defaults, skip all prompts (non-interactive)
   -h, --help            Display help message`
 
-const SERVER_CHOICES = SERVER_TYPES.map((t) => ({
-  label: t,
-  value: t,
-  checked: t === "github",
-}))
+const serverChoices = (enabled: string[]) =>
+  SERVER_TYPES.map((t) => ({ label: t, value: t, checked: enabled.includes(t) }))
+
+// A git email/name prompt. With a stored value (re-running add on an existing
+// workspace), enter keeps it and "-" inherits the global, like `edit`; otherwise
+// blank inherits the global (or leaves it unset when there is none).
+const promptGit = async (
+  field: "email" | "name",
+  stored: string | undefined,
+): Promise<string | undefined> => {
+  if (stored) {
+    const ans = await promptText(
+      `Git ${field} (enter keeps ${stored}, "-" to inherit global)`,
+      stored,
+    )
+    return ans === "-" ? undefined : ans || undefined
+  }
+  return (
+    (await promptText(`Git ${field} (${gitGlobalHint(gitGlobal(`user.${field}`))})`)) || undefined
+  )
+}
 
 export const add = async (args: string[]) => {
   const { positionals, values } = parseArgs({
@@ -150,8 +172,9 @@ export const add = async (args: string[]) => {
   // Adding a second label for a path another workspace already owns would create
   // a broken duplicate, so refuse and point at the existing one. Re-running with
   // the same label updates that workspace, so only a different name collides.
-  if (configExists()) {
-    const owner = pathConflict(loadConfig(), target, label)
+  const cfg = configExists() ? loadConfig() : null
+  if (cfg) {
+    const owner = pathConflict(cfg, target, label)
     if (owner) {
       console.error(
         `\n${contractTilde(target)} is already mapped to workspace "${owner.name}". Run \`${name} edit ${owner.name}\` to change it, or \`${name} rm ${owner.name}\` first.`,
@@ -159,30 +182,27 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
+  // Re-running with an existing label updates that workspace: start from what is
+  // stored, so anything not passed as a flag (or changed at a prompt) is kept
+  // instead of reset (isolation, servers and their settings, gh, git identity,
+  // skills, selfSkill).
+  const existing = cfg?.workspaces.find((w) => w.name === label)
 
   // --- gh account ---
-  let gh = values.gh
-  if (gh === undefined && interactive) {
-    const choices = [
-      ...ghAccounts().map((a) => ({ label: a, value: a })),
-      { label: "(none)", value: "" },
-    ]
-    gh = (await selectOne("\nGitHub account for this workspace", choices)) || undefined
+  let gh = values.gh !== undefined ? values.gh || undefined : existing?.gh
+  if (values.gh === undefined && interactive) {
+    const { choices, initial } = ghChoices(ghAccounts(), existing ? (existing.gh ?? "") : undefined)
+    gh = (await selectOne("\nGitHub account for this workspace", choices, initial)) || undefined
   }
 
   // --- git identity (blank inherits the global config, or leaves it unset when
   // there is no global to inherit) ---
-  let email = values.email
-  let gitName = values["git-name"]
+  let email = values.email !== undefined ? values.email || undefined : existing?.git?.email
+  let gitName =
+    values["git-name"] !== undefined ? values["git-name"] || undefined : existing?.git?.name
   if (interactive) {
-    if (email === undefined) {
-      email =
-        (await promptText(`Git email (${gitGlobalHint(gitGlobal("user.email"))})`)) || undefined
-    }
-    if (gitName === undefined) {
-      gitName =
-        (await promptText(`Git name (${gitGlobalHint(gitGlobal("user.name"))})`)) || undefined
-    }
+    if (values.email === undefined) email = await promptGit("email", existing?.git?.email)
+    if (values["git-name"] === undefined) gitName = await promptGit("name", existing?.git?.name)
   }
 
   // --- MCP servers ---
@@ -197,10 +217,11 @@ export const add = async (args: string[]) => {
     if (unknown.length) {
       console.error(yellow(`\nIgnoring unknown server(s): ${unknown.join(", ")}`))
     }
-  } else if (interactive) {
-    serverList = await selectMany("MCP servers (space toggles, enter confirms)", SERVER_CHOICES)
   } else {
-    serverList = ["github"]
+    const current = existing ? enabledServers(existing.servers) : ["github"]
+    serverList = interactive
+      ? await selectMany("MCP servers (space toggles, enter confirms)", serverChoices(current))
+      : current
   }
 
   // --- datadog site ---
@@ -211,10 +232,14 @@ export const add = async (args: string[]) => {
     )
     process.exit(1)
   }
-  let datadogSite = flagSite
+  let datadogSite = values["datadog-site"] || !existing ? flagSite : datadogSiteOf(existing.servers)
   if (values["datadog-site"] && !serverList.includes("datadog")) serverList.push("datadog")
   if (serverList.includes("datadog") && interactive && !values["datadog-site"]) {
-    datadogSite = await selectOne("\nDatadog site", DATADOG_SITE_CHOICES)
+    const siteInitial = Math.max(
+      0,
+      DATADOG_SITE_CHOICES.findIndex((c) => c.value === datadogSite),
+    )
+    datadogSite = await selectOne("\nDatadog site", DATADOG_SITE_CHOICES, siteInitial)
   }
 
   // --- nylas details ---
@@ -229,12 +254,18 @@ export const add = async (args: string[]) => {
     console.error(`\nInvalid --nylas-region "${values["nylas-region"]}": use us or eu`)
     process.exit(1)
   }
-  let nylasRegion = flagRegion
-  let nylasSvc = values["nylas-keychain"] || nylasKeychainFor(label)
+  const curNylas = existing?.servers.nylas || null
+  let nylasRegion = values["nylas-region"] || !curNylas ? flagRegion : (curNylas.region ?? "us")
+  let nylasSvc = values["nylas-keychain"] || curNylas?.keychain || nylasKeychainFor(label)
   let seedNylas = !!values["seed-nylas"]
   if (wantNylas && interactive) {
     console.log(`\nNylas uses an API key from your Nylas dashboard.`)
-    if (!values["nylas-region"]) nylasRegion = await selectOne("Nylas region", NYLAS_REGION_CHOICES)
+    if (!values["nylas-region"])
+      nylasRegion = await selectOne(
+        "Nylas region",
+        NYLAS_REGION_CHOICES,
+        nylasRegion === "eu" ? 1 : 0,
+      )
     if (!values["nylas-keychain"]) nylasSvc = await promptText("Nylas keychain service", nylasSvc)
     if (!values["seed-nylas"]) seedNylas = await promptConfirm("Store the Nylas API key now?", true)
   }
@@ -246,10 +277,14 @@ export const add = async (args: string[]) => {
     !!values["slack-keychain"] ||
     !!values["slack-package"] ||
     !!values["seed-slack"]
-  let slackSvc = values["slack-keychain"] || slackKeychainFor(label)
-  let slackMessage = !!values["slack-message"]
+  const curSlack = existing?.servers.slack || null
+  let slackSvc = values["slack-keychain"] || curSlack?.keychain || slackKeychainFor(label)
+  let slackMessage = !!values["slack-message"] || !!curSlack?.addMessageTool
   let seedSlack = !!values["seed-slack"]
-  const resolvedPkg = resolveSlackPackage(values["slack-package"])
+  const resolvedPkg =
+    values["slack-package"] === undefined && curSlack
+      ? (curSlack.package ?? DEFAULT_SLACK_PACKAGE)
+      : resolveSlackPackage(values["slack-package"])
   if (resolvedPkg === null) {
     console.error(
       `\nInvalid --slack-package "${values["slack-package"]}": use slack-mcp-server or @nrjdalal/slack-mcp-server`,
@@ -268,14 +303,17 @@ export const add = async (args: string[]) => {
     }
     if (!values["slack-keychain"]) slackSvc = await promptText("Slack keychain service", slackSvc)
     if (!values["slack-message"])
-      slackMessage = await promptConfirm("Allow Slack to post messages?", true)
+      slackMessage = await promptConfirm(
+        "Allow Slack to post messages?",
+        curSlack ? slackMessage : true,
+      )
     if (!values["seed-slack"]) seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
   // --- isolate: give this workspace its own Claude login in a local .inscope ---
-  let isolate = Boolean(values.isolate)
+  let isolate = values.isolate !== undefined ? values.isolate : Boolean(existing?.isolate)
   if (values.isolate === undefined && interactive) {
-    isolate = await promptConfirm("\nDedicated Claude login for this workspace?", false)
+    isolate = await promptConfirm("\nDedicated Claude login for this workspace?", isolate)
   }
 
   // gh account and Slack keychain are interpolated into the chpwd hook; reject
@@ -301,6 +339,7 @@ export const add = async (args: string[]) => {
     }
   }
   const ws: Workspace = {
+    ...existing,
     isolate: isolate || undefined,
     name: label,
     path: contractTilde(target),
@@ -312,16 +351,22 @@ export const add = async (args: string[]) => {
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
       { datadogSite, nylas },
+      existing?.servers,
     ),
   }
 
   const firstRun = !configExists()
   persist(ws)
-  console.log(`\n✓ workspace "${label}" -> ${ws.path}`)
+  console.log(`\n✓ ${existing ? "updated workspace" : "workspace"} "${label}" -> ${ws.path}`)
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
-  if (ws.isolate)
+  if (ws.isolate && !existing?.isolate)
     console.log(
       `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
+    )
+  else if (existing?.isolate && !ws.isolate)
+    console.log(
+      `\nNote: ${ws.path}/.inscope still holds a Claude login; it was left in place.\n` +
+        `Delete it with: ${orange(`rm -rf ${shQuotePath(`${ws.path}/.inscope`)}`)}`,
     )
   await finalizeSlack(ws, seedSlack)
   await finalizeNylas(ws, seedNylas)
