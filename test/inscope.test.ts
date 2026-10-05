@@ -346,6 +346,35 @@ test("managed block is idempotent and preserves surrounding content", () => {
   expect(fs.readFileSync(file, "utf8")).toContain("pager = less")
 })
 
+test("managed block refuses unbalanced markers instead of deleting user config", () => {
+  const B = "# >>> inscope:gitconfig >>>"
+  const E = "# <<< inscope:gitconfig <<<"
+  const user = "[alias]\n\tco = checkout\n[core]\n\tpager = less\n"
+  const cases: Record<string, string> = {
+    "missing end": `${B}\n[includeIf "gitdir:~/w/"]\n\tpath = x\n${user}`,
+    "missing begin": `${user}[includeIf "gitdir:~/w/"]\n\tpath = x\n${E}\n`,
+    "duplicated pair": `${B}\na\n${E}\n${user}${B}\nb\n${E}\n`,
+    "reversed pair": `${E}\n${user}${B}\n`,
+  }
+  for (const [label, body] of Object.entries(cases)) {
+    const file = path.join(tmpDir(), ".gitconfig")
+    fs.writeFileSync(file, body)
+    expect(() => upsertBlock(file, "gitconfig", "new"), label).toThrow(/unbalanced inscope markers/)
+    expect(() => removeBlock(file, "gitconfig"), label).toThrow(/unbalanced inscope markers/)
+    expect(fs.readFileSync(file, "utf8"), label).toBe(body)
+  }
+  // a well-formed pair, and no markers at all, still work
+  const ok = path.join(tmpDir(), ".gitconfig")
+  fs.writeFileSync(ok, `${user}\n${B}\nold\n${E}\n`)
+  upsertBlock(ok, "gitconfig", "new")
+  expect(readBlock(ok, "gitconfig")).toBe("new")
+  expect(fs.readFileSync(ok, "utf8")).toContain("co = checkout")
+  const none = path.join(tmpDir(), ".gitconfig")
+  fs.writeFileSync(none, user)
+  upsertBlock(none, "gitconfig", "x")
+  expect(readBlock(none, "gitconfig")).toBe("x")
+})
+
 test("managed block has no leading blank line on a fresh file", () => {
   const file = path.join(tmpDir(), ".gitconfig")
   upsertBlock(file, "gitconfig", "source x")
