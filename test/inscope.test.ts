@@ -341,6 +341,16 @@ test("renderHook pins no login when no workspace is isolated, only drops an inhe
 // Runs the generated hook in a real zsh: the base login must survive a re-source and a
 // child shell started inside an isolated workspace, instead of the isolated login
 // leaking into every other directory.
+// zsh is absent on some machines (CI's ubuntu runner); the behavioral hook tests run
+// wherever it exists, including CI's macos-latest.
+const hasZsh = (() => {
+  try {
+    return spawnSync("zsh", ["--version"]).status === 0
+  } catch {
+    return false
+  }
+})()
+
 const zshRun = (sb: string, script: string, env: Record<string, string> = {}) => {
   const r = spawnSync("zsh", ["-f", "-c", script], {
     encoding: "utf8",
@@ -356,22 +366,24 @@ const zshRun = (sb: string, script: string, env: Record<string, string> = {}) =>
   )
 }
 
-test("hook: a re-source or child shell inside an isolated workspace keeps the base login", () => {
-  const sb = tmpDir()
-  for (const d of ["acme", "personal"]) fs.mkdirSync(path.join(sb, d))
-  const hook = path.join(sb, "inscope.zsh")
-  fs.writeFileSync(
-    hook,
-    renderHook({
-      version: 1,
-      workspaces: [
-        { name: "acme", path: "~/acme", isolate: true, servers: {} },
-        { name: "personal", path: "~/personal", servers: {} },
-      ],
-    }),
-  )
-  const iso = path.join(sb, "acme", ".inscope")
-  const script = (global: string) => `
+test.skipIf(!hasZsh)(
+  "hook: a re-source or child shell inside an isolated workspace keeps the base login",
+  () => {
+    const sb = tmpDir()
+    for (const d of ["acme", "personal"]) fs.mkdirSync(path.join(sb, d))
+    const hook = path.join(sb, "inscope.zsh")
+    fs.writeFileSync(
+      hook,
+      renderHook({
+        version: 1,
+        workspaces: [
+          { name: "acme", path: "~/acme", isolate: true, servers: {} },
+          { name: "personal", path: "~/personal", servers: {} },
+        ],
+      }),
+    )
+    const iso = path.join(sb, "acme", ".inscope")
+    const script = (global: string) => `
     ${global}
     source ${hook}
     cd ~/acme; print in=$CLAUDE_CONFIG_DIR
@@ -382,81 +394,88 @@ test("hook: a re-source or child shell inside an isolated workspace keeps the ba
     cd ~/acme
     zsh -f -c '${global}; source ${hook}; cd ~/personal; print child=$CLAUDE_CONFIG_DIR'
   `
-  // no global: the base is ~/.claude everywhere outside acme
-  expect(zshRun(sb, script(""))).toEqual({
-    in: iso,
-    resourced: path.join(sb, ".claude"),
-    home: path.join(sb, ".claude"),
-    child: path.join(sb, ".claude"),
-  })
-  // a user's own global CLAUDE_CONFIG_DIR (re-exported by their zshrc) stays the base
-  const g = path.join(sb, "global")
-  expect(zshRun(sb, script(`export CLAUDE_CONFIG_DIR=${g}`))).toEqual({
-    in: iso,
-    resourced: g,
-    home: g,
-    child: g,
-  })
-})
+    // no global: the base is ~/.claude everywhere outside acme
+    expect(zshRun(sb, script(""))).toEqual({
+      in: iso,
+      resourced: path.join(sb, ".claude"),
+      home: path.join(sb, ".claude"),
+      child: path.join(sb, ".claude"),
+    })
+    // a user's own global CLAUDE_CONFIG_DIR (re-exported by their zshrc) stays the base
+    const g = path.join(sb, "global")
+    expect(zshRun(sb, script(`export CLAUDE_CONFIG_DIR=${g}`))).toEqual({
+      in: iso,
+      resourced: g,
+      home: g,
+      child: g,
+    })
+  },
+)
 
-test("hook: with no isolated workspace, an inherited isolated login is dropped", () => {
-  const sb = tmpDir()
-  fs.mkdirSync(path.join(sb, "acme"))
-  const hook = path.join(sb, "inscope.zsh")
-  fs.writeFileSync(
-    hook,
-    renderHook({ version: 1, workspaces: [{ name: "acme", path: "~/acme", servers: {} }] }),
-  )
-  const iso = path.join(sb, "acme", ".inscope")
-  const run = (env: Record<string, string>) =>
-    zshRun(sb, `source ${hook}; cd ~/acme; print ccd=\${CLAUDE_CONFIG_DIR-unset}`, env)
-  // inherited from a shell that had isolation: restored to the exported base, else unset
-  expect(run({ CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: "" })).toEqual({
-    ccd: "unset",
-  })
-  expect(
-    run({ CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: path.join(sb, "g") }),
-  ).toEqual({ ccd: path.join(sb, "g") })
-  // a user's own value is left alone
-  expect(run({ CLAUDE_CONFIG_DIR: path.join(sb, "mine") })).toEqual({
-    ccd: path.join(sb, "mine"),
-  })
-  // and with nothing inherited, nothing is set
-  expect(run({})).toEqual({ ccd: "unset" })
-  // a parent still running an older hook exported only the isolated login
-  expect(run({ CLAUDE_CONFIG_DIR: iso })).toEqual({ ccd: "unset" })
-  // no isolated workspace: the fallback bookkeeping is cleared, so a leftover base
-  // cannot outrank a later live value
-  const left = zshRun(
-    sb,
-    `source ${hook}; print base=\${INSCOPE_BASE_CCD-unset} mine=\${INSCOPE_CCD-unset}`,
-    { CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: "" },
-  )
-  expect(left).toEqual({ base: "unset mine=unset" })
-})
+test.skipIf(!hasZsh)(
+  "hook: with no isolated workspace, an inherited isolated login is dropped",
+  () => {
+    const sb = tmpDir()
+    fs.mkdirSync(path.join(sb, "acme"))
+    const hook = path.join(sb, "inscope.zsh")
+    fs.writeFileSync(
+      hook,
+      renderHook({ version: 1, workspaces: [{ name: "acme", path: "~/acme", servers: {} }] }),
+    )
+    const iso = path.join(sb, "acme", ".inscope")
+    const run = (env: Record<string, string>) =>
+      zshRun(sb, `source ${hook}; cd ~/acme; print ccd=\${CLAUDE_CONFIG_DIR-unset}`, env)
+    // inherited from a shell that had isolation: restored to the exported base, else unset
+    expect(run({ CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: "" })).toEqual({
+      ccd: "unset",
+    })
+    expect(
+      run({ CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: path.join(sb, "g") }),
+    ).toEqual({ ccd: path.join(sb, "g") })
+    // a user's own value is left alone
+    expect(run({ CLAUDE_CONFIG_DIR: path.join(sb, "mine") })).toEqual({
+      ccd: path.join(sb, "mine"),
+    })
+    // and with nothing inherited, nothing is set
+    expect(run({})).toEqual({ ccd: "unset" })
+    // a parent still running an older hook exported only the isolated login
+    expect(run({ CLAUDE_CONFIG_DIR: iso })).toEqual({ ccd: "unset" })
+    // no isolated workspace: the fallback bookkeeping is cleared, so a leftover base
+    // cannot outrank a later live value
+    const left = zshRun(
+      sb,
+      `source ${hook}; print base=\${INSCOPE_BASE_CCD-unset} mine=\${INSCOPE_CCD-unset}`,
+      { CLAUDE_CONFIG_DIR: iso, INSCOPE_CCD: iso, INSCOPE_BASE_CCD: "" },
+    )
+    expect(left).toEqual({ base: "unset mine=unset" })
+  },
+)
 
-test("hook: a parent shell running an older hook (isolated login exported alone) is not adopted", () => {
-  const sb = tmpDir()
-  for (const d of ["acme", "personal"]) fs.mkdirSync(path.join(sb, d))
-  const hook = path.join(sb, "inscope.zsh")
-  fs.writeFileSync(
-    hook,
-    renderHook({
-      version: 1,
-      workspaces: [
-        { name: "acme", path: "~/acme", isolate: true, servers: {} },
-        { name: "personal", path: "~/personal", servers: {} },
-      ],
-    }),
-  )
-  const iso = path.join(sb, "acme", ".inscope")
-  // what main's hook left in a child's env: CLAUDE_CONFIG_DIR=<ws>/.inscope, no INSCOPE_*
-  expect(
-    zshRun(sb, `source ${hook}; cd ~/personal; print ccd=$CLAUDE_CONFIG_DIR`, {
-      CLAUDE_CONFIG_DIR: iso,
-    }),
-  ).toEqual({ ccd: path.join(sb, ".claude") })
-})
+test.skipIf(!hasZsh)(
+  "hook: a parent shell running an older hook (isolated login exported alone) is not adopted",
+  () => {
+    const sb = tmpDir()
+    for (const d of ["acme", "personal"]) fs.mkdirSync(path.join(sb, d))
+    const hook = path.join(sb, "inscope.zsh")
+    fs.writeFileSync(
+      hook,
+      renderHook({
+        version: 1,
+        workspaces: [
+          { name: "acme", path: "~/acme", isolate: true, servers: {} },
+          { name: "personal", path: "~/personal", servers: {} },
+        ],
+      }),
+    )
+    const iso = path.join(sb, "acme", ".inscope")
+    // what main's hook left in a child's env: CLAUDE_CONFIG_DIR=<ws>/.inscope, no INSCOPE_*
+    expect(
+      zshRun(sb, `source ${hook}; cd ~/personal; print ccd=$CLAUDE_CONFIG_DIR`, {
+        CLAUDE_CONFIG_DIR: iso,
+      }),
+    ).toEqual({ ccd: path.join(sb, ".claude") })
+  },
+)
 
 // The real CLI, hermetic: sandbox HOME/XDG/GH_CONFIG_DIR, no inherited gh tokens.
 const sandboxCli = (sb: string) => {
@@ -1018,16 +1037,13 @@ test("shQuotePath keeps a printed path one argument, with ~/ still expanding", (
   expect(shQuotePath("~/it's/.inscope")).toBe("~/'it'\\''s/.inscope'")
   expect(shQuotePath("~")).toBe("~")
   expect(shSingleQuote("SLACK $(id)")).toBe("'SLACK $(id)'")
-  // what a shell actually receives: exactly one argument, the literal path
-  const r = spawnSync(
-    "zsh",
-    ["-f", "-c", `print -rl -- ${shQuotePath("~/Client Work/acme/.inscope")}`],
-    {
-      encoding: "utf8",
-      env: { ...process.env, HOME: "/h" },
-    },
-  )
-  expect(r.stdout).toBe("/h/Client Work/acme/.inscope\n")
+  // what a shell actually receives: exactly one argument, the literal path (POSIX sh,
+  // so it runs everywhere; zsh expands ~ and quotes the same way)
+  const r = spawnSync("sh", ["-c", `printf '%s|' ${shQuotePath("~/Client Work/acme/.inscope")}`], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: "/h" },
+  })
+  expect(r.stdout).toBe("/h/Client Work/acme/.inscope|")
 })
 
 test("managed block has no leading blank line on a fresh file", () => {
@@ -2436,14 +2452,7 @@ test("removeBlock keeps surrounding content and collapses the gap it leaves", ()
 // safety story rests on it staying well-formed zsh after the name/path/keychain
 // quoting. `zsh -n` parses without executing, so a quoting regression fails here
 // directly. Skipped where zsh is absent (some dev boxes); CI's macos-latest has it.
-const hasZsh = (() => {
-  try {
-    return spawnSync("zsh", ["--version"]).status === 0
-  } catch {
-    return false
-  }
-})()
-
+// (hasZsh is defined above, next to zshRun.)
 test.skipIf(!hasZsh)("the rendered hook parses as valid zsh (zsh -n)", () => {
   // every pathPattern branch and idArm shape, plus a path with spaces and a
   // dotted/dashed/underscored name, mirroring the golden coverage config. Two
