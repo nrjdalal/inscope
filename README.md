@@ -65,17 +65,17 @@ Bare `inscope add` prompts for the directory (defaulting to where you are); pass
 
 ## Commands
 
-| Command               | What it does                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `inscope add [path]`  | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run |
-| `inscope status`      | Show the identity resolved for the current directory (alias `whoami`)                                        |
-| `inscope list`        | List configured workspaces (alias `ls`)                                                                      |
-| `inscope edit [path]` | Change a workspace through the same prompts                                                                  |
-| `inscope rm [path]`   | Unmap a workspace (alias `remove`)                                                                           |
-| `inscope skill`       | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                 |
-| `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                 |
-| `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                       |
-| `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                               |
+| Command               | What it does                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `inscope add [path]`  | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run. Re-running it on a label updates that workspace and keeps whatever you do not pass |
+| `inscope status`      | Show the identity resolved for the current directory (alias `whoami`)                                                                                                                            |
+| `inscope list`        | List configured workspaces (alias `ls`)                                                                                                                                                          |
+| `inscope edit [path]` | Change a workspace through the same prompts                                                                                                                                                      |
+| `inscope rm [path]`   | Unmap a workspace (alias `remove`)                                                                                                                                                               |
+| `inscope skill`       | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                                                                                                     |
+| `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                                                                                                     |
+| `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                                                                                                           |
+| `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                                                                                                                   |
 
 Run any command with `-h` for its flags. Mutating commands apply in one step; `apply` is only for after you hand-edit the config.
 
