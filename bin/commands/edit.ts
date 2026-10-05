@@ -206,7 +206,10 @@ export const edit = async (args: string[]) => {
     Boolean(ws.isolate),
   )
 
+  // Start from the stored workspace so fields this prompt flow does not manage
+  // (skills, selfSkill) survive the edit; upsert replaces the whole entry.
   const next: Workspace = {
+    ...ws,
     isolate: isolate || undefined,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
