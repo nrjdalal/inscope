@@ -565,7 +565,7 @@ test("CLI: skill add refuses a name held by the user's own link, before saving a
     for (const source of [src, theirs]) {
       const r = cli(["skill", "add", source, "-w", "ws"])
       expect(r.status).toBe(1)
-      expect(r.stderr).toContain("your own link")
+      expect(r.stderr).toContain("a link inscope does not manage")
       expect(readWs("ws")!.skills).toBeUndefined()
       expect(fs.readlinkSync(link)).toBe(theirs)
     }
@@ -587,6 +587,209 @@ test("persist refuses a malformed ~/.gitconfig before saving the config or writi
     expect(fs.existsSync(path.join(sb, ".config", "inscope", "inscope.zsh"))).toBe(false)
     expect(fs.existsSync(path.join(dir, ".mcp.json"))).toBe(false)
     expect(fs.readFileSync(path.join(sb, ".gitconfig"), "utf8")).toContain("co = checkout")
+  })
+})
+
+test("the legacy-link migration claims only this skill's own source, not any declared one", () => {
+  withSandbox((sb) => {
+    const mk = (dir: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: foo\ndescription: d\n---\n")
+      return dir
+    }
+    const x = mk(path.join(sb, "x", "foo"))
+    const y = mk(path.join(sb, "y", "foo"))
+    const link = path.join(sb, ".claude", "skills", "foo")
+    fs.mkdirSync(path.dirname(link), { recursive: true })
+    fs.symlinkSync(x, link) // the user's own link, e.g. from `npx skills`
+    const cfg: Config = {
+      version: 1,
+      workspaces: [
+        // an isolated workspace declares ~/x/foo (in its own login's dir) ...
+        {
+          name: "a",
+          path: path.join(sb, "a"),
+          isolate: true,
+          servers: {},
+          selfSkill: false,
+          skills: [x],
+        },
+        // ... and a shared one declares ~/y/foo under the same name
+        { name: "b", path: path.join(sb, "b"), servers: {}, selfSkill: false, skills: [y] },
+      ],
+    }
+    const prevErr = console.error
+    console.error = () => {}
+    try {
+      applySkills(cfg)
+    } finally {
+      console.error = prevErr
+    }
+    expect(fs.readlinkSync(link)).toBe(x) // not claimed for b's skill
+  })
+})
+
+test("CLI: rm and skill rm refuse a malformed ~/.gitconfig before changing anything", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    const ws = richWorkspace(sb)
+    writeCfg({ version: 1, workspaces: [{ ...ws, isolate: undefined }] })
+    expect(cli(["apply"]).status).toBe(0)
+    const link = path.join(sb, ".claude", "skills", "demo")
+    expect(fs.existsSync(link)).toBe(true)
+    const gc = path.join(sb, ".gitconfig")
+    fs.writeFileSync(gc, fs.readFileSync(gc, "utf8").replace(/# <<< inscope:gitconfig <<<\n/, ""))
+    const before = fs.readFileSync(gc, "utf8")
+
+    const skillRm = cli(["skill", "rm", "demo", "-w", "acme"])
+    expect(skillRm.status).toBe(1)
+    expect(skillRm.stderr + skillRm.stdout).toContain("malformed inscope markers")
+    expect(fs.existsSync(link)).toBe(true) // the link was not dropped first
+    expect(readWs("acme")!.skills).toEqual(ws.skills)
+
+    const rm = cli(["rm", "acme", "-y"])
+    expect(rm.status).toBe(1)
+    expect(readWs("acme")).toBeDefined()
+    expect(
+      JSON.parse(fs.readFileSync(path.join(ws.path, ".mcp.json"), "utf8")).mcpServers,
+    ).toHaveProperty("github-acme")
+    expect(fs.readFileSync(gc, "utf8")).toBe(before)
+    // doctor names the real problem instead of advising an apply that would refuse
+    const doc = cli(["doctor", "--json"])
+    expect(doc.stdout).toContain("malformed inscope markers")
+  })
+})
+
+test("CLI: add reports a move (even to a worktree sharing .mcp.json), quoting the cleanup", () => {
+  withSandbox((sb) => {
+    const { cli, readWs } = sandboxCli(sb)
+    const main = path.join(sb, "Client Work", "main")
+    const wt = path.join(sb, "Client Work", "wt2")
+    fs.mkdirSync(main, { recursive: true })
+    fs.mkdirSync(wt, { recursive: true })
+    expect(cli(["add", main, "--label", "acme", "--isolate", "-y"]).status).toBe(0)
+    fs.symlinkSync(path.join(main, ".mcp.json"), path.join(wt, ".mcp.json"))
+    const r = cli(["add", wt, "--label", "acme", "-y"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain("moved from ~/Client Work/main")
+    expect(r.stdout).toContain(`scaffolded ~/Client Work/wt2/.inscope`)
+    expect(r.stdout).toContain(`rm -rf ~/'Client Work/main/.inscope'`)
+    expect(readWs("acme")!.isolate).toBe(true)
+    // the shared .mcp.json keeps its keys (relocation compares files, not dirs)
+    expect(
+      JSON.parse(fs.readFileSync(path.join(main, ".mcp.json"), "utf8")).mcpServers,
+    ).toHaveProperty("github-acme")
+  })
+})
+
+test("CLI: --no-isolate and --no-slack-message turn a setting off; isolate stays the first key", () => {
+  withSandbox((sb) => {
+    const { cli, readWs, cfgFile } = sandboxCli(sb)
+    const dir = path.join(sb, "acme dir")
+    fs.mkdirSync(dir)
+    expect(
+      cli(["add", dir, "--label", "acme", "--servers", "github,slack", "--slack-message", "-y"])
+        .status,
+    ).toBe(0)
+    expect(Object.keys(readWs("acme")!)[0]).toBe("name") // not isolated: no isolate key
+    expect(cli(["add", dir, "--label", "acme", "--isolate", "-y"]).status).toBe(0)
+    expect(Object.keys(readWs("acme")!)[0]).toBe("isolate") // set on update, still first
+    expect((readWs("acme")!.servers.slack as { addMessageTool: boolean }).addMessageTool).toBe(true)
+    const off = cli(["add", dir, "--label", "acme", "--no-isolate", "--no-slack-message", "-y"])
+    expect(off.status).toBe(0)
+    expect(off.stdout).toContain(`rm -rf ~/'acme dir/.inscope'`) // the old login's quoted cleanup
+    const ws = readWs("acme")!
+    expect(ws.isolate).toBeUndefined()
+    expect((ws.servers.slack as { addMessageTool: boolean }).addMessageTool).toBe(false)
+    expect(fs.readFileSync(cfgFile, "utf8")).not.toContain('"isolate"')
+  })
+})
+
+test("CLI: rm prints a quoted cleanup command for a path with spaces", () => {
+  withSandbox((sb) => {
+    const { cli } = sandboxCli(sb)
+    const dir = path.join(sb, "Client Work", "acme")
+    fs.mkdirSync(dir, { recursive: true })
+    // a keychain service with a space and a quote (allowed; $ and backticks are not)
+    const added = cli([
+      "add",
+      dir,
+      "--label",
+      "acme",
+      "--isolate",
+      "--servers",
+      "slack",
+      "--slack-keychain",
+      "SVC it's",
+      "-y",
+    ])
+    expect(added.status).toBe(0)
+    const r = cli(["rm", "acme", "-y"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain(`rm -rf ~/'Client Work/acme/.inscope'`)
+    expect(r.stdout).toContain(`security delete-generic-password -s 'SVC it'\\''s'`)
+  })
+})
+
+test("CLI: an error inside edit prints one line, not a stack trace", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    const dir = path.join(sb, "acme")
+    fs.mkdirSync(dir)
+    writeCfg({ version: 1, workspaces: [{ name: "acme", path: dir, servers: { github: true } }] })
+    fs.writeFileSync(path.join(dir, ".mcp.json"), "{ not json")
+    const r = cli(["edit", "acme"], "\n".repeat(20))
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain("is not valid JSON")
+    expect(r.stderr).not.toMatch(/^\s+at /m)
+  })
+})
+
+test("CLI: skill commands refuse names inscope does not manage or another workspace holds", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    const mk = (dir: string, n: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${n}\ndescription: d\n---\n`)
+      return dir
+    }
+    for (const d of ["w1", "w2"]) fs.mkdirSync(path.join(sb, d))
+    const one = mk(path.join(sb, "s1", "foo"), "foo")
+    const two = mk(path.join(sb, "s2", "foo"), "foo")
+    const bar = mk(path.join(sb, "s3", "bar"), "bar")
+    writeCfg({
+      version: 1,
+      workspaces: [
+        {
+          name: "w1",
+          path: path.join(sb, "w1"),
+          servers: {},
+          skills: [one, bar],
+          selfSkill: false,
+        },
+        { name: "w2", path: path.join(sb, "w2"), servers: {} },
+      ],
+    })
+    expect(cli(["apply"]).status).toBe(0)
+    // another non-isolated workspace already links "foo" from a different source
+    const shared = cli(["skill", "add", two, "-w", "w2"])
+    expect(shared.status).toBe(1)
+    expect(shared.stderr).toContain(`workspace "w1" already links "foo"`)
+    expect(readWs("w2")!.skills).toBeUndefined()
+    // renaming onto a name held by the user's own link
+    const theirs = mk(path.join(sb, "theirs", "baz"), "baz")
+    fs.symlinkSync(theirs, path.join(sb, ".claude", "skills", "baz"))
+    const mv = cli(["skill", "rename", "bar", "baz", "-w", "w1"])
+    expect(mv.status).toBe(1)
+    expect(mv.stderr).toContain("does not manage")
+    expect(fs.readlinkSync(path.join(sb, ".claude", "skills", "baz"))).toBe(theirs)
+    // re-enabling the self-skill over the user's own "inscope" link
+    const own = mk(path.join(sb, "theirs", "inscope"), "inscope")
+    fs.rmSync(path.join(sb, ".claude", "skills", "inscope"), { force: true })
+    fs.symlinkSync(own, path.join(sb, ".claude", "skills", "inscope"))
+    const en = cli(["skill", "add", "inscope", "-w", "w1"])
+    expect(en.status).toBe(1)
+    expect(readWs("w1")!.selfSkill).toBe(false)
   })
 })
 
@@ -671,6 +874,18 @@ test("managed block refuses malformed markers instead of deleting user config", 
   fs.writeFileSync(plain, `\n\n\n${user}`)
   removeBlock(plain, "gitconfig")
   expect(fs.readFileSync(plain, "utf8")).toBe(`\n\n\n${user}`)
+})
+
+test("managed block at EOF without a newline: upsert adds one, remove keeps the one before", () => {
+  const B = "# >>> inscope:gitconfig >>>"
+  const E = "# <<< inscope:gitconfig <<<"
+  const f = path.join(tmpDir(), ".gitconfig")
+  fs.writeFileSync(f, `[user]\n\tname = X\n${B}\nold\n${E}`)
+  upsertBlock(f, "gitconfig", "new")
+  expect(fs.readFileSync(f, "utf8")).toBe(`[user]\n\tname = X\n${B}\nnew\n${E}\n`)
+  fs.writeFileSync(f, `[user]\n\tname = X\n${B}\nold\n${E}`)
+  removeBlock(f, "gitconfig")
+  expect(fs.readFileSync(f, "utf8")).toBe(`[user]\n\tname = X\n`)
 })
 
 test("shQuotePath keeps a printed path one argument, with ~/ still expanding", () => {
@@ -2545,7 +2760,7 @@ test("a user's own symlinked skill of the same name is never replaced or removed
     }
     // left pointing at the user's own skill, with a warning
     expect(fs.readlinkSync(link)).toBe(theirs)
-    expect(errs.join("\n")).toContain("not one inscope created")
+    expect(errs.join("\n")).toContain("a symlink inscope does not manage")
     // skill rm of inscope's foo leaves the user's link alone
     expect(unlinkSkillLink(ws, "foo", ws.skills![0])).toBe(false)
     expect(fs.readlinkSync(link)).toBe(theirs)
