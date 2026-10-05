@@ -2247,13 +2247,59 @@ test("unlinkSkillLink drops a managed link (so skill rm removes a local-source s
     const link = path.join(sb, ".claude", "skills", "demo")
     expect(fs.existsSync(link)).toBe(true)
 
-    unlinkSkillLink(ws, "demo") // what `skill rm` calls before re-applying
+    unlinkSkillLink(ws, "demo", ws.skills![0]) // what `skill rm` calls before re-applying
     expect(fs.existsSync(link)).toBe(false)
 
     // never removes a real, user-authored dir of the same name
     fs.mkdirSync(link, { recursive: true })
-    unlinkSkillLink(ws, "demo")
+    unlinkSkillLink(ws, "demo", ws.skills![0])
     expect(fs.existsSync(link)).toBe(true)
+  })
+})
+
+test("a user's own symlinked skill of the same name is never replaced or removed", () => {
+  withSandbox((sb) => {
+    // the user's skill, linked by hand or by another tool (npx skills, stow, chezmoi)
+    const theirs = path.join(sb, ".agents", "skills", "foo")
+    fs.mkdirSync(theirs, { recursive: true })
+    fs.writeFileSync(path.join(theirs, "SKILL.md"), "---\nname: foo\ndescription: mine\n---\n")
+    const skills = path.join(sb, ".claude", "skills")
+    fs.mkdirSync(skills, { recursive: true })
+    const link = path.join(skills, "foo")
+    fs.symlinkSync(theirs, link)
+
+    // inscope declares a different skill under the same name
+    const src = path.join(sb, "src", "foo")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: foo\ndescription: d\n---\n")
+    const ws: Workspace = {
+      name: "ws",
+      path: path.join(sb, "ws"),
+      servers: {},
+      selfSkill: false,
+      skills: [src],
+    }
+    const errs: string[] = []
+    const prevErr = console.error
+    console.error = (m: string) => errs.push(m)
+    try {
+      applySkills(one(ws))
+    } finally {
+      console.error = prevErr
+    }
+    // left pointing at the user's own skill, with a warning
+    expect(fs.readlinkSync(link)).toBe(theirs)
+    expect(errs.join("\n")).toContain("symlink inscope did not create")
+    // skill rm of inscope's foo leaves the user's link alone
+    expect(unlinkSkillLink(ws, "foo", ws.skills![0])).toBe(false)
+    expect(fs.readlinkSync(link)).toBe(theirs)
+
+    // once the user's link is gone, inscope links its own, and rm removes only that
+    fs.rmSync(link)
+    applySkills(one(ws))
+    expect(fs.readlinkSync(link)).toBe(src)
+    expect(unlinkSkillLink(ws, "foo", ws.skills![0])).toBe(true)
+    expect(fs.existsSync(link)).toBe(false)
   })
 })
 

@@ -378,7 +378,7 @@ const skillRemove = (args: string[]) => {
   if (!remaining.length) delete next.skills
   // Drop this skill's link explicitly (a local source is not cache-backed, so the
   // apply below would not prune it); persist then re-links anything still declared.
-  unlinkSkillLink(ws, target)
+  unlinkSkillLink(ws, target, specs[idx])
   persist(next) // re-applies: reconciles the personal skills dir
 
   console.log(`\n✓ removed skill "${target}" from "${ws.name}"`)
@@ -433,7 +433,7 @@ const skillRename = (args: string[]) => {
 
   // Drop the old-name link explicitly (persist re-links under the new name and
   // prunes owned links no longer declared).
-  unlinkSkillLink(ws, from)
+  unlinkSkillLink(ws, from, specs[idx])
   persist({ ...ws, skills: nextSkills })
 
   console.log(`\n✓ renamed skill "${from}" to "${to}" in "${ws.name}"`)

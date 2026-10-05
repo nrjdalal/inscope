@@ -7,6 +7,7 @@ import {
   type NormalizedSkill,
   normalizeSkill,
   RESERVED_SKILL_NAME,
+  type SkillSpec,
   type Workspace,
 } from "@/config"
 import { inscopeHome, packageRoot, resolveAbsolute } from "@/env"
@@ -332,10 +333,13 @@ export const discoverSkills = (root: string): { name: string; subdir: string }[]
 
 // Point `<dir>/.claude/skills/<name>` at the resolved source dir. Idempotent (an
 // already-correct symlink is left alone) and atomic (write a temp link, rename it
-// over). Refuses to overwrite a real, user-authored directory or file: only a
-// symlink inscope owns is ever replaced, mirroring the "touch only what we own"
-// discipline of the managed dotfile blocks.
-const linkSkill = (link: string, target: string) => {
+// over). Refuses to overwrite a real, user-authored directory or file, or a symlink
+// inscope did not create (one the user made by hand or with another tool, e.g.
+// `~/.claude/skills/foo -> ~/.agents/skills/foo`): only a link inscope owns (into
+// its cache) or one already pointing at a skill target the config declares
+// (`known`) is ever replaced, mirroring the "touch only what we own" discipline of
+// the managed dotfile blocks.
+const linkSkill = (link: string, target: string, known: ReadonlySet<string>) => {
   let existing: fs.Stats | null = null
   try {
     existing = fs.lstatSync(link)
@@ -344,9 +348,16 @@ const linkSkill = (link: string, target: string) => {
   }
   if (existing) {
     if (existing.isSymbolicLink()) {
+      let current = ""
       try {
-        if (fs.readlinkSync(link) === target) return
+        current = fs.readlinkSync(link)
       } catch {}
+      if (current === target) return
+      const resolved = path.resolve(path.dirname(link), current)
+      if (!isOwnedLink(link) && !known.has(resolved))
+        throw new Error(
+          `refusing to replace ${link}: it is a symlink inscope did not create (-> ${resolved}); pick a different skill name`,
+        )
     } else {
       throw new Error(
         `refusing to overwrite ${link}: a non-symlink already exists there (pick a different skill name)`,
@@ -423,6 +434,7 @@ const linkOne = (
   wsName: string,
   update: boolean,
   resolve: () => string,
+  known: ReadonlySet<string>,
 ) => {
   try {
     const srcDir = resolve()
@@ -435,7 +447,7 @@ const linkOne = (
       target = renamedDirFor(srcDir, name)
       materializeRenamed(srcDir, name, target, update)
     }
-    linkSkill(path.join(dir, name), target)
+    linkSkill(path.join(dir, name), target, known)
   } catch (err) {
     console.error(
       `inscope: skill "${name}" in "${wsName}" not applied: ${err instanceof Error ? err.message : err}`,
@@ -468,6 +480,10 @@ export const applySkills = (
   // skills were all removed still gets its now-orphaned owned links pruned below.
   const byDir = new Map<string, DesiredLink[]>()
   for (const ws of cfg.workspaces) if (!byDir.has(skillsDir(ws))) byDir.set(skillsDir(ws), [])
+  // Every target a declared skill can resolve to (its source, or a renamed copy): a
+  // symlink already pointing at one of these is inscope's to re-point, while any
+  // other foreign symlink is the user's and is never replaced (see linkSkill).
+  const known = new Set<string>()
   const push = (dir: string, l: DesiredLink) => byDir.get(dir)?.push(l)
   for (const ws of cfg.workspaces) {
     const dir = skillsDir(ws)
@@ -481,6 +497,8 @@ export const applySkills = (
     for (const spec of ws.skills ?? []) {
       const skill = normalizeSkill(spec)
       if (skill.name === SELF_SKILL_NAME) continue // reserved for the self-skill
+      known.add(originalTarget(skill))
+      known.add(skillTargetDir(skill))
       push(dir, {
         name: skill.name,
         target: skillTargetDir(skill),
@@ -504,7 +522,7 @@ export const applySkills = (
         continue
       }
       first.set(l.name, l)
-      linkOne(dir, l.name, l.wsName, !!opts?.update, l.resolve)
+      linkOne(dir, l.name, l.wsName, !!opts?.update, l.resolve, known)
     }
     // Prune by declared name (not link success): a still-declared skill whose link
     // just failed transiently keeps its existing link instead of being removed.
@@ -512,16 +530,30 @@ export const applySkills = (
   }
 }
 
-// Remove a single managed skill symlink by name (never a real, user-authored dir).
-// `skill rm` uses this before re-applying, because a local source is not cache-backed
-// and so the apply-time prune (which keys on the cache) would miss it; the following
-// apply re-links anything still declared, including another workspace that shares the
-// same name in ~/.claude/skills.
-export const unlinkSkillLink = (ws: Workspace, name: string) => {
+// Remove a single managed skill symlink by name: only a link inscope owns (into its
+// cache) or one pointing at this skill's own target, never a real, user-authored dir
+// or a foreign symlink of the same name. `skill rm`/`rename` use this before
+// re-applying, because a local source is not cache-backed and so the apply-time
+// prune (which keys on the cache) would miss it; the following apply re-links
+// anything still declared, including another workspace that shares the same name in
+// ~/.claude/skills. Returns whether a link was removed.
+export const unlinkSkillLink = (ws: Workspace, name: string, spec: SkillSpec): boolean => {
   const link = path.join(skillsDir(ws), name)
   try {
-    if (fs.lstatSync(link).isSymbolicLink()) fs.rmSync(link, { force: true })
-  } catch {}
+    if (!fs.lstatSync(link).isSymbolicLink()) return false
+    const skill = normalizeSkill(spec)
+    const resolved = path.resolve(path.dirname(link), fs.readlinkSync(link))
+    if (
+      !isOwnedLink(link) &&
+      resolved !== originalTarget(skill) &&
+      resolved !== skillTargetDir(skill)
+    )
+      return false
+    fs.rmSync(link, { force: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // Tear down an isolated workspace's private skill links when it is removed from the
