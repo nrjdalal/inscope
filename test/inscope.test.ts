@@ -682,6 +682,23 @@ test("CLI: add reports a move (even to a worktree sharing .mcp.json), quoting th
   })
 })
 
+test("CLI: after a directory is moved with mv, add reports the move without false login notes", () => {
+  withSandbox((sb) => {
+    const { cli } = sandboxCli(sb)
+    const oldDir = path.join(sb, "old")
+    fs.mkdirSync(oldDir)
+    expect(cli(["add", oldDir, "--label", "acme", "--isolate", "-y"]).status).toBe(0)
+    fs.writeFileSync(path.join(oldDir, ".inscope", ".claude.json"), "{}") // a signed-in login
+    fs.renameSync(oldDir, path.join(sb, "new")) // the login moves with the directory
+    const r = cli(["add", path.join(sb, "new"), "--label", "acme", "-y"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain("moved from ~/old")
+    expect(r.stdout).not.toContain("scaffolded")
+    expect(r.stdout).not.toContain("still holds a Claude login")
+    expect(r.stdout).not.toContain("sign in once")
+  })
+})
+
 test("CLI: --no-isolate and --no-slack-message turn a setting off; isolate stays the first key", () => {
   withSandbox((sb) => {
     const { cli, readWs, cfgFile } = sandboxCli(sb)
@@ -771,10 +788,10 @@ test("CLI: skill commands refuse names inscope does not manage or another worksp
       ],
     })
     expect(cli(["apply"]).status).toBe(0)
-    // another non-isolated workspace already links "foo" from a different source
+    // another non-isolated workspace already declares "foo" from a different source
     const shared = cli(["skill", "add", two, "-w", "w2"])
     expect(shared.status).toBe(1)
-    expect(shared.stderr).toContain(`workspace "w1" already links "foo"`)
+    expect(shared.stderr).toContain(`workspace "w1" already declares "foo"`)
     expect(readWs("w2")!.skills).toBeUndefined()
     // renaming onto a name held by the user's own link
     const theirs = mk(path.join(sb, "theirs", "baz"), "baz")
@@ -783,13 +800,92 @@ test("CLI: skill commands refuse names inscope does not manage or another worksp
     expect(mv.status).toBe(1)
     expect(mv.stderr).toContain("does not manage")
     expect(fs.readlinkSync(path.join(sb, ".claude", "skills", "baz"))).toBe(theirs)
-    // re-enabling the self-skill over the user's own "inscope" link
-    const own = mk(path.join(sb, "theirs", "inscope"), "inscope")
+    // renaming onto a name another workspace declares from a different source (P1)
+    const qux = mk(path.join(sb, "s4", "qux"), "qux")
+    expect(cli(["skill", "add", qux, "-w", "w2"]).status).toBe(0)
+    const clash = cli(["skill", "rename", "qux", "foo", "-w", "w2"])
+    expect(clash.status).toBe(1)
+    expect(clash.stderr + clash.stdout).toContain(`workspace "w1" already declares "foo"`)
+    expect(fs.realpathSync(path.join(sb, ".claude", "skills", "foo"))).toBe(fs.realpathSync(one))
+    // re-enabling the self-skill over the user's own unrelated skill named "inscope"
+    const own = mk(path.join(sb, "theirs", "inscope"), "not-inscope")
     fs.rmSync(path.join(sb, ".claude", "skills", "inscope"), { force: true })
     fs.symlinkSync(own, path.join(sb, ".claude", "skills", "inscope"))
     const en = cli(["skill", "add", "inscope", "-w", "w1"])
     expect(en.status).toBe(1)
     expect(readWs("w1")!.selfSkill).toBe(false)
+  })
+})
+
+test("CLI: an inscope skill installed another way (npx skills) is left alone and counts as linked", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    fs.mkdirSync(path.join(sb, "w1"))
+    writeCfg({ version: 1, workspaces: [{ name: "w1", path: path.join(sb, "w1"), servers: {} }] })
+    // what `npx skills add nrjdalal/inscope` leaves: ~/.claude/skills/inscope -> ~/.agents/skills/inscope
+    const agents = path.join(sb, ".agents", "skills", "inscope")
+    fs.mkdirSync(path.dirname(agents), { recursive: true })
+    fs.cpSync(selfSkillSource(), agents, { recursive: true })
+    const link = path.join(sb, ".claude", "skills", "inscope")
+    fs.mkdirSync(path.dirname(link), { recursive: true })
+    fs.symlinkSync(agents, link)
+    const r = cli(["apply"])
+    expect(r.status).toBe(0)
+    expect(r.stderr).not.toContain("refusing")
+    expect(fs.readlinkSync(link)).toBe(agents) // never replaced
+    const doc = cli(["doctor", "--json"])
+    expect(doc.stdout).not.toContain("not linked")
+    expect(cli(["diff"]).stdout).toContain("In sync")
+    // re-enabling the self-skill is fine too: the user's install provides it
+    writeCfg({
+      version: 1,
+      workspaces: [{ name: "w1", path: path.join(sb, "w1"), servers: {}, selfSkill: false }],
+    })
+    expect(cli(["skill", "add", "inscope", "-w", "w1"]).status).toBe(0)
+  })
+})
+
+test("CLI: turning isolation off refuses a skill name the shared dir already holds; same source is fine", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg, readWs } = sandboxCli(sb)
+    const mk = (dir: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: foo\ndescription: d\n---\n")
+      return dir
+    }
+    const x = mk(path.join(sb, "x", "foo"))
+    const y = mk(path.join(sb, "y", "foo"))
+    for (const d of ["a", "b", "c"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        // isolated: its own login's dir, so it may reuse a name the shared dir holds
+        { isolate: true, name: "a", path: path.join(sb, "a"), servers: {}, skills: [x] },
+        { name: "b", path: path.join(sb, "b"), servers: {}, skills: [y] },
+        { name: "c", path: path.join(sb, "c"), servers: {} },
+      ],
+    })
+    expect(cli(["apply"]).status).toBe(0)
+    const off = cli(["add", path.join(sb, "a"), "--label", "a", "--no-isolate", "-y"])
+    expect(off.status).toBe(1)
+    expect(off.stderr).toContain(`workspace "b" already declares "foo"`)
+    expect(readWs("a")!.isolate).toBe(true) // nothing was changed
+    expect(fs.realpathSync(path.join(sb, ".claude", "skills", "foo"))).toBe(fs.realpathSync(y))
+    // the same source in two shared workspaces is not a clash
+    expect(cli(["skill", "add", y, "-w", "c"]).status).toBe(0)
+  })
+})
+
+test("CLI: diff reports malformed ~/.gitconfig markers instead of In sync", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    fs.mkdirSync(path.join(sb, "w"))
+    writeCfg({ version: 1, workspaces: [{ name: "w", path: path.join(sb, "w"), servers: {} }] })
+    expect(cli(["apply"]).status).toBe(0)
+    fs.appendFileSync(path.join(sb, ".gitconfig"), "# >>> inscope:gitconfig >>>\n")
+    const r = cli(["diff"])
+    expect(r.stdout).not.toContain("In sync")
+    expect(r.stdout + r.stderr).toContain("malformed inscope markers")
   })
 })
 
