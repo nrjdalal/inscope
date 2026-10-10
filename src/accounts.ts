@@ -1,10 +1,26 @@
+import fs from "node:fs"
+
 import { applyAll, preflightApply } from "@/apply"
-import { type Config, configExists, defaultConfig, loadConfig, saveConfig } from "@/config"
+import {
+  type Config,
+  configExists,
+  defaultConfig,
+  loadConfig,
+  poolNameError,
+  saveConfig,
+} from "@/config"
 import type { BrowserMode } from "@/login"
 import {
+  configPools,
+  DEFAULT_POOL,
   DEFAULT_PROXY_PORT,
   loginProxyAccount,
   logoutProxyAccount,
+  nextPoolPort,
+  poolAccounts,
+  poolDir,
+  poolPort,
+  poolUsers,
   type ProxyAccount,
   proxyAccounts,
   proxyHealthy,
@@ -15,8 +31,8 @@ import {
 } from "@/proxy"
 import { defaultRunner, type Runner } from "@/secrets"
 
-// Your Claude accounts, as inscope's config sees them: signing one in to the proxy, and
-// moving or removing the proxy. Every change is checked against the config it leads to
+// Your Claude accounts, as inscope's config sees them: signing one in to a pool of the
+// proxy, signing one out, and moving or removing the proxy. Every change is checked against the config it leads to
 // before anything is touched, then saved and applied, so every login always points at a
 // proxy that runs (or straight at Anthropic once there is none).
 
@@ -31,29 +47,68 @@ const reconfigure = async (next: Config, change: () => unknown) => {
 export type SignInOptions = {
   email?: string
   mode: BrowserMode
-  // The port for a new proxy; refused when it differs from a running one.
+  // The pool to sign in to (default: the default pool); a new one is created.
+  pool?: string
+  // The port for a new pool; refused when it differs from a running one.
   port?: number
   log?: (line: string) => void
   run?: Runner
 }
 
-// Sign a Claude account in to the proxy, setting the proxy up first when it is not
-// running. The proxy is recorded, and every login routed to it, only once it holds an
-// account; a first sign-in that fails leaves no proxy behind.
+// The config with `pool` recorded on `port`.
+const withPool = (cfg: Config, pool: string, port: number): Config =>
+  pool === DEFAULT_POOL
+    ? { ...cfg, proxy: { port } }
+    : {
+        ...cfg,
+        pools: [...(cfg.pools ?? []).filter((p) => p.name !== pool), { name: pool, port }].sort(
+          (a, b) => a.name.localeCompare(b.name),
+        ),
+      }
+
+// Remove a named pool's proxy entirely: its agent and its dir (config, auth, log).
+const dropPool = (pool: string, run: Runner) => {
+  retireProxyAgent(run, pool)
+  fs.rmSync(poolDir(pool), { recursive: true, force: true })
+}
+
+// Sign a Claude account in to a pool of the proxy, setting that pool's proxy up first
+// when it is not running. A pool is recorded, and its logins routed to it, only once it
+// holds an account: a first sign-in that fails leaves no pool behind. An account lives
+// in exactly one pool (two proxies refreshing one single-use refresh token would break
+// the login), so one that another pool already holds is removed again.
 export const signIn = async (
   opts: SignInOptions,
-): Promise<{ account: ProxyAccount; port: number; accounts: number }> => {
+): Promise<{ account: ProxyAccount; pool: string; port: number; accounts: number }> => {
   const run = opts.run ?? defaultRunner
   const log = opts.log ?? ((l: string) => console.log(l))
   const cfg = configExists() ? loadConfig() : defaultConfig()
-  if (cfg.proxy && opts.port !== undefined && opts.port !== cfg.proxy.port)
+  const pool = opts.pool ?? DEFAULT_POOL
+  if (pool !== DEFAULT_POOL) {
+    const nameErr = poolNameError(pool)
+    if (nameErr) throw new Error(`Invalid pool "${pool}": ${nameErr}`)
+    if (!cfg.proxy)
+      throw new Error(
+        "Sign an account in to the default pool first (`inscope login`): the shared login and every other workspace use it.",
+      )
+  }
+  const existing = poolPort(cfg, pool)
+  if (existing !== undefined && opts.port !== undefined && opts.port !== existing)
     throw new Error(
-      `The proxy already runs on port ${cfg.proxy.port}; change it with \`inscope proxy setup --port ${opts.port}\`.`,
+      `Pool ${pool} already runs on port ${existing}; change it with \`inscope proxy setup${pool === DEFAULT_POOL ? "" : ` --pool ${pool}`} --port ${opts.port}\`.`,
     )
-  const port = cfg.proxy?.port ?? opts.port ?? DEFAULT_PROXY_PORT
-  // Routing every login through the proxy must be possible before anyone signs in: a
+  if (
+    existing === undefined &&
+    opts.port !== undefined &&
+    configPools(cfg).some((p) => p.port === opts.port)
+  )
+    throw new Error(`Port ${opts.port} is already used by another pool; pick another.`)
+  const port =
+    existing ?? opts.port ?? (pool === DEFAULT_POOL ? DEFAULT_PROXY_PORT : await nextPoolPort(cfg))
+  const fresh = existing === undefined
+  // Routing every login through its pool must be possible before anyone signs in: a
   // settings.json with a key helper of its own stops here, not after the sign-in.
-  preflightApply({ ...cfg, proxy: { port } })
+  preflightApply(withPool(cfg, pool, port))
 
   if (!cfg.proxy)
     log(
@@ -62,36 +117,51 @@ export const signIn = async (
   let account: ProxyAccount
   try {
     const key = readProxyKey(run)
-    if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
-      await setupProxy(port, { run, log: (l) => log(`\n${l}`) })
-    account = await loginProxyAccount({ email: opts.email, mode: opts.mode, log })
+    if (fresh || !key || !(await proxyHealthy(port, key)))
+      await setupProxy(port, { run, pool, log: (l) => log(`\n${l}`) })
+    account = await loginProxyAccount({ email: opts.email, mode: opts.mode, pool, log })
+    const elsewhere = poolAccounts(cfg).find(
+      (a) => a.pool !== pool && a.account.email.toLowerCase() === account.email.toLowerCase(),
+    )
+    if (elsewhere) {
+      logoutProxyAccount(account.email, pool)
+      throw new Error(
+        `${account.email} is already in pool ${elsewhere.pool}, and an account lives in one pool only; removed it from ${pool}. To move it, \`inscope logout ${account.email}\` first.`,
+      )
+    }
   } catch (err) {
-    // Nothing routes to a first proxy yet, so a setup or sign-in that fails leaves none
+    // Nothing routes to a new pool yet, so a setup or sign-in that fails leaves none
     // running (launchd would otherwise keep restarting it, and start it at every login).
-    // The binary and key stay for the next try.
-    if (!cfg.proxy) retireProxyAgent(run)
+    // The default pool keeps its binary and key for the next try.
+    if (fresh) {
+      if (pool === DEFAULT_POOL) retireProxyAgent(run)
+      else dropPool(pool, run)
+    }
     throw err
   }
 
   // Re-read: the sign-in can take minutes, and another inscope command may have saved
   // the config meanwhile.
   const latest = configExists() ? loadConfig() : cfg
-  await reconfigure({ ...latest, proxy: { port } }, () => {})
-  return { account, port, accounts: proxyAccounts().length }
+  await reconfigure(withPool(latest, pool, port), () => {})
+  return { account, pool, port, accounts: proxyAccounts(pool).length }
 }
 
-// Reinstall the proxy and restart it, on `port`; every login's URL moves with it. When
-// it does not come up there, it is set up again where it was, so the logins (which still
-// point at the old port) keep working.
-export const moveProxy = (cfg: Config, port: number, run: Runner = defaultRunner) => {
-  const from = cfg.proxy?.port
-  return reconfigure({ ...cfg, proxy: { port } }, async () => {
+// Reinstall a pool's proxy and restart it, on `port`; every login on that pool moves
+// with it. When it does not come up there, it is set up again where it was, so the
+// logins (which still point at the old port) keep working.
+export const moveProxy = (cfg: Config, pool: string, port: number, run: Runner = defaultRunner) => {
+  const from = poolPort(cfg, pool)
+  if (from === undefined) throw new Error(`No pool ${pool}. See \`inscope pool list\`.`)
+  if (port !== from && configPools(cfg).some((p) => p.port === port))
+    throw new Error(`Port ${port} is already used by another pool; pick another.`)
+  return reconfigure(withPool(cfg, pool, port), async () => {
     try {
-      await setupProxy(port, { run })
+      await setupProxy(port, { run, pool })
     } catch (err) {
-      if (from === undefined || from === port) throw err
+      if (from === port) throw err
       try {
-        await setupProxy(from, { run })
+        await setupProxy(from, { run, pool })
       } catch (again) {
         throw new Error(
           `${err instanceof Error ? err.message : err}\nPutting it back on port ${from} failed too: ${again instanceof Error ? again.message : again}`,
@@ -102,24 +172,46 @@ export const moveProxy = (cfg: Config, port: number, run: Runner = defaultRunner
   })
 }
 
-// Remove an account from the proxy. The last one is refused: every login goes through the
-// proxy, so it would leave Claude Code with no account (removeProxy stops using it).
-export const signOut = (email: string): void => {
-  const accounts = proxyAccounts()
-  if (!accounts.some((a) => a.email.toLowerCase() === email.toLowerCase()))
+// Remove an account from whichever pool holds it. A pool's last account is refused while
+// a login uses that pool (the default pool always: the shared login runs on it), since
+// that login would have no account; the last account of an unused named pool takes the
+// pool with it.
+export const signOut = async (
+  cfg: Config,
+  email: string,
+  run: Runner = defaultRunner,
+): Promise<{ pool: string; poolRemoved: boolean }> => {
+  const all = poolAccounts(cfg)
+  const hit = all.find((a) => a.account.email.toLowerCase() === email.toLowerCase())
+  if (!hit)
     throw new Error(
-      `No account ${email} in the proxy.${accounts.length ? ` It holds: ${accounts.map((a) => a.email).join(", ")}.` : " Sign one in with `inscope login`."}`,
+      `No account ${email} in the proxy.${all.length ? ` It holds: ${all.map((a) => a.account.email).join(", ")}.` : " Sign one in with `inscope login`."}`,
     )
-  if (accounts.length === 1)
+  const { pool } = hit
+  const last = proxyAccounts(pool).length === 1
+  const users = pool === DEFAULT_POOL ? ["the shared login"] : poolUsers(cfg, pool)
+  if (last && users.length)
     throw new Error(
-      `${email} is the proxy's last account, and every Claude Code login goes through the proxy, so removing it would leave Claude Code with no account. Sign another in first (\`inscope login\`), or stop using the proxy with \`inscope proxy uninstall\`. Nothing was changed.`,
+      `${email} is the last account in pool ${pool}, which ${users.join(", ")} ${users.length === 1 ? "uses" : "use"}; removing it would leave ${users.length === 1 ? "that login" : "them"} with no account. Sign another in first (\`inscope login${pool === DEFAULT_POOL ? "" : ` --pool ${pool}`}\`)${pool === DEFAULT_POOL ? ", or stop using the proxy with `inscope proxy uninstall`" : `, or move ${users.length === 1 ? "it" : "them"} to another pool`}. Nothing was changed.`,
     )
-  logoutProxyAccount(email)
+  if (!last) {
+    logoutProxyAccount(email, pool)
+    return { pool, poolRemoved: false }
+  }
+  const { pools, ...rest } = cfg
+  const left = (pools ?? []).filter((p) => p.name !== pool)
+  await reconfigure(left.length ? { ...rest, pools: left } : rest, () => dropPool(pool, run))
+  return { pool, poolRemoved: true }
 }
 
-// Stop using the proxy: remove it (with `purge`, its accounts and key too), and send
-// every login straight to Anthropic again.
+// Stop using the proxy: remove every pool (with `purge`, the accounts and key too), and
+// send every login straight to Anthropic again. Workspaces lose their pool.
 export const removeProxy = (cfg: Config, opts: { purge?: boolean; run?: Runner } = {}) => {
-  const { proxy: _gone, ...rest } = cfg
-  return reconfigure(rest, () => uninstallProxy(opts))
+  const pools = configPools(cfg).map((p) => p.name)
+  const { proxy: _proxy, pools: _pools, ...rest } = cfg
+  const next = {
+    ...rest,
+    workspaces: rest.workspaces.map(({ pool: _pool, ...w }) => w),
+  }
+  return reconfigure(next, () => uninstallProxy({ ...opts, pools }))
 }

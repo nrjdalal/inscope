@@ -100,6 +100,10 @@ export type Workspace = {
   // linked into every workspace by default. Set false to opt this workspace out;
   // `inscope skill rm inscope` writes that, `inscope skill add inscope` clears it.
   selfSkill?: boolean
+  // The pool of Claude accounts this workspace's requests go to (`inscope login --pool
+  // <name>`), instead of the default pool every other login uses. Requires `isolate`:
+  // only an isolated workspace has a Claude settings.json of its own to route.
+  pool?: string
 }
 
 // A skill declared on a workspace. Either a string shorthand `"<source>#<subdir>"`
@@ -140,6 +144,9 @@ export type Config = {
   // listens on (127.0.0.1 only). While it is set, every login, the shared ~/.claude
   // and each isolated workspace's, sends its requests through it.
   proxy?: { port: number }
+  // Named pools of Claude accounts, each its own proxy on its own port (127.0.0.1 only);
+  // `proxy` above is the default pool. A workspace opts in with `pool`.
+  pools?: Pool[]
   workspaces: Workspace[]
 }
 
@@ -243,6 +250,19 @@ export const saveConfig = (cfg: Config) => {
 // (`<name>.gitconfig`), so it must be a plain slug: no whitespace, shell
 // metacharacters, or path separators.
 export const WORKSPACE_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+export type Pool = { name: string; port: number }
+
+// A pool name becomes a directory and part of a launchd label, so it is a lowercase
+// slug; "default" names the default pool (`proxy`), never a named one.
+export const POOL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+export const poolNameError = (name: string): string | null => {
+  if (!POOL_NAME_RE.test(name))
+    return "use 1-32 lowercase letters, digits, or dashes, starting with a letter or digit"
+  if (name === "default") return '"default" is the default pool; pick another name'
+  return null
+}
 
 export const workspaceNameError = (name: string): string | null => {
   if (!name) return "must not be empty"
@@ -449,6 +469,25 @@ export const validateConfig = (cfg: Config) => {
     throw new Error("config bypass must be a boolean")
   if (cfg.proxy !== undefined && !isProxyPort((cfg.proxy as { port?: unknown })?.port))
     throw new Error("config proxy.port must be an integer between 1024 and 65535")
+  const poolNames = new Set<string>()
+  if (cfg.pools !== undefined) {
+    if (!Array.isArray(cfg.pools)) throw new Error("config.pools must be an array")
+    if (cfg.pools.length && !cfg.proxy)
+      throw new Error("config pools need the default pool (proxy) too; run `inscope login`")
+    const ports = new Set<number>(cfg.proxy ? [cfg.proxy.port] : [])
+    for (const pool of cfg.pools) {
+      if (!pool || typeof pool !== "object") throw new Error("a pool is not an object")
+      const nameErr = typeof pool.name === "string" ? poolNameError(pool.name) : "is missing"
+      if (nameErr) throw new Error(`pool name "${pool.name}" is invalid: ${nameErr}`)
+      if (poolNames.has(pool.name)) throw new Error(`duplicate pool "${pool.name}"`)
+      if (!isProxyPort(pool.port))
+        throw new Error(`pool "${pool.name}" port must be an integer between 1024 and 65535`)
+      if (ports.has(pool.port))
+        throw new Error(`pool "${pool.name}" port ${pool.port} is already used by another pool`)
+      poolNames.add(pool.name)
+      ports.add(pool.port)
+    }
+  }
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")
@@ -464,6 +503,16 @@ export const validateConfig = (cfg: Config) => {
     }
     if (ws.isolate !== undefined && typeof ws.isolate !== "boolean")
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
+    if (ws.pool !== undefined) {
+      if (typeof ws.pool !== "string" || !poolNames.has(ws.pool))
+        throw new Error(
+          `workspace "${ws.name}" uses pool "${ws.pool}", which does not exist; run \`inscope login --pool ${ws.pool}\` first`,
+        )
+      if (!ws.isolate)
+        throw new Error(
+          `workspace "${ws.name}" pool requires isolate: true (only an isolated workspace has its own Claude settings to route)`,
+        )
+    }
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
     if (ws.git?.email) {

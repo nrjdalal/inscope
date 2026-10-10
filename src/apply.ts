@@ -10,7 +10,6 @@ import { applyBypass, applyRouting, preflightRouting } from "@/generators/settin
 import { applySkills } from "@/generators/skills"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 import { assertBlockWellFormed } from "@/managed-block"
-import { proxyRoute } from "@/proxy"
 
 const homeVar = (abs: string) => {
   const h = home()
@@ -60,7 +59,7 @@ export type ApplyResult = {
 export const preflightApply = (cfg: Config) => {
   preflightMcp(cfg.workspaces)
   assertBlockWellFormed(gitconfigPath(), GITCONFIG_BLOCK_ID)
-  preflightRouting(cfg, proxyRoute(cfg))
+  preflightRouting(cfg)
 }
 
 export const applyAll = (cfg: Config): ApplyResult => {
@@ -81,9 +80,9 @@ export const applyAll = (cfg: Config): ApplyResult => {
     applyBypass(ws, cfg.bypass ?? false)
     mcp.push(mcpFilePath(ws))
   }
-  // Every login (the shared base and each isolated one) sends its requests through the
-  // proxy while one is configured; without one, inscope's routing keys are cleared.
-  applyRouting(cfg, proxyRoute(cfg))
+  // Every login (the shared base and each isolated one) sends its requests through its
+  // pool's proxy while one is configured; without one, inscope's routing keys are cleared.
+  applyRouting(cfg)
 
   // One pass over the whole config: the shared ~/.claude/skills is the union of every
   // non-isolated workspace, so skills cannot be materialized per-workspace. Clone-if

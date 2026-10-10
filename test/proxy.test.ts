@@ -21,7 +21,7 @@ import {
   PROXY_VERSION,
   routeTo,
   proxyHealthy,
-  proxyRoute,
+  routeFor,
   renderProxyConfig,
   startProxy,
   uninstallProxy,
@@ -79,9 +79,9 @@ test("the rendered config is loopback only, keyed, management off, and fails ove
 
 test("proxyRoute sends every login to the proxy, once one is configured", () => {
   expect(routeTo(9000)).toEqual({ url: "http://127.0.0.1:9000", keychain: PROXY_KEYCHAIN })
-  expect(proxyRoute({ version: 1, proxy: { port: 9000 }, workspaces: [] })).toEqual(routeTo(9000))
-  expect(proxyRoute({ version: 1, workspaces: [] })).toBeUndefined()
-  expect(proxyRoute(null)).toBeUndefined()
+  expect(routeFor({ version: 1, proxy: { port: 9000 }, workspaces: [] })).toEqual(routeTo(9000))
+  expect(routeFor({ version: 1, workspaces: [] })).toBeUndefined()
+  expect(routeFor(null)).toBeUndefined()
 })
 
 test("uninstallProxy removes the agent and binary, and with purge the accounts and key", async () => {
@@ -533,7 +533,7 @@ test("CLI: a sign-in that fails or is the wrong account saves and routes nothing
   expect(settings(base)).toBeUndefined()
   // and it is not left running, nor set to start at the next login
   expect(s.calls("launchctl").at(-1)?.[0]).toBe("print")
-  expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded"))).toBe(false)
+  expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded-dev.inscope.proxy"))).toBe(false)
   expect(fs.existsSync(path.join(s.sb, "Library", "LaunchAgents", "dev.inscope.proxy.plist"))).toBe(
     false,
   )
@@ -562,7 +562,7 @@ test("CLI: proxy setup --port that fails puts the proxy back where every login p
   expect(s.readCfg()?.proxy).toEqual({ port })
   expect(settings(base).env.ANTHROPIC_BASE_URL).toBe(`http://127.0.0.1:${port}`)
   expect(fs.readFileSync(yaml, "utf8")).toContain(`port: ${port}\n`)
-  expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded"))).toBe(true)
+  expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded-dev.inscope.proxy"))).toBe(true)
 
   // a move the preflight refuses touches nothing, not even the running proxy
   fs.writeFileSync(path.join(base, "settings.json"), JSON.stringify({ apiKeyHelper: "~/k.sh" }))
@@ -602,7 +602,9 @@ test("CLI: logout removes an account, but never the proxy's last one", async () 
   expect(out.stdout).toContain("✓ removed A@x.dev from the proxy")
   const last = s.cli(["logout", "b@x.dev"])
   expect(last.status).toBe(1)
-  expect(last.stderr).toContain("b@x.dev is the proxy's last account")
+  expect(last.stderr).toContain(
+    "b@x.dev is the last account in pool default, which the shared login uses",
+  )
   expect(fs.readdirSync(authDir).filter((f) => f.endsWith(".json"))).toEqual([
     "claude-b@x.dev.json",
   ])

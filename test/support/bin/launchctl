@@ -40,7 +40,9 @@ const path = require("node:path")
 const state = process.env.FAKE_STATE
 const args = process.argv.slice(2)
 fs.appendFileSync(path.join(state, "launchctl-calls.jsonl"), JSON.stringify(args) + "\n")
-const loaded = path.join(state, "launchctl-loaded")
+// One "loaded" marker per agent label (each pool is its own agent).
+const labelOf = (arg) => path.basename(arg ?? "").replace(/\.plist$/, "")
+const loaded = (label) => path.join(state, `launchctl-loaded-${label}`)
 if (args[0] === "bootstrap") {
   // FAKE_BOOTSTRAP_FAIL=once fails the first bootstrap only; any other value, every one.
   const failed = path.join(state, "launchctl-bootstrap-failed")
@@ -50,12 +52,12 @@ if (args[0] === "bootstrap") {
     console.error("Bootstrap failed: 5: Input/output error")
     process.exit(5)
   }
-  fs.writeFileSync(loaded, args[2] ?? "")
+  fs.writeFileSync(loaded(labelOf(args[2])), args[2] ?? "")
   process.exit(0)
 }
 if (args[0] === "bootout") {
-  fs.rmSync(loaded, { force: true })
+  fs.rmSync(loaded(labelOf(args[1])), { force: true })
   process.exit(0)
 }
-if (args[0] === "print") process.exit(fs.existsSync(loaded) ? 0 : 113)
+if (args[0] === "print") process.exit(fs.existsSync(loaded(labelOf(args[1]))) ? 0 : 113)
 process.exit(2)

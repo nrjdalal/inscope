@@ -410,6 +410,7 @@ test("golden: usage table", () => {
   const auth = (e: string) => `/h/.config/inscope/proxy/auth/claude-${e}.json`
   const rows: UsageRow[] = [
     {
+      pool: "default",
       email: "me@x.dev",
       file: auth("me@x.dev"),
       disabled: false,
@@ -419,6 +420,7 @@ test("golden: usage table", () => {
       week: { percent: 99, resetsAt: "2026-10-11T17:00:00Z" },
     },
     {
+      pool: "default",
       email: "alt@x.dev",
       file: auth("alt@x.dev"),
       disabled: false,
@@ -427,9 +429,22 @@ test("golden: usage table", () => {
       fiveHour: { percent: 0, resetsAt: null },
       week: { percent: 72, resetsAt: "2026-10-15T09:00:00Z" },
     },
-    { email: "old@x.dev", file: auth("old@x.dev"), disabled: false, state: "expired" },
-    { email: "gone@x.dev", file: auth("gone@x.dev"), disabled: false, state: "signed-out" },
     {
+      pool: "default",
+      email: "old@x.dev",
+      file: auth("old@x.dev"),
+      disabled: false,
+      state: "expired",
+    },
+    {
+      pool: "default",
+      email: "gone@x.dev",
+      file: auth("gone@x.dev"),
+      disabled: false,
+      state: "signed-out",
+    },
+    {
+      pool: "default",
       email: "fresh@x.dev",
       file: auth("fresh@x.dev"),
       disabled: true,
@@ -439,6 +454,7 @@ test("golden: usage table", () => {
       week: { percent: 0, resetsAt: null },
     },
     {
+      pool: "default",
       email: "c@client.com",
       file: auth("c@client.com"),
       disabled: false,
@@ -448,6 +464,66 @@ test("golden: usage table", () => {
     },
   ]
   expect(renderUsage(rows, now)).toMatchSnapshot()
+})
+
+test("golden: usage table across pools", () => {
+  const now = Date.parse("2026-10-10T12:00:00Z")
+  const row = (pool: string, email: string, week: number): UsageRow => ({
+    pool,
+    email,
+    file: `/h/.config/inscope/proxy/auth/claude-${email}.json`,
+    disabled: false,
+    plan: "max 20x",
+    state: "ok",
+    fiveHour: { percent: 4, resetsAt: "2026-10-10T14:05:00Z" },
+    week: { percent: week, resetsAt: "2026-10-12T00:00:00Z" },
+  })
+  expect(
+    renderUsage(
+      [
+        row("default", "me@x.dev", 2),
+        row("work", "a@work.dev", 100),
+        row("work", "b@work.dev", 30),
+      ],
+      now,
+    ),
+  ).toMatchSnapshot()
+})
+
+test("golden: status card, isolated workspace on a named pool", () => {
+  const snap: StatusSnapshot = {
+    workspace: "work",
+    path: "~/work",
+    claude: {
+      isolated: true,
+      configDir: "~/work/.inscope",
+      signedIn: true,
+      proxy: { host: "127.0.0.1:8318", accounts: 2, pool: "work" },
+    },
+    github: null,
+    git: { email: "neeraj@work.dev", source: "workspace" },
+    servers: ["github"],
+    skills: [],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
+})
+
+test("golden: named pool proxy config and launchd agent", () => {
+  expect(
+    renderProxyConfig({
+      port: 8318,
+      key: "inscope-0123abcd",
+      authDir: "/h/.config/inscope/proxy/pools/work/auth",
+    }),
+  ).toContain('auth-dir: "/h/.config/inscope/proxy/pools/work/auth"')
+  expect(
+    renderLaunchAgent({
+      bin: "/h/.config/inscope/proxy/bin/8.0.23/cli-proxy-api",
+      config: "/h/.config/inscope/proxy/pools/work/config.yaml",
+      log: "/h/.config/inscope/proxy/pools/work/proxy.log",
+      label: "dev.inscope.proxy.work",
+    }),
+  ).toMatchSnapshot()
 })
 
 test("golden: status card, isolated login through the proxy", () => {

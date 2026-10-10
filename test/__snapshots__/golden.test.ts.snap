@@ -721,6 +721,49 @@ exports[`golden: usage table 1`] = `
   unavailable (c@client.com): usage endpoint returned 500"
 `;
 
+exports[`golden: usage table across pools 1`] = `
+"  POOL     ACCOUNT     PLAN     5-HOUR       WEEKLY
+  default  me@x.dev    max 20x  4% · 2h 05m  2% · 1d 12h
+  work     a@work.dev  max 20x  4% · 2h 05m  100% · 1d 12h
+  work     b@work.dev  max 20x  4% · 2h 05m  30% · 1d 12h"
+`;
+
+exports[`golden: status card, isolated workspace on a named pool 1`] = `
+"  work  ~/work
+
+  Claude  isolated · pool work · proxy 127.0.0.1:8318 · 2 accounts
+          ~/work/.inscope
+  MCP     github
+  Git     neeraj@work.dev (workspace)"
+`;
+
+exports[`golden: named pool proxy config and launchd agent 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Managed by inscope (\`inscope proxy setup\`). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.inscope.proxy.work</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/h/.config/inscope/proxy/bin/8.0.23/cli-proxy-api</string>
+    <string>-config</string>
+    <string>/h/.config/inscope/proxy/pools/work/config.yaml</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/h/.config/inscope/proxy/pools/work/proxy.log</string>
+  <key>StandardErrorPath</key>
+  <string>/h/.config/inscope/proxy/pools/work/proxy.log</string>
+</dict>
+</plist>
+"
+`;
+
 exports[`golden: status card, isolated login through the proxy 1`] = `
 "  acme  ~/acme
 

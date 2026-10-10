@@ -7,6 +7,7 @@ import { edit } from "~/bin/commands/edit"
 import { list } from "~/bin/commands/list"
 import { login } from "~/bin/commands/login"
 import { logout } from "~/bin/commands/logout"
+import { pool } from "~/bin/commands/pool"
 import { proxy } from "~/bin/commands/proxy"
 import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
@@ -31,8 +32,10 @@ Commands:
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
   skill          Manage a workspace's Claude skills (add, list, rename, rm, update)
-  login          Sign a Claude account in (into the local proxy every login goes through)
+  login          Sign a Claude account in (into the local proxy every login goes through;
+                 --pool <name> for a workspace's own pool of accounts)
   logout <email> Remove a Claude account from the proxy
+  pool           List your pools of Claude accounts and who uses each
   usage          Show each account's plan, 5-hour and weekly limits, and when they reset
   proxy          The proxy's low-level controls (status, start, stop, setup, uninstall)
   doctor         Verify tokens, identities, the hook, and skill links resolve correctly
@@ -71,7 +74,9 @@ const main = async () => {
       case "login":
         return await login(rest)
       case "logout":
-        return logout(rest)
+        return await logout(rest)
+      case "pool":
+        return pool(rest)
       case "usage":
         return await usage(rest)
       case "proxy":

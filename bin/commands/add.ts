@@ -17,6 +17,7 @@ import {
 } from "@/config"
 import { contractTilde, resolveAbsolute, sameDir } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
+import { poolAfterChange } from "@/proxy"
 import { ghAccounts, gitGlobal, keychainHas, shQuotePath } from "@/secrets"
 import {
   isInteractive,
@@ -62,6 +63,9 @@ Options:
                         (gitignored) and launch claude there when you run it from
                         this subtree; with the proxy (\`${name} login\`) it still
                         goes through it (--no-isolate turns it off)
+  --pool <name>         run this workspace on its own pool of Claude accounts
+                        (\`${name} login --pool <name>\` creates one); implies
+                        --isolate. "default" puts it back on the default pool
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -116,6 +120,7 @@ export const add = async (args: string[]) => {
       yes: { type: "boolean", short: "y" },
       gh: { type: "string" },
       isolate: { type: "boolean" },
+      pool: { type: "string" },
       email: { type: "string" },
       "git-name": { type: "string" },
       label: { type: "string" },
@@ -320,8 +325,15 @@ export const add = async (args: string[]) => {
   }
 
   // --- Claude config: the shared base, or its own .inscope ---
-  let isolate = values.isolate ?? Boolean(existing?.isolate)
-  if (values.isolate === undefined && interactive)
+  // A pool lives in a separate config, so --pool <name> implies --isolate.
+  const wantPool = values.pool
+  if (wantPool && wantPool !== "default" && values.isolate === false) {
+    console.error("\n--pool needs a separate Claude config; drop --no-isolate")
+    process.exit(1)
+  }
+  let isolate =
+    values.isolate ?? (wantPool && wantPool !== "default" ? true : Boolean(existing?.isolate))
+  if (values.isolate === undefined && !(wantPool && wantPool !== "default") && interactive)
     isolate = await promptConfirm(
       "\nSeparate Claude config for this workspace (its own history, settings, and skills)?",
       isolate,
@@ -349,9 +361,11 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
+  const poolChange = poolAfterChange(cfg, existing, isolate, wantPool)
   const ws: Workspace = {
     ...existing,
     isolate: isolate || undefined,
+    pool: poolChange.pool,
     name: label,
     path: contractTilde(target),
     gh,
@@ -394,12 +408,13 @@ export const add = async (args: string[]) => {
     console.log(
       `\nFirst run: reload your shell to load the hook: source ~/.zshrc (or open a new terminal).`,
     )
+  if (poolChange.note) console.log(poolChange.note)
   // With the proxy every login goes through it, so an isolated one needs no sign-in.
   const routed = Boolean(cfg?.proxy)
   console.log(
     ws.isolate
       ? routed
-        ? `\nLaunch \`claude\` from ${ws.path}; it keeps its own config in .inscope and goes through the proxy.`
+        ? `\nLaunch \`claude\` from ${ws.path}; it keeps its own config in .inscope and goes through the proxy${ws.pool ? `, on pool ${ws.pool}` : ""}.`
         : hadLogin
           ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own config in .inscope.`
           : `\nLaunch \`claude\` from ${ws.path} and sign in once (or sign your accounts in to the proxy with \`${name} login\`); this workspace keeps its own config in .inscope.`

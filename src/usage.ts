@@ -1,6 +1,6 @@
 import type { Config } from "@/config"
 import { contractTilde } from "@/env"
-import { proxyAccounts } from "@/proxy"
+import { poolAccounts } from "@/proxy"
 
 // Your Claude accounts' subscription limits: each account in the proxy (`inscope
 // login`), its plan, and its 5-hour and weekly usage. Read with the account's own token
@@ -123,6 +123,8 @@ export const fetchPlan = async (
 export type UsageState = "ok" | "expired" | "signed-out" | "rate-limited" | "error"
 
 export type UsageRow = {
+  // The pool holding the account ("default" for the default pool).
+  pool: string
   email: string
   // The account's auth file in the proxy.
   file: string
@@ -134,17 +136,16 @@ export type UsageRow = {
   detail?: string
 }
 
-// One row per account in the proxy; none until the proxy is set up. The usage and
+// One row per account, pool by pool; none until the proxy is set up. The usage and
 // profile requests all go out together.
 export const resolveUsage = async (
   cfg: Config,
   opts: { fetchImpl?: FetchLike; now?: number } = {},
 ): Promise<UsageRow[]> => {
-  if (!cfg.proxy) return []
   const now = opts.now ?? Date.now()
   return Promise.all(
-    proxyAccounts().map(async (acc): Promise<UsageRow> => {
-      const base = { email: acc.email, file: acc.file, disabled: acc.disabled }
+    poolAccounts(cfg).map(async ({ pool, account: acc }): Promise<UsageRow> => {
+      const base = { pool, email: acc.email, file: acc.file, disabled: acc.disabled }
       if (!acc.accessToken) return { ...base, state: "signed-out" }
       if (acc.expiresAt !== undefined && acc.expiresAt <= now) return { ...base, state: "expired" }
       const [usage, plan] = await Promise.all([
@@ -228,7 +229,11 @@ const stateNote = (state: Exclude<UsageState, "ok">, rows: UsageRow[]): string =
 // command passes real colors, which no-op when stdout is piped. Widths are measured on
 // the plain text so color codes never skew the columns.
 export const renderUsage = (rows: UsageRow[], now: number, c: UsagePainters = PLAIN): string => {
-  const head = ["ACCOUNT", "PLAN", "5-HOUR", "WEEKLY"]
+  // The POOL column appears once there is more than the default pool.
+  const pooled = rows.some((r) => r.pool !== rows[0]?.pool)
+  const head = [...(pooled ? ["POOL"] : []), "ACCOUNT", "PLAN", "5-HOUR", "WEEKLY"]
+  const lead = (r: UsageRow) => (pooled ? [r.pool] : [])
+  const leadPaint = pooled ? [c.dim] : []
   const same = (s: string) => s
   const level = (l: number) => (l >= 90 ? c.bad : l >= 70 ? c.warn : c.ok)
   const cells = rows.map((r) => {
@@ -236,15 +241,15 @@ export const renderUsage = (rows: UsageRow[], now: number, c: UsagePainters = PL
     if (r.state !== "ok") {
       const tone = r.state === "signed-out" ? c.dim : c.warn
       return {
-        plain: [who, r.plan ?? "-", STATE_LABEL[r.state], "-"],
-        paint: [c.head, same, tone, c.dim],
+        plain: [...lead(r), who, r.plan ?? "-", STATE_LABEL[r.state], "-"],
+        paint: [...leadPaint, c.head, same, tone, c.dim],
       }
     }
     const five = pct(r.fiveHour, now)
     const week = pct(r.week, now)
     return {
-      plain: [who, r.plan ?? "-", five.text, week.text],
-      paint: [c.head, same, level(five.level), level(week.level)],
+      plain: [...lead(r), who, r.plan ?? "-", five.text, week.text],
+      paint: [...leadPaint, c.head, same, level(five.level), level(week.level)],
     }
   })
   const widths = head.map((h, i) => Math.max(h.length, ...cells.map((x) => x.plain[i].length)))
@@ -268,6 +273,7 @@ export const renderUsage = (rows: UsageRow[], now: number, c: UsagePainters = PL
 
 export const usageJson = (rows: UsageRow[]) =>
   rows.map((r) => ({
+    pool: r.pool,
     email: r.email,
     file: contractTilde(r.file),
     disabled: r.disabled,

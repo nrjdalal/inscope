@@ -1,9 +1,10 @@
 import { spawn, spawnSync } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
 import fs from "node:fs"
+import net from "node:net"
 import path from "node:path"
 
-import type { Config } from "@/config"
+import type { Config, Workspace } from "@/config"
 import { home, inscopeHome } from "@/env"
 import { writeFileAtomic } from "@/io"
 import {
@@ -59,14 +60,24 @@ export const PROXY_LABEL = "dev.inscope.proxy"
 export const PROXY_KEYCHAIN = "INSCOPE_PROXY_KEY"
 export const DEFAULT_PROXY_PORT = 8317
 
+// Accounts are grouped in pools, each its own proxy instance (CLIProxyAPI cannot tie a
+// client key to some of its accounts): one port, config, auth dir, log, and launchd
+// agent per pool, sharing the binary and the client key. The default pool keeps the
+// paths a single proxy always had; a named pool lives under pools/<name>.
+export const DEFAULT_POOL = "default"
+
 export const proxyRoot = () => path.join(inscopeHome(), "proxy")
 export const proxyBinPath = (version = PROXY_VERSION) =>
   path.join(proxyRoot(), "bin", version, "cli-proxy-api")
-export const proxyConfigPath = () => path.join(proxyRoot(), "config.yaml")
-export const proxyAuthDir = () => path.join(proxyRoot(), "auth")
-export const proxyLogPath = () => path.join(proxyRoot(), "proxy.log")
-export const launchAgentPath = () =>
-  path.join(home(), "Library", "LaunchAgents", `${PROXY_LABEL}.plist`)
+export const poolDir = (pool = DEFAULT_POOL) =>
+  pool === DEFAULT_POOL ? proxyRoot() : path.join(proxyRoot(), "pools", pool)
+export const proxyConfigPath = (pool = DEFAULT_POOL) => path.join(poolDir(pool), "config.yaml")
+export const proxyAuthDir = (pool = DEFAULT_POOL) => path.join(poolDir(pool), "auth")
+export const proxyLogPath = (pool = DEFAULT_POOL) => path.join(poolDir(pool), "proxy.log")
+export const proxyLabel = (pool = DEFAULT_POOL) =>
+  pool === DEFAULT_POOL ? PROXY_LABEL : `${PROXY_LABEL}.${pool}`
+export const launchAgentPath = (pool = DEFAULT_POOL) =>
+  path.join(home(), "Library", "LaunchAgents", `${proxyLabel(pool)}.plist`)
 
 export const proxyUrl = (port: number) => `http://127.0.0.1:${port}`
 
@@ -148,14 +159,19 @@ const xml = (s: string) =>
 
 // The launchd agent that runs the proxy at login and restarts it if it exits. Pure,
 // golden-pinned.
-export const renderLaunchAgent = (opts: { bin: string; config: string; log: string }) =>
+export const renderLaunchAgent = (opts: {
+  bin: string
+  config: string
+  log: string
+  label?: string
+}) =>
   `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Managed by inscope (\`inscope proxy setup\`). -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${PROXY_LABEL}</string>
+  <string>${opts.label ?? PROXY_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
     <string>${xml(opts.bin)}</string>
@@ -239,40 +255,47 @@ export const ensureProxyKey = (run: Runner = defaultRunner): string => {
 }
 
 const uid = () => (typeof process.getuid === "function" ? process.getuid() : 0)
-const service = () => `gui/${uid()}/${PROXY_LABEL}`
+const service = (pool = DEFAULT_POOL) => `gui/${uid()}/${proxyLabel(pool)}`
 
 // Write the config and launchd agent (startProxy then loads them).
-export const writeProxyFiles = (port: number, key: string, bin: string) => {
-  fs.mkdirSync(proxyRoot(), { recursive: true, mode: 0o700 })
-  fs.chmodSync(proxyRoot(), 0o700)
-  fs.mkdirSync(proxyAuthDir(), { recursive: true, mode: 0o700 })
-  fs.chmodSync(proxyAuthDir(), 0o700)
-  writeFileAtomic(proxyConfigPath(), renderProxyConfig({ port, key, authDir: proxyAuthDir() }))
-  fs.chmodSync(proxyConfigPath(), 0o600)
-  fs.mkdirSync(path.dirname(launchAgentPath()), { recursive: true })
+export const writeProxyFiles = (port: number, key: string, bin: string, pool = DEFAULT_POOL) => {
+  for (const dir of [proxyRoot(), poolDir(pool), proxyAuthDir(pool)]) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+    fs.chmodSync(dir, 0o700)
+  }
+  const config = proxyConfigPath(pool)
+  writeFileAtomic(config, renderProxyConfig({ port, key, authDir: proxyAuthDir(pool) }))
+  fs.chmodSync(config, 0o600)
+  fs.mkdirSync(path.dirname(launchAgentPath(pool)), { recursive: true })
   writeFileAtomic(
-    launchAgentPath(),
-    renderLaunchAgent({ bin, config: proxyConfigPath(), log: proxyLogPath() }),
+    launchAgentPath(pool),
+    renderLaunchAgent({ bin, config, log: proxyLogPath(pool), label: proxyLabel(pool) }),
   )
 }
 
 // launchd unloads a booted-out agent asynchronously, and bootstrapping it again before
 // that finishes fails ("Bootstrap failed: 5: Input/output error"), so wait it out.
-export const stopProxy = (run: Runner = defaultRunner, opts: { waitMs?: number } = {}) => {
-  run("launchctl", ["bootout", service()])
+export const stopProxy = (
+  run: Runner = defaultRunner,
+  opts: { waitMs?: number; pool?: string } = {},
+) => {
+  run("launchctl", ["bootout", service(opts.pool)])
   const until = Date.now() + (opts.waitMs ?? 10_000)
-  while (proxyLoaded(run) && Date.now() < until) sleepSync(100)
+  while (proxyLoaded(run, opts.pool) && Date.now() < until) sleepSync(100)
 }
 
-export const startProxy = (run: Runner = defaultRunner, opts: { waitMs?: number } = {}) => {
+export const startProxy = (
+  run: Runner = defaultRunner,
+  opts: { waitMs?: number; pool?: string } = {},
+) => {
   stopProxy(run, opts)
-  const r = run("launchctl", ["bootstrap", `gui/${uid()}`, launchAgentPath()])
+  const r = run("launchctl", ["bootstrap", `gui/${uid()}`, launchAgentPath(opts.pool)])
   if (r.status !== 0)
     throw new Error(`launchctl bootstrap failed: ${r.stderr.trim() || `exit ${r.status}`}`)
 }
 
-export const proxyLoaded = (run: Runner = defaultRunner): boolean =>
-  run("launchctl", ["print", service()]).status === 0
+export const proxyLoaded = (run: Runner = defaultRunner, pool = DEFAULT_POOL): boolean =>
+  run("launchctl", ["print", service(pool)]).status === 0
 
 export type FetchStatus = (url: string, headers: Record<string, string>) => Promise<number>
 
@@ -308,16 +331,16 @@ export type ProxyAccount = {
   disabled: boolean
 }
 
-export const proxyAccounts = (): ProxyAccount[] => {
+export const proxyAccounts = (pool = DEFAULT_POOL): ProxyAccount[] => {
   let names: string[]
   try {
-    names = fs.readdirSync(proxyAuthDir()).filter((n) => n.endsWith(".json"))
+    names = fs.readdirSync(proxyAuthDir(pool)).filter((n) => n.endsWith(".json"))
   } catch {
     return []
   }
   const out: ProxyAccount[] = []
   for (const name of names.sort()) {
-    const file = path.join(proxyAuthDir(), name)
+    const file = path.join(proxyAuthDir(pool), name)
     try {
       const doc = JSON.parse(fs.readFileSync(file, "utf8"))
       if (doc?.type !== "claude" || typeof doc.email !== "string") continue
@@ -347,6 +370,7 @@ export const loginProxyAccount = async (opts: {
   openUrl?: (url: string) => void
   log?: (line: string) => void
   bin?: string
+  pool?: string
 }): Promise<ProxyAccount> => {
   const bin = opts.bin ?? proxyBinPath()
   const log = opts.log ?? ((l: string) => console.log(l))
@@ -358,7 +382,8 @@ export const loginProxyAccount = async (opts: {
       else if (mode === "system") spawnSync("open", [url], { stdio: "ignore" })
       else log(`Open this URL in the browser you want to sign in with:\n${url}`)
     })
-  const child = spawn(bin, ["-config", proxyConfigPath(), "-claude-login", "-no-browser"], {
+  const pool = opts.pool ?? DEFAULT_POOL
+  const child = spawn(bin, ["-config", proxyConfigPath(pool), "-claude-login", "-no-browser"], {
     stdio: ["ignore", "pipe", "pipe"],
     env: childEnv(),
   })
@@ -395,7 +420,7 @@ export const loginProxyAccount = async (opts: {
   // files when it refreshes their tokens, so a recently changed file proves nothing.
   const saved = tail.match(/Authentication saved to (.+)/)?.[1]?.trim()
   const account = saved
-    ? proxyAccounts().find((a) => a.file === path.resolve(proxyAuthDir(), saved))
+    ? proxyAccounts(pool).find((a) => a.file === path.resolve(proxyAuthDir(pool), saved))
     : undefined
   if (code !== 0 || !account)
     throw new Error(
@@ -411,15 +436,15 @@ export const loginProxyAccount = async (opts: {
     )
   }
   // Signing an account in again (to renew it, say) replaces its earlier file.
-  for (const a of proxyAccounts())
+  for (const a of proxyAccounts(pool))
     if (a.file !== account.file && a.email.toLowerCase() === account.email.toLowerCase())
       fs.rmSync(a.file, { force: true })
   return account
 }
 
 // Remove an account from the proxy (it unloads the auth file on its own).
-export const logoutProxyAccount = (email: string): boolean => {
-  const hits = proxyAccounts().filter((a) => a.email.toLowerCase() === email.toLowerCase())
+export const logoutProxyAccount = (email: string, pool = DEFAULT_POOL): boolean => {
+  const hits = proxyAccounts(pool).filter((a) => a.email.toLowerCase() === email.toLowerCase())
   for (const a of hits) fs.rmSync(a.file, { force: true })
   return hits.length > 0
 }
@@ -430,32 +455,33 @@ export const logoutProxyAccount = (email: string): boolean => {
 // once there is an account to route to.
 export const setupProxy = async (
   port: number,
-  opts: { run?: Runner; log?: (line: string) => void } = {},
+  opts: { run?: Runner; log?: (line: string) => void; pool?: string } = {},
 ) => {
   const run = opts.run ?? defaultRunner
+  const pool = opts.pool ?? DEFAULT_POOL
   opts.log?.(`Installing CLIProxyAPI ${PROXY_VERSION} (checksum-verified)...`)
   const bin = await installProxy({ run })
   const key = ensureProxyKey(run)
-  writeProxyFiles(port, key, bin)
-  startProxy(run)
+  writeProxyFiles(port, key, bin, pool)
+  startProxy(run, { pool })
   if (!(await proxyHealthy(port, key, { waitMs: 15_000 })))
     throw new Error(
-      `the proxy did not come up on ${proxyUrl(port)}; see ${proxyLogPath()}. Is the port in use? Pick another with --port.`,
+      `the proxy${pool === DEFAULT_POOL ? "" : ` for pool ${pool}`} did not come up on ${proxyUrl(port)}; see ${proxyLogPath(pool)}. Is the port in use? Pick another with --port.`,
     )
 }
 
 // Stop the proxy and remove its launchd agent, so launchd neither restarts it nor starts
 // it at the next login. The binary, config, and accounts stay.
-export const retireProxyAgent = (run: Runner = defaultRunner) => {
-  stopProxy(run)
-  fs.rmSync(launchAgentPath(), { force: true })
+export const retireProxyAgent = (run: Runner = defaultRunner, pool = DEFAULT_POOL) => {
+  stopProxy(run, { pool })
+  fs.rmSync(launchAgentPath(pool), { force: true })
 }
 
-// Stop the proxy and remove its launchd agent and binary. `purge` also removes its
-// accounts, config, and logs, and the client key from the Keychain.
-export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => {
+// Stop every pool's proxy and remove its launchd agent, and the binary. `purge` also
+// removes the accounts, configs, and logs, and the client key from the Keychain.
+export const uninstallProxy = (opts: { pools?: string[]; purge?: boolean; run?: Runner } = {}) => {
   const run = opts.run ?? defaultRunner
-  retireProxyAgent(run)
+  for (const pool of opts.pools ?? [DEFAULT_POOL]) retireProxyAgent(run, pool)
   fs.rmSync(path.join(proxyRoot(), "bin"), { recursive: true, force: true })
   if (opts.purge) {
     fs.rmSync(proxyRoot(), { recursive: true, force: true })
@@ -463,6 +489,72 @@ export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => 
   }
 }
 
-// Where every login sends its requests: the proxy, while one is configured.
-export const proxyRoute = (cfg: Config | null | undefined): Route | undefined =>
-  cfg?.proxy ? routeTo(cfg.proxy.port) : undefined
+// Every pool the config knows, as name and port: the default pool first.
+export const configPools = (cfg: Config | null | undefined): { name: string; port: number }[] =>
+  cfg?.proxy ? [{ name: DEFAULT_POOL, port: cfg.proxy.port }, ...(cfg.pools ?? [])] : []
+
+export const poolPort = (cfg: Config | null | undefined, pool: string): number | undefined =>
+  configPools(cfg).find((p) => p.name === pool)?.port
+
+// The pool a login runs on: a pooled isolated workspace's own, else the default pool
+// (the shared ~/.claude and every other login).
+export const poolOf = (ws: Workspace | undefined): string =>
+  ws?.isolate && ws.pool ? ws.pool : DEFAULT_POOL
+
+// Where a login sends its requests: its pool's proxy, once the proxy is set up.
+export const routeFor = (cfg: Config | null | undefined, ws?: Workspace): Route | undefined => {
+  const port = poolPort(cfg, poolOf(ws))
+  return port === undefined ? undefined : routeTo(port)
+}
+
+// A workspace's pool once `add`/`edit` change it: `want` names a pool ("default"
+// clears it), else the workspace keeps its pool, which needs an isolated config (only
+// that has settings of its own to route), so it is dropped, with a note, without one.
+export const poolAfterChange = (
+  cfg: Config | null | undefined,
+  prior: Workspace | undefined,
+  isolate: boolean,
+  want?: string,
+): { pool: string | undefined; note?: string } => {
+  if (want === DEFAULT_POOL) return { pool: undefined }
+  if (want !== undefined) {
+    if (!cfg?.pools?.some((p) => p.name === want))
+      throw new Error(
+        `No pool ${want}. Create it by signing an account in to it: inscope login --pool ${want}`,
+      )
+    return { pool: want }
+  }
+  if (!prior?.pool) return { pool: undefined }
+  if (isolate) return { pool: prior.pool }
+  return {
+    pool: undefined,
+    note: `Note: this workspace left pool ${prior.pool}; a pool needs a separate Claude config, so it uses the default pool now.`,
+  }
+}
+
+// Every account in every pool, with the pool that holds it.
+export const poolAccounts = (cfg: Config | null | undefined) =>
+  configPools(cfg).flatMap((p) =>
+    proxyAccounts(p.name).map((account) => ({ pool: p.name, account })),
+  )
+
+// The workspaces routed to a pool, by name ("the shared login" for the default pool's
+// base login is the caller's to add).
+export const poolUsers = (cfg: Config, pool: string): string[] =>
+  cfg.workspaces.filter((w) => w.isolate && poolOf(w) === pool).map((w) => w.name)
+
+const portFree = (port: number) =>
+  new Promise<boolean>((resolve) => {
+    const srv = net.createServer()
+    srv.once("error", () => resolve(false))
+    srv.listen(port, "127.0.0.1", () => srv.close(() => resolve(true)))
+  })
+
+// The port for a new pool: the first from the default pool's port + 1 up that no pool
+// uses and nothing listens on.
+export const nextPoolPort = async (cfg: Config): Promise<number> => {
+  const taken = new Set(configPools(cfg).map((p) => p.port))
+  for (let port = (cfg.proxy?.port ?? DEFAULT_PROXY_PORT) + 1; port <= 65535; port++)
+    if (!taken.has(port) && (await portFree(port))) return port
+  throw new Error("no free port for a new pool")
+}

@@ -3,7 +3,7 @@ import { contractTilde } from "@/env"
 import { baseClaudeDir, loginDir } from "@/generators/isolate"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { desiredSkillLinks } from "@/generators/skills"
-import { proxyAccounts, proxyRoute } from "@/proxy"
+import { DEFAULT_POOL, poolOf, proxyAccounts, routeFor } from "@/proxy"
 import { claudeAuthStatus, defaultRunner, ghToken, gitGlobal, type Runner } from "@/secrets"
 
 // The identity `inscope status` resolves for one directory: the Claude login it
@@ -14,8 +14,8 @@ export type StatusClaude = {
   isolated: boolean
   // The proxy this login's requests go through (its host) and how many accounts it
   // holds, when one is configured; the login then authenticates with the proxy's key,
-  // so there is no single account to show.
-  proxy?: { host: string; accounts: number }
+  // so there is no single account to show. `pool` is set for a named pool.
+  proxy?: { host: string; accounts: number; pool?: string }
   configDir: string
   signedIn: boolean
   email?: string
@@ -40,17 +40,26 @@ export const resolveStatus = (
   const ws = currentWorkspace(cfg, cwd)
   const isolated = Boolean(ws?.isolate)
   const configDir = ws ? loginDir(ws) : baseClaudeDir()
-  const route = proxyRoute(cfg)
+  const route = routeFor(cfg, ws)
+  const pool = poolOf(ws)
   // Behind the proxy the login's own OAuth state is beside the point (and reads as an
   // API-key login), so only ask Claude when it is not routed.
   const auth = route ? undefined : claudeAuthStatus(configDir, run)
-  const accounts = route ? proxyAccounts().length : 0
+  const accounts = route ? proxyAccounts(pool).length : 0
   return {
     workspace: ws?.name ?? null,
     path: ws ? ws.path : contractTilde(cwd),
     claude: {
       isolated,
-      ...(route ? { proxy: { host: new URL(route.url).host, accounts } } : {}),
+      ...(route
+        ? {
+            proxy: {
+              host: new URL(route.url).host,
+              accounts,
+              ...(pool === DEFAULT_POOL ? {} : { pool }),
+            },
+          }
+        : {}),
       configDir: contractTilde(configDir),
       // Behind the proxy, signed in means it holds an account to answer with.
       signedIn: auth ? auth.signedIn : accounts > 0,
@@ -91,8 +100,10 @@ export const renderStatus = (snap: StatusSnapshot, c: StatusPainters = PLAIN): s
   const px = snap.claude.proxy
   const who = px
     ? px.accounts
-      ? `proxy ${px.host} · ${px.accounts} account${px.accounts === 1 ? "" : "s"}`
-      : c.warn(`proxy ${px.host} · no accounts; run \`inscope login\``)
+      ? `${px.pool ? `pool ${px.pool} · ` : ""}proxy ${px.host} · ${px.accounts} account${px.accounts === 1 ? "" : "s"}`
+      : c.warn(
+          `${px.pool ? `pool ${px.pool} · ` : ""}proxy ${px.host} · no accounts; run \`inscope login${px.pool ? ` --pool ${px.pool}` : ""}\``,
+        )
     : snap.claude.signedIn && snap.claude.email
       ? `${snap.claude.email}${snap.claude.subscription ? ` · ${snap.claude.subscription}` : ""}`
       : c.warn("not signed in; launch `claude` here and log in")

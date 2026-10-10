@@ -26,7 +26,12 @@ Options:
                       sign-in there, and the profile is deleted afterwards
                       system: your default browser (not a fresh profile)
                       none: print the sign-in URL to open yourself
-  --port <n>          the port for a new proxy (default ${DEFAULT_PROXY_PORT})
+  --pool <name>       the pool to sign in to, for a workspace that uses its own
+                      accounts (\`${name} add <path> --pool <name>\`); a new pool is
+                      created, on its own proxy (default: the default pool, which
+                      the shared login and every other workspace use)
+  --port <n>          the port for a new pool (default pool ${DEFAULT_PROXY_PORT}; a new
+                      named pool takes the next free one)
   -h, --help          Display help message
 
 Anthropic's terms forbid third parties that store or intermediate Claude.ai
@@ -41,6 +46,7 @@ export const login = (args: string[]) =>
         help: { type: "boolean", short: "h" },
         email: { type: "string" },
         browser: { type: "string" },
+        pool: { type: "string" },
         port: { type: "string" },
       },
       args,
@@ -59,10 +65,14 @@ export const login = (args: string[]) =>
       console.error(`Invalid --port "${values.port}": use 1024-65535`)
       process.exit(1)
     }
-    const res = await signIn({ email: values.email, mode, port })
+    const res = await signIn({ email: values.email, mode, pool: values.pool, port })
+    const where =
+      res.pool === "default"
+        ? `the proxy (${proxyUrl(res.port)}) holds ${res.accounts} account${res.accounts === 1 ? "" : "s"}; every Claude Code login goes through it`
+        : `pool ${res.pool} (${proxyUrl(res.port)}) holds ${res.accounts} account${res.accounts === 1 ? "" : "s"}; point a workspace at it with \`${name} add <path> --pool ${res.pool}\``
     console.log(
       green(`\n✓ ${res.account.email} signed in`) +
-        `\n  the proxy (${proxyUrl(res.port)}) holds ${res.accounts} account${res.accounts === 1 ? "" : "s"}; every Claude Code login goes through it` +
+        `\n  ${where}` +
         `\n  Claude Code sessions started from now on use it. See the limits: ${name} usage`,
     )
     process.exit(0)

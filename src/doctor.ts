@@ -36,7 +36,10 @@ import {
   proxyBinPath,
   proxyConfigPath,
   proxyLoaded,
-  proxyRoute,
+  proxyRoot,
+  configPools,
+  DEFAULT_POOL,
+  routeFor,
   proxyUrl,
 } from "@/proxy"
 import {
@@ -148,8 +151,8 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
 // A login's routing matches the config, both directions: the proxy is configured but
 // this login does not go through it yet, or the proxy was removed and the login still
 // points at it (where nothing answers). Null when it matches.
-const routingDrift = (dir: string, cfg: Config): string | null => {
-  const route = proxyRoute(cfg)
+const routingDrift = (dir: string, cfg: Config, ws?: Workspace): string | null => {
+  const route = routeFor(cfg, ws)
   if (route && !routedAt(dir, route))
     return "does not go through the proxy yet; run `inscope apply`"
   if (!route && staleRoutingAt(dir))
@@ -157,56 +160,97 @@ const routingDrift = (dir: string, cfg: Config): string | null => {
   return null
 }
 
-// The local proxy (`inscope login`): installed at the pinned version, its client
-// key in the Keychain, its config private, its launchd agent loaded and listening on
-// the port, and at least one account signed in.
+// The local proxy (`inscope login`), once per pool: installed at the pinned version, its
+// client key in the Keychain, its config and token dir private, its launchd agent loaded
+// and listening on the pool's port, and at least one account signed in.
 const proxyChecks = (cfg: Config, run: Runner): Check[] => {
-  if (!cfg.proxy) return []
-  const label = "proxy"
   const out: Check[] = []
+  const pools = configPools(cfg)
+  if (!pools.length) return out
   const fix = "run `inscope proxy setup`"
   if (!fs.existsSync(proxyBinPath()))
     out.push({
       status: "fail",
-      label,
+      label: "proxy",
       detail: `CLIProxyAPI ${PROXY_VERSION} is not installed; ${fix}`,
     })
   if (!keychainHasService(PROXY_KEYCHAIN, run))
-    out.push({ status: "fail", label, detail: `${PROXY_KEYCHAIN} not in keychain; ${fix}` })
-  try {
-    if ((fs.statSync(proxyConfigPath()).mode & 0o077) !== 0)
-      out.push({
-        status: "warn",
-        label,
-        detail: `${contractTilde(proxyConfigPath())} is readable by others (it holds the client key); ${fix}`,
-      })
-  } catch {
-    out.push({ status: "fail", label, detail: `no ${contractTilde(proxyConfigPath())}; ${fix}` })
-  }
-  try {
-    if ((fs.statSync(proxyAuthDir()).mode & 0o077) !== 0)
-      out.push({
-        status: "warn",
-        label,
-        detail: `${contractTilde(proxyAuthDir())} is readable by others (it holds account tokens); run \`chmod 700 ${contractTilde(proxyAuthDir())}\``,
-      })
-  } catch {}
-  const listening = run("lsof", ["-nP", `-iTCP:${cfg.proxy.port}`, "-sTCP:LISTEN"]).status === 0
-  if (!proxyLoaded(run) || !listening)
     out.push({
       status: "fail",
-      label,
-      detail: `not running on ${proxyUrl(cfg.proxy.port)}; run \`inscope proxy start\``,
+      label: "proxy",
+      detail: `${PROXY_KEYCHAIN} not in keychain; ${fix}`,
     })
-  const accounts = proxyAccounts()
-  if (!accounts.length)
-    out.push({ status: "warn", label, detail: "no accounts signed in; run `inscope login`" })
-  if (!out.some((c) => c.status === "fail"))
-    out.unshift({
-      status: "ok",
-      label,
-      detail: `${proxyUrl(cfg.proxy.port)} · CLIProxyAPI ${PROXY_VERSION} · ${accounts.length} account(s)`,
-    })
+  // A pool dir the config no longer names (a hand-edited config): its proxy may still
+  // run, holding accounts no login reaches.
+  try {
+    const known = new Set(pools.map((p) => p.name))
+    for (const stray of fs.readdirSync(path.join(proxyRoot(), "pools")))
+      if (!known.has(stray))
+        out.push({
+          status: "warn",
+          label: `proxy ${stray}`,
+          detail: `pool ${stray} is not in the config but its proxy files remain in ${contractTilde(path.join(proxyRoot(), "pools", stray))}; sign its accounts out or delete it`,
+        })
+  } catch {}
+  const seen = new Map<string, string>()
+  for (const { name, port } of pools) {
+    const label = name === DEFAULT_POOL ? "proxy" : `proxy ${name}`
+    const mine: Check[] = []
+    try {
+      if ((fs.statSync(proxyConfigPath(name)).mode & 0o077) !== 0)
+        mine.push({
+          status: "warn",
+          label,
+          detail: `${contractTilde(proxyConfigPath(name))} is readable by others (it holds the client key); ${fix}`,
+        })
+    } catch {
+      mine.push({
+        status: "fail",
+        label,
+        detail: `no ${contractTilde(proxyConfigPath(name))}; ${fix}`,
+      })
+    }
+    try {
+      if ((fs.statSync(proxyAuthDir(name)).mode & 0o077) !== 0)
+        mine.push({
+          status: "warn",
+          label,
+          detail: `${contractTilde(proxyAuthDir(name))} is readable by others (it holds account tokens); run \`chmod 700 ${contractTilde(proxyAuthDir(name))}\``,
+        })
+    } catch {}
+    const listening = run("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]).status === 0
+    if (!proxyLoaded(run, name) || !listening)
+      mine.push({
+        status: "fail",
+        label,
+        detail: `not running on ${proxyUrl(port)}; run \`inscope proxy start\``,
+      })
+    const accounts = proxyAccounts(name)
+    if (!accounts.length)
+      mine.push({
+        status: "warn",
+        label,
+        detail: `no accounts signed in; run \`inscope login${name === DEFAULT_POOL ? "" : ` --pool ${name}`}\``,
+      })
+    // An account in two pools has its single-use refresh token used by two proxies.
+    for (const a of accounts) {
+      const other = seen.get(a.email.toLowerCase())
+      if (other)
+        mine.push({
+          status: "fail",
+          label,
+          detail: `${a.email} is also in pool ${other}; sign it out of one (\`inscope logout\`)`,
+        })
+      else seen.set(a.email.toLowerCase(), name)
+    }
+    if (!mine.some((c) => c.status === "fail"))
+      mine.unshift({
+        status: "ok",
+        label,
+        detail: `${proxyUrl(port)} · CLIProxyAPI ${PROXY_VERSION} · ${accounts.length} account(s)`,
+      })
+    out.push(...mine)
+  }
   return out
 }
 
@@ -219,15 +263,15 @@ const isolateChecks = (ws: Workspace, cfg: Config, run: Runner): Check[] => {
   const tag = `[${ws.name}] claude`
   const dir = inscopeDirPath(ws)
   const out: Check[] = []
-  const drift = routingDrift(dir, cfg)
+  const drift = routingDrift(dir, cfg, ws)
   out.push(
     drift
       ? { status: "warn", label: tag, detail: `this isolated login ${drift}` }
-      : proxyRoute(cfg)
+      : routeFor(cfg, ws)
         ? {
             status: "ok",
             label: tag,
-            detail: `isolated in ${contractTilde(dir)}, through the proxy`,
+            detail: `isolated in ${contractTilde(dir)}, through the proxy${ws.pool ? ` (pool ${ws.pool})` : ""}`,
           }
         : inscopeSignedIn(dir)
           ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
@@ -373,7 +417,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
   const baseDrift = routingDrift(baseClaudeDir(), cfg)
   if (baseDrift)
     checks.push({ status: "warn", label: "claude", detail: `the shared login ${baseDrift}` })
-  else if (proxyRoute(cfg))
+  else if (routeFor(cfg))
     checks.push({
       status: "ok",
       label: "claude",
@@ -491,7 +535,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
   // Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper, so
   // either one exported in this shell silently bypasses the proxy's key. One check.
   const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
-  if (shadow.length && proxyRoute(cfg))
+  if (shadow.length && routeFor(cfg))
     checks.push({
       status: "warn",
       label: "proxy",

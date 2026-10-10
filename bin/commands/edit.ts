@@ -11,6 +11,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
+import { poolAfterChange } from "@/proxy"
 import { ghAccounts, keychainHas, shQuotePath } from "@/secrets"
 import { requireConfig } from "~/bin/commands/_config"
 import {
@@ -202,12 +203,24 @@ export const edit = async (args: string[]) => {
     "Separate Claude config for this workspace (its own history, settings, and skills)?",
     Boolean(ws.isolate),
   )
+  // Once named pools exist, an isolated workspace picks the pool its requests use.
+  let wantPool: string | undefined
+  if (isolate && cfg.pools?.length) {
+    const names = ["default", ...cfg.pools.map((p) => p.name)]
+    wantPool = await selectOne(
+      "Pool of Claude accounts for this workspace",
+      names.map((n) => ({ label: n, value: n })),
+      Math.max(0, names.indexOf(ws.pool ?? "default")),
+    )
+  }
+  const poolChange = poolAfterChange(cfg, ws, isolate, wantPool)
 
   // Start from the stored workspace so fields this prompt flow does not manage
   // (skills, selfSkill) survive the edit; upsert replaces the whole entry.
   const next: Workspace = {
     ...ws,
     isolate: isolate || undefined,
+    pool: poolChange.pool,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
     // persist stores; also normalizes a legacy config whose path was saved
@@ -240,6 +253,7 @@ export const edit = async (args: string[]) => {
       `\nNote: ${next.path}/.inscope still holds this workspace's Claude config (its history, and any login); it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
+  if (poolChange.note) console.log(poolChange.note)
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)

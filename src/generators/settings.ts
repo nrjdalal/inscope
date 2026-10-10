@@ -4,7 +4,7 @@ import path from "node:path"
 import type { Config, Workspace } from "@/config"
 import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
 import { writeFileAtomic } from "@/io"
-import type { Route } from "@/proxy"
+import { type Route, routeFor } from "@/proxy"
 import { shSingleQuote } from "@/secrets"
 
 // A login's own Claude user-scope settings live at the root of its config dir (an
@@ -161,18 +161,22 @@ export const applyBypass = (ws: Workspace, bypass: boolean) => {
   applyBypassAt(inscopeDirPath(ws), bypass)
 }
 
-// Every login dir inscope routes: the shared base login and each isolated workspace's.
-const routedDirs = (cfg: Config): string[] => [
-  baseClaudeDir(),
-  ...cfg.workspaces.filter((w) => w.isolate).map(inscopeDirPath),
+// Every login inscope routes, with where it goes: the shared base login to the default
+// pool, and each isolated workspace's to its own pool (else the default). The route is
+// undefined while there is no proxy.
+export const routedLogins = (cfg: Config): { dir: string; route: Route | undefined }[] => [
+  { dir: baseClaudeDir(), route: routeFor(cfg) },
+  ...cfg.workspaces
+    .filter((w) => w.isolate)
+    .map((w) => ({ dir: inscopeDirPath(w), route: routeFor(cfg, w) })),
 ]
 
 // Check every routed login before apply writes anything: one with a settings.json
 // that does not parse, or with a key helper or base URL of its own, stops apply up
-// front. Only when routing is on (clearing never touches a hand-set pair).
-export const preflightRouting = (cfg: Config, route: Route | undefined) => {
-  if (!route) return
-  for (const dir of routedDirs(cfg)) {
+// front. Only for a login being routed (clearing never touches a hand-set pair).
+export const preflightRouting = (cfg: Config) => {
+  for (const { dir, route } of routedLogins(cfg)) {
+    if (!route) continue
     const why = foreignRouting(readSettings(dir))
     if (why)
       throw new Error(
@@ -181,10 +185,10 @@ export const preflightRouting = (cfg: Config, route: Route | undefined) => {
   }
 }
 
-// Route every login through `route` (the proxy), or clear inscope's routing keys from
+// Route every login through its pool's proxy, or clear inscope's routing keys from
 // every login when there is none.
-export const applyRouting = (cfg: Config, route: Route | undefined) => {
-  for (const dir of routedDirs(cfg)) {
+export const applyRouting = (cfg: Config) => {
+  for (const { dir, route } of routedLogins(cfg)) {
     if (!route && !fs.existsSync(path.join(dir, "settings.json"))) continue
     reconcileAt(dir, (doc) => mergeRouting(doc, route))
   }

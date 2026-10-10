@@ -5,10 +5,11 @@ import { requireConfig } from "~/bin/commands/_config"
 import { green } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
-const helpMessage = `Remove a Claude account from inscope's proxy. Its tokens are deleted from the
-proxy; the account itself is untouched. The proxy's last account cannot be removed
-this way, since every Claude Code login goes through the proxy: to stop using it,
-run \`${name} proxy uninstall\`.
+const helpMessage = `Remove a Claude account from inscope's proxy, from whichever pool holds it. Its
+tokens are deleted from the proxy; the account itself is untouched. A pool's last
+account cannot be removed while a login uses that pool (the default pool always: the
+shared login runs on it); the last account of an unused named pool takes the pool
+with it. To stop using the proxy altogether, run \`${name} proxy uninstall\`.
 
 Usage:
   $ ${name} logout <email>
@@ -16,7 +17,7 @@ Usage:
 Options:
   -h, --help  Display help message`
 
-export const logout = (args: string[]) => {
+export const logout = async (args: string[]) => {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
     options: { help: { type: "boolean", short: "h" } },
@@ -36,7 +37,14 @@ export const logout = (args: string[]) => {
     console.error(`No accounts yet. Sign one in with \`${name} login\`.`)
     process.exit(1)
   }
-  signOut(email)
-  console.log(green(`\n✓ removed ${email} from the proxy`))
+  const res = await signOut(cfg, email)
+  console.log(
+    green(
+      `\n✓ removed ${email} from ${res.pool === "default" ? "the proxy" : `pool ${res.pool}`}`,
+    ) +
+      (res.poolRemoved
+        ? `\n  it was the pool's last account, so pool ${res.pool} is gone too`
+        : ""),
+  )
   process.exit(0)
 }
