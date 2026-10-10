@@ -64,8 +64,10 @@ export const knownLogins = (cfg: Config): LoginRef[] => {
       ccd: accountDir(acc.name),
       usedBy: cfg.workspaces.filter((w) => w.account === acc.name).map((w) => w.name),
     })
+  // A workspace behind a gateway has no login of its own: its requests carry the
+  // gateway's key, and the gateway's accounts are listed below (when it is the proxy).
   for (const ws of cfg.workspaces)
-    if (ws.isolate && inscopeSignedIn(inscopeDirPath(ws)))
+    if (ws.isolate && !ws.gateway && inscopeSignedIn(inscopeDirPath(ws)))
       out.push({
         label: ws.name,
         kind: "isolated",

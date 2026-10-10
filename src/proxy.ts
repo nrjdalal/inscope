@@ -78,7 +78,20 @@ export const proxyGateway = (port: number): Gateway => ({
 // when an account answers 429 the same request moves to the next account at once
 // (no waiting on cooldowns), which is what lets a conversation carry on. Claude Code's
 // own requests are passed through as Claude Code sent them (CLIProxyAPI cloaks only
-// other clients). Pure, so it is golden-pinned.
+// other clients). The proxy lists dated ids for older models, so the undated aliases
+// Anthropic's API also accepts (\`claude-haiku-4-5\`) are mapped onto them. CLIProxyAPI
+// still keeps its last 10 failed requests (credentials masked) under the auth dir's
+// logs/, which is owner-only. Pure, so it is golden-pinned.
+// [the dated id the proxy lists, the undated alias Anthropic's API also accepts]
+const MODEL_ALIASES: [string, string][] = [
+  ["claude-haiku-4-5-20251001", "claude-haiku-4-5"],
+  ["claude-sonnet-4-5-20250929", "claude-sonnet-4-5"],
+  ["claude-opus-4-5-20251101", "claude-opus-4-5"],
+  ["claude-opus-4-1-20250805", "claude-opus-4-1"],
+  ["claude-sonnet-4-20250514", "claude-sonnet-4-0"],
+  ["claude-opus-4-20250514", "claude-opus-4-0"],
+]
+
 export const renderProxyConfig = (opts: { port: number; key: string; authDir: string }) =>
   `# Managed by inscope (\`inscope proxy setup\`). Do not edit by hand: re-run setup instead.
 config-version: 8
@@ -106,6 +119,9 @@ routing:
     max-retry-interval: 0
 oauth:
   auth-dir: ${JSON.stringify(opts.authDir)}
+  model-alias:
+    claude:
+${MODEL_ALIASES.map(([name, alias]) => `      - name: "${name}"\n        alias: "${alias}"\n        fork: true`).join("\n")}
 observability:
   logs:
     debug: false
@@ -222,15 +238,21 @@ export const writeProxyFiles = (port: number, key: string, bin: string) => {
   )
 }
 
-export const startProxy = (run: Runner = defaultRunner) => {
+const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+// launchd unloads a booted-out agent asynchronously, and bootstrapping it again before
+// that finishes fails ("Bootstrap failed: 5: Input/output error"), so wait it out.
+export const stopProxy = (run: Runner = defaultRunner, opts: { waitMs?: number } = {}) => {
   run("launchctl", ["bootout", service()])
+  const until = Date.now() + (opts.waitMs ?? 10_000)
+  while (proxyLoaded(run) && Date.now() < until) sleepSync(100)
+}
+
+export const startProxy = (run: Runner = defaultRunner, opts: { waitMs?: number } = {}) => {
+  stopProxy(run, opts)
   const r = run("launchctl", ["bootstrap", `gui/${uid()}`, launchAgentPath()])
   if (r.status !== 0)
     throw new Error(`launchctl bootstrap failed: ${r.stderr.trim() || `exit ${r.status}`}`)
-}
-
-export const stopProxy = (run: Runner = defaultRunner) => {
-  run("launchctl", ["bootout", service()])
 }
 
 export const proxyLoaded = (run: Runner = defaultRunner): boolean =>
@@ -340,6 +362,9 @@ export const loginProxyAccount = async (opts: {
       `the sign-in did not complete (the proxy's login exited ${code}); nothing was saved`,
     )
   const account = fresh[fresh.length - 1]
+  // The proxy writes auth files 0644; they hold the account's tokens, so keep them
+  // owner-only (the auth dir is 0700 as well).
+  fs.chmodSync(account.file, 0o600)
   if (opts.email && account.email.toLowerCase() !== opts.email.toLowerCase()) {
     fs.rmSync(account.file, { force: true })
     throw new Error(

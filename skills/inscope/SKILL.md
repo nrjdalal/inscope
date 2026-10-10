@@ -44,10 +44,10 @@ Change identity through inscope so its generated files stay in sync. The source 
 
 ### Proxy (keep chatting across account limits)
 
-- `inscope proxy setup [--port <n>]`: install the pinned, checksum-verified CLIProxyAPI, write a hardened config (127.0.0.1 only, a random client key in the Keychain as `INSCOPE_PROXY_KEY`, management API and web panel off, session affinity, fill-first, immediate failover to the next account on a 429), and run it at login as the launchd agent `dev.inscope.proxy`. Records `proxy.port` in the config.
+- `inscope proxy setup [--port <n>]`: install the pinned, checksum-verified CLIProxyAPI, write a hardened config (127.0.0.1 only, a random client key in the Keychain as `INSCOPE_PROXY_KEY`, management API and web panel off, session affinity, fill-first, immediate failover to the next account on a 429, undated model ids like `claude-haiku-4-5` mapped to the dated ones it lists), and run it at login as the launchd agent `dev.inscope.proxy`. Records `proxy.port` in the config.
 - `inscope proxy login [--email <e>] [--browser chrome|system|none]`: sign a Claude account into the proxy. It prints a sign-in URL that inscope opens in a new Chrome window on a fresh profile; the user signs in there (never fill the page or its human checks yourself); the email that signed in is checked against `--email`. Run it once per account.
 - `inscope add <path> --proxy -y`: the workspace gets its own login whose gateway is the proxy; `--no-proxy` takes it off. Then every conversation in that workspace carries on through another account when one hits its limit, with no re-login, restart, or directory change.
-- `inscope proxy status [--json]`, `logout <email>`, `start`, `stop`, `uninstall [--purge]`. `inscope usage` lists the proxy's accounts with their 5-hour and weekly limits; `inscope doctor` checks the install, key, config privacy, the running agent, and that it has accounts.
+- `inscope proxy status [--json]`, `logout <email>`, `start`, `stop`, `uninstall [--purge]`. `inscope usage` lists the proxy's accounts with their 5-hour and weekly limits; `inscope doctor` checks the install, key, config and token privacy, the running agent, and that it has accounts. There is no web dashboard (it is off on purpose); use `status` and `usage`.
 - The proxy stores the accounts' tokens itself, which Anthropic's terms forbid third parties to do with Claude.ai credentials: say so once when the user sets it up, then respect their choice.
 
 ### Skills

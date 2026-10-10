@@ -898,6 +898,26 @@ routing:
     max-retry-interval: 0
 oauth:
   auth-dir: "/h/.config/inscope/proxy/auth"
+  model-alias:
+    claude:
+      - name: "claude-haiku-4-5-20251001"
+        alias: "claude-haiku-4-5"
+        fork: true
+      - name: "claude-sonnet-4-5-20250929"
+        alias: "claude-sonnet-4-5"
+        fork: true
+      - name: "claude-opus-4-5-20251101"
+        alias: "claude-opus-4-5"
+        fork: true
+      - name: "claude-opus-4-1-20250805"
+        alias: "claude-opus-4-1"
+        fork: true
+      - name: "claude-sonnet-4-20250514"
+        alias: "claude-sonnet-4-0"
+        fork: true
+      - name: "claude-opus-4-20250514"
+        alias: "claude-opus-4-0"
+        fork: true
 observability:
   logs:
     debug: false

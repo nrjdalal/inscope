@@ -169,14 +169,14 @@ export const proxy = async (args: string[]) => {
       process.exit(0)
     }
     const ok = (b: boolean, yes: string, no: string) => (b ? green(yes) : yellow(no))
-    console.log(`\n  proxy   ${snap.url} · CLIProxyAPI ${snap.version}`)
+    console.log(`\n  proxy    ${snap.url} · CLIProxyAPI ${snap.version}`)
     console.log(
-      `  state   ${ok(snap.healthy, "running", snap.loaded ? "loaded but not answering" : "stopped")}`,
+      `  state    ${ok(snap.healthy, "running", snap.loaded ? "loaded but not answering" : "stopped")}`,
     )
     console.log(
       `  accounts ${snap.accounts.length ? snap.accounts.map((a) => `${a.email}${a.disabled ? " (disabled)" : ""}`).join(", ") : yellow(`none; run \`${name} proxy login\``)}`,
     )
-    console.log(`  used by ${snap.usedBy.length ? snap.usedBy.join(", ") : "no workspace yet"}`)
+    console.log(`  used by  ${snap.usedBy.length ? snap.usedBy.join(", ") : "no workspace yet"}`)
     process.exit(0)
   }
 

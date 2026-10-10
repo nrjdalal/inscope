@@ -33,6 +33,7 @@ import {
   PROXY_KEYCHAIN,
   PROXY_VERSION,
   proxyAccounts,
+  proxyAuthDir,
   proxyBinPath,
   proxyConfigPath,
   proxyLoaded,
@@ -206,6 +207,14 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
   } catch {
     out.push({ status: "fail", label, detail: `no ${contractTilde(proxyConfigPath())}; ${fix}` })
   }
+  try {
+    if ((fs.statSync(proxyAuthDir()).mode & 0o077) !== 0)
+      out.push({
+        status: "warn",
+        label,
+        detail: `${contractTilde(proxyAuthDir())} is readable by others (it holds account tokens); run \`chmod 700 ${contractTilde(proxyAuthDir())}\``,
+      })
+  } catch {}
   const listening = run("lsof", ["-nP", `-iTCP:${cfg.proxy.port}`, "-sTCP:LISTEN"]).status === 0
   if (!proxyLoaded(run) || !listening)
     out.push({
@@ -234,13 +243,15 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
   const dir = inscopeDirPath(ws)
   const out: Check[] = []
   out.push(
-    inscopeSignedIn(dir)
-      ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
-      : {
-          status: "warn",
-          label: tag,
-          detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
-        },
+    ws.gateway
+      ? { status: "ok", label: tag, detail: `isolated, signed in through the gateway` }
+      : inscopeSignedIn(dir)
+        ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
+        : {
+            status: "warn",
+            label: tag,
+            detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
+          },
   )
   out.push(...bypassChecks(tag, ws, bypass))
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo

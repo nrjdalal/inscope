@@ -21,6 +21,7 @@ import {
   proxyHealthy,
   proxyUsers,
   renderProxyConfig,
+  startProxy,
 } from "@/proxy"
 import type { Runner } from "@/secrets"
 
@@ -70,6 +71,7 @@ test("the rendered config is loopback only, keyed, management off, and fails ove
   expect(yaml).toContain('strategy: "fill-first"')
   expect(yaml).toContain("max-retry-interval: 0")
   expect(yaml).toContain("request-log: false")
+  expect(yaml).toContain('- name: "claude-haiku-4-5-20251001"\n        alias: "claude-haiku-4-5"')
 })
 
 test("proxyGateway and proxyUsers tie workspaces to the proxy by its URL", () => {
@@ -158,6 +160,21 @@ test("ensureProxyKey keeps the Keychain key, or creates and stores a random one"
   expect(added[0]).toContain(key)
 })
 
+test("startProxy waits for launchd to unload the old agent before bootstrapping again", () => {
+  const calls: string[] = []
+  let printsLeft = 3
+  const run = runner((cmd, args) => {
+    calls.push(args[0])
+    if (args[0] === "print") return { status: printsLeft-- > 0 ? 0 : 113 }
+    return { status: 0 }
+  })
+  startProxy(run)
+  expect(calls).toEqual(["bootout", "print", "print", "print", "print", "bootstrap"])
+
+  const failing = runner((cmd, args) => ({ status: args[0] === "bootstrap" ? 5 : 113 }))
+  expect(() => startProxy(failing)).toThrow("launchctl bootstrap failed: exit 5")
+})
+
 // --- accounts and login ----------------------------------------------------------------
 
 const writeAuth = (file: string, doc: Record<string, unknown>) => {
@@ -230,6 +247,7 @@ test("loginProxyAccount opens the printed URL, waits for the sign-in, and verifi
       }
       const acc = await loginProxyAccount({ bin, openUrl: as("a@x.dev"), log: () => {} })
       expect(acc.email).toBe("a@x.dev")
+      expect(fs.statSync(acc.file).mode & 0o777).toBe(0o600)
       expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true&state=s"])
 
       fs.rmSync(flag)
@@ -273,6 +291,11 @@ test("doctor checks the proxy's install, key, config privacy, process, and accou
     )
     fs.chmodSync(proxyConfigPath(), 0o600)
     writeAuth(path.join(proxyAuthDir(), "claude-a.json"), { type: "claude", email: "a@x.dev" })
+    fs.chmodSync(proxyAuthDir(), 0o755)
+    expect(proxyLines(run(true)).map((c) => c.detail)).toContainEqual(
+      expect.stringContaining("holds account tokens"),
+    )
+    fs.chmodSync(proxyAuthDir(), 0o700)
     expect(proxyLines(run(true))).toEqual([
       {
         status: "ok",
@@ -323,7 +346,11 @@ test("CLI: add --proxy routes a workspace through the proxy, and --no-proxy take
   expect(noProxy.stderr).toContain("The proxy is not set up. Run `inscope proxy setup` first.")
 
   s.writeCfg({ version: 1, proxy: { port: 9000 }, accounts: [{ name: "work" }], workspaces: [] })
-  expect(s.cli(["add", dir, "--proxy", "-y"]).status).toBe(0)
+  const on = s.cli(["add", dir, "--proxy", "-y"])
+  expect(on.status).toBe(0)
+  expect(on.stdout).toContain(
+    "its requests go through the proxy, so there is nothing to sign in to",
+  )
   expect(s.ws()).toMatchObject({ isolate: true, gateway: proxyGateway(9000) })
   const settings = JSON.parse(fs.readFileSync(path.join(dir, ".inscope", "settings.json"), "utf8"))
   expect(settings.env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9000")
@@ -380,6 +407,9 @@ test("CLI: usage lists the proxy's accounts with their limits", async () => {
       },
     ],
   })
+  // Claude Code has run in the workspace (its .inscope is no longer empty), but the
+  // workspace has no login of its own to list: its requests go through the proxy.
+  writeAuth(path.join(s.sb, "acme", ".inscope", ".claude.json"), {})
   const auth = path.join(s.sb, ".config", "inscope", "proxy", "auth")
   writeAuth(path.join(auth, "claude-pa.json"), {
     type: "claude",
@@ -408,6 +438,7 @@ test("CLI: usage lists the proxy's accounts with their limits", async () => {
     weekly: { percent: 40 },
     usedBy: ["acme"],
   })
+  expect(rows.filter((x: any) => x.kind === "isolated")).toEqual([])
 }, 30_000)
 
 // --- the real CLIProxyAPI, failing over between accounts ---------------------------------

@@ -443,11 +443,13 @@ export const add = async (args: string[]) => {
   console.log(
     ws.account
       ? `\nLaunch \`claude\` from ${ws.path}; it runs on account ${ws.account}.`
-      : ws.isolate
-        ? hadLogin
-          ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`
-          : `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
-        : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
+      : ws.gateway
+        ? `\nLaunch \`claude\` from ${ws.path}; its requests go through the ${ws.gateway.url === proxyGw?.url ? "proxy" : "gateway"}, so there is nothing to sign in to.`
+        : ws.isolate
+          ? hadLogin
+            ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`
+            : `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
+          : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
   )
   process.exit(0)
 }
