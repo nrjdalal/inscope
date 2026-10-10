@@ -1,8 +1,7 @@
 import { parseArgs } from "node:util"
 
 import { applyAll } from "@/apply"
-import { readConfig, saveConfig } from "@/config"
-import { requireConfigExists } from "~/bin/commands/_config"
+import { requireConfig } from "~/bin/commands/_config"
 import { name } from "~/package.json"
 
 const helpMessage = `Regenerate the chpwd hook, git includes, every .mcp.json, and
@@ -27,12 +26,8 @@ export const apply = (args: string[]) => {
     process.exit(0)
   }
 
-  requireConfigExists()
-  const { cfg, notes } = readConfig()
-  for (const note of notes) console.error(`inscope: ${note}`)
+  const cfg = requireConfig()
   const res = applyAll(cfg)
-  // Persist the cleanup of fields a newer inscope retired, so their notes stop.
-  if (notes.length) saveConfig(cfg)
 
   console.log(`\n✓ hook       ${res.hook}`)
   if (res.gitconfig) console.log(`✓ gitconfig  ~/.gitconfig (includeIf block)`)

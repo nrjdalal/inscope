@@ -11,18 +11,19 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { loginDir } from "@/generators/isolate"
+import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
 
 // The personal skills dir Claude reads for a workspace. A skill materialized here
 // is personal scope: Claude lists it in the `/` menu and loads it in every project
 // of that login, with no `--add-dir` and no per-repo linking (so it works under any
-// launcher, cmux included). An isolated workspace has its own config dir, so its
-// skills stay private in `<ws>/.inscope/skills`; a non-isolated one shares the base
-// login's with every other non-isolated workspace: they share one
-// config dir and therefore cannot be scoped apart.
-export const skillsDir = (ws: Workspace): string => path.join(loginDir(ws), "skills")
+// launcher, cmux included). An isolated workspace has its own login, so its skills
+// stay private in `<ws>/.inscope/skills`; a non-isolated one shares the base login's
+// `skills` dir with every other non-isolated workspace, because they share one config
+// dir and therefore cannot be scoped apart.
+export const skillsDir = (ws: Workspace): string =>
+  ws.isolate ? path.join(inscopeDirPath(ws), "skills") : path.join(baseClaudeDir(), "skills")
 
 // One shared content cache for every workspace. Each git source is cloned exactly
 // once here, keyed by host/owner/repo (plus @ref when pinned), so five workspaces

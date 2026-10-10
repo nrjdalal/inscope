@@ -1,6 +1,6 @@
 # Inscope
 
-**Per-workspace identity for Claude Code: each directory auto-resolves its own Claude config, MCP servers, GitHub account, and skills, and all your Claude accounts are pooled so a conversation carries on past an account's limit.**
+**Per-workspace identity for Claude Code: each directory auto-resolves its own login/subscription, MCP servers, GitHub account, and skills.**
 
 [![Twitter](https://img.shields.io/twitter/follow/nrjdalal_dev?label=%40nrjdalal_dev)](https://twitter.com/nrjdalal_dev)
 [![npm](https://img.shields.io/npm/v/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
@@ -9,7 +9,7 @@
 
 `cd` into a directory and Claude Code becomes the right person for it. No profiles to switch, no global toggles, no launch flags, and it holds up with a dozen Claude Code sessions open at once.
 
-`inscope status` (alias `whoami`) shows who you are in any directory: the Claude config and the proxy behind it, MCP servers, GitHub account, git email, and skills.
+`inscope status` (alias `whoami`) shows who you are in any directory: the Claude login and subscription, MCP servers, GitHub account, git email, and skills.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/status-hero.png" alt="inscope status in three directories: personal on the shared max login, then work and the acme client each on their own isolated team login" width="900" />
@@ -19,7 +19,7 @@
 
 ## Why inscope
 
-- 🎫 **All your Claude accounts, one pool.** Sign each in once; when the account serving a conversation hits its limit, the conversation carries on with the next one, with no re-login and no restart. Isolate a workspace to give it its own history, settings, and skills.
+- 🎫 **Its own login/subscription.** Run a client on their subscription, your personal on your Max, work on work, each from its own directory. Shared by default, isolated when you want it.
 - 🤖 **MCP servers per workspace.** GitHub, Slack, and 14 one-click OAuth connectors (Notion, Linear, Stripe, Xquik, and more), uniquely named so nothing ever collides between workspaces.
 - 🪪 **The right git identity, always.** GitHub token and commit email resolved live from `$PWD`, so every commit lands as the right you.
 - 🎓 **Skills per workspace.** A curated `/` menu per directory, shared into your Claude skills dir with zero per-repo setup.
@@ -46,18 +46,16 @@ Then just ask, e.g. _"map my ~/work and ~/personal directories with inscope, wor
 ```sh
 npx inscope add                            # guided setup: prompts for the directory + every option
 npx inscope add ~/work                     # a path just pre-fills the directory prompt
-npx inscope add ~/clients/acme --isolate   # any flag pre-fills a prompt (--isolate = its own Claude config)
+npx inscope add ~/clients/acme --isolate   # any flag pre-fills a prompt (--isolate = its own login)
 ```
 
-Sign each GitHub account into `gh` once (`gh auth login`); inscope reads their tokens. The first `add` prompts you to reload your shell (a new terminal works too) so the hook loads; then `cd ~/work` and you're the work account with work servers and email, `cd ~/clients/acme` and you're in the client's isolated Claude config.
+Sign each GitHub account into `gh` once (`gh auth login`); inscope reads their tokens. The first `add` prompts you to reload your shell (a new terminal works too) so the hook loads; then `cd ~/work` and you're the work account with work servers and email, `cd ~/clients/acme` and you're on the client's isolated login.
 
-**Sign in your Claude accounts.** `inscope login` signs a Claude account in: a new Chrome window on a fresh profile opens Anthropic's sign-in page, and you sign in there (`--browser system` uses your usual browser instead, `--browser none` prints the URL, `--email` checks who signed in, and `--port` picks the first proxy's port). Run it once per account. Every account lives in a local proxy, a pinned, checksum-verified [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) that the first sign-in installs and runs at login, bound to `127.0.0.1` with a random client key (kept in the Keychain) and its management API and web panel off. Every Claude Code login goes through it: inscope writes `env.ANTHROPIC_BASE_URL` and an `apiKeyHelper` that reads the key from the Keychain into the shared `~/.claude/settings.json` and each isolated workspace's, touching nothing else there (it refuses, rather than overwrite, a key helper or base URL of your own). When the account serving a conversation answers that it hit its limit (the switch happens at the limit itself, not at a percentage before it), the proxy sends the same request to the next account and the conversation stays there, so you keep chatting with no re-login, no restart, and nothing to switch. `inscope usage` shows each account's plan and its 5-hour and weekly usage, `inscope logout <email>` removes an account, and `inscope proxy` holds the low-level controls (`status`, `start`, `stop`, `setup --port`, and `uninstall`, which sends every login straight to Anthropic again; `--purge` also removes the accounts). Behind the proxy, Claude Code turns MCP tool search off by default and disables Remote Control and claude.ai connectors. The accounts' tokens live only in the proxy's owner-only folder (`~/.config/inscope/proxy/auth`, where CLIProxyAPI also keeps its last 10 failed requests, credentials masked), which is exactly what Anthropic's terms forbid third parties to do with Claude.ai credentials: running it is your choice and your accounts' risk. Or skip the terminal: ask Claude to "sign in my work account"; it opens the sign-in window and confirms once you are through.
-
-`--isolate` (or the "Separate Claude config?" prompt) gives that workspace its own Claude config in a gitignored `.inscope` dir: its own history, settings, and skills, still going through the proxy. The hook exports `CLAUDE_CONFIG_DIR` (not a `claude` wrapper), so any launcher (terminal, IDE, cmux, `--resume`) lands on the right config. Set top-level `bypass: true` to skip permission prompts there (Claude Code v2.1.283+ otherwise starts interactive sessions in auto mode); it also pre-accepts Claude's one-time bypass warning, so fresh configs and background sessions start bypassed right away. If Claude offers to switch you to auto mode, decline: accepting rewrites the config's `defaultMode` (`inscope doctor` flags it, `inscope apply` restores it). Bypass is never written to your shared `~/.claude`.
+`--isolate` (or the "Dedicated Claude login?" prompt) runs that workspace's `claude` on its own account from a gitignored `.inscope` dir, so a client's subscription or a work/personal split stays fully separate. Sign in once; the hook exports `CLAUDE_CONFIG_DIR` (not a `claude` wrapper), so any launcher (terminal, IDE, cmux, `--resume`) lands on the right login. Set top-level `bypass: true` to skip permission prompts there (Claude Code v2.1.283+ otherwise starts interactive sessions in auto mode); it also pre-accepts Claude's one-time bypass warning, so fresh logins and background sessions start bypassed right away. If Claude offers to switch you to auto mode, decline: accepting rewrites the login's `defaultMode` (`inscope doctor` flags it, `inscope apply` restores it). Your shared `~/.claude` is never touched.
 
 Prefer flags or CI? Every prompt has one, and `-y` takes the defaults. Reaching for it a lot? `npm i -g inscope` and drop the `npx`.
 
-Bare `inscope add` prompts for the directory (defaulting to where you are); passing a path just pre-fills that prompt. Either way it walks you through the Claude config, MCP servers, GitHub account, git identity, and skills:
+Bare `inscope add` prompts for the directory (defaulting to where you are); passing a path just pre-fills that prompt. Either way it walks you through the Claude login, MCP servers, GitHub account, git identity, and skills:
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/nrjdalal/inscope/main/.github/assets/add.gif" alt="inscope add two ways: bare add maps the current directory (first-run bootstrap), then add with an explicit path adds Slack and an isolated login" width="900" />
@@ -67,21 +65,17 @@ Bare `inscope add` prompts for the directory (defaulting to where you are); pass
 
 ## Commands
 
-| Command                  | What it does                                                                                                                                                                                                                           |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `inscope add [path]`     | Map a workspace (Claude config, MCP servers, GitHub account, git email, skills); sets up inscope on first run. Re-running it on a label updates that workspace and keeps whatever you do not pass (`--no-isolate` turns isolation off) |
-| `inscope status`         | Show the identity resolved for the current directory (alias `whoami`)                                                                                                                                                                  |
-| `inscope list`           | List configured workspaces (alias `ls`)                                                                                                                                                                                                |
-| `inscope edit [path]`    | Change a workspace through the same prompts                                                                                                                                                                                            |
-| `inscope rm [path]`      | Unmap a workspace (alias `remove`)                                                                                                                                                                                                     |
-| `inscope skill`          | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                                                                                                                                           |
-| `inscope login`          | Sign a Claude account in (into the local proxy every Claude Code login goes through; the first sign-in sets it up)                                                                                                                     |
-| `inscope logout <email>` | Remove a Claude account from the proxy                                                                                                                                                                                                 |
-| `inscope usage`          | Each account's plan, 5-hour and weekly usage, and when each resets                                                                                                                                                                     |
-| `inscope proxy`          | The proxy's low-level controls (`status`, `start`, `stop`, `setup`, `uninstall`)                                                                                                                                                       |
-| `inscope doctor`         | Verify tokens, identities, the hook, and skill links resolve                                                                                                                                                                           |
-| `inscope diff`           | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                                                                                                                                                 |
-| `inscope apply`          | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                                                                                                                                                         |
+| Command               | What it does                                                                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inscope add [path]`  | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run. Re-running it on a label updates that workspace and keeps whatever you do not pass (`--no-isolate` turns isolation off) |
+| `inscope status`      | Show the identity resolved for the current directory (alias `whoami`)                                                                                                                                                                 |
+| `inscope list`        | List configured workspaces (alias `ls`)                                                                                                                                                                                               |
+| `inscope edit [path]` | Change a workspace through the same prompts                                                                                                                                                                                           |
+| `inscope rm [path]`   | Unmap a workspace (alias `remove`)                                                                                                                                                                                                    |
+| `inscope skill`       | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                                                                                                                                          |
+| `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                                                                                                                                          |
+| `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                                                                                                                                                |
+| `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                                                                                                                                                        |
 
 Run any command with `-h` for its flags. Mutating commands apply in one step; `apply` is only for after you hand-edit the config.
 
@@ -133,13 +127,10 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
 ```jsonc
 {
   "version": 1,
-  "bypass": true, // skip permission prompts in isolated configs
-  // the local proxy holding your Claude accounts, from `inscope login` (127.0.0.1 only);
-  // every Claude Code login goes through it
-  "proxy": { "port": 8317 },
+  "bypass": true, // skip permission prompts in isolated logins
   "workspaces": [
     {
-      "isolate": true, // its own Claude config in ~/work/.inscope
+      "isolate": true, // its own Claude login in ~/work/.inscope
       "name": "work",
       "path": "~/work",
       "gh": "neeraj-work",
@@ -147,7 +138,7 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "servers": { "github": true, "linear": true, "xquik": true },
     },
     {
-      "isolate": true, // a client, its own config in ~/clients/acme/.inscope
+      "isolate": true, // a client, its own login in ~/clients/acme/.inscope
       "name": "acme",
       "path": "~/clients/acme",
       "gh": "neeraj-acme",
@@ -155,7 +146,7 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "servers": { "github": true, "linear": true, "notion": true },
       "skills": ["owner/repo#skills/readme-audit"],
     },
-    // a workspace without "isolate" shares your ~/.claude config (e.g. ~/personal)
+    // a workspace without "isolate" shares your ~/.claude login (e.g. ~/personal)
   ],
 }
 ```

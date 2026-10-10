@@ -1,9 +1,8 @@
 import { type Config, currentWorkspace } from "@/config"
 import { contractTilde } from "@/env"
-import { baseClaudeDir, loginDir } from "@/generators/isolate"
+import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { desiredSkillLinks } from "@/generators/skills"
-import { proxyAccounts, proxyRoute } from "@/proxy"
 import { claudeAuthStatus, defaultRunner, ghToken, gitGlobal, type Runner } from "@/secrets"
 
 // The identity `inscope status` resolves for one directory: the Claude login it
@@ -12,10 +11,6 @@ import { claudeAuthStatus, defaultRunner, ghToken, gitGlobal, type Runner } from
 // resolve (which shells out to claude/gh/git) is the only side-effecting part.
 export type StatusClaude = {
   isolated: boolean
-  // The proxy this login's requests go through (its host) and how many accounts it
-  // holds, when one is configured; the login then authenticates with the proxy's key,
-  // so there is no single account to show.
-  proxy?: { host: string; accounts: number }
   configDir: string
   signedIn: boolean
   email?: string
@@ -39,24 +34,18 @@ export const resolveStatus = (
 ): StatusSnapshot => {
   const ws = currentWorkspace(cfg, cwd)
   const isolated = Boolean(ws?.isolate)
-  const configDir = ws ? loginDir(ws) : baseClaudeDir()
-  const route = proxyRoute(cfg)
-  // Behind the proxy the login's own OAuth state is beside the point (and reads as an
-  // API-key login), so only ask Claude when it is not routed.
-  const auth = route ? undefined : claudeAuthStatus(configDir, run)
-  const accounts = route ? proxyAccounts().length : 0
+  const configDir = isolated && ws ? inscopeDirPath(ws) : baseClaudeDir()
+  const auth = claudeAuthStatus(configDir, run)
   return {
     workspace: ws?.name ?? null,
     path: ws ? ws.path : contractTilde(cwd),
     claude: {
       isolated,
-      ...(route ? { proxy: { host: new URL(route.url).host, accounts } } : {}),
       configDir: contractTilde(configDir),
-      // Behind the proxy, signed in means it holds an account to answer with.
-      signedIn: auth ? auth.signedIn : accounts > 0,
-      email: auth?.email,
-      subscription: auth?.subscriptionType,
-      org: auth?.orgName,
+      signedIn: auth.signedIn,
+      email: auth.email,
+      subscription: auth.subscriptionType,
+      org: auth.orgName,
     },
     github: ws?.gh ? { account: ws.gh, token: Boolean(ghToken(ws.gh, run)) } : null,
     git: ws?.git?.email
@@ -88,12 +77,8 @@ export const renderStatus = (snap: StatusSnapshot, c: StatusPainters = PLAIN): s
   lines.push("")
 
   const scope = snap.claude.isolated ? "isolated" : "shared"
-  const px = snap.claude.proxy
-  const who = px
-    ? px.accounts
-      ? `proxy ${px.host} · ${px.accounts} account${px.accounts === 1 ? "" : "s"}`
-      : c.warn(`proxy ${px.host} · no accounts; run \`inscope login\``)
-    : snap.claude.signedIn && snap.claude.email
+  const who =
+    snap.claude.signedIn && snap.claude.email
       ? `${snap.claude.email}${snap.claude.subscription ? ` · ${snap.claude.subscription}` : ""}`
       : c.warn("not signed in; launch `claude` here and log in")
   lines.push(row("Claude", `${scope} · ${who}`))

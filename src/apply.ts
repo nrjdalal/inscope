@@ -6,11 +6,10 @@ import { applyGitconfig, GITCONFIG_BLOCK_ID } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { applyIsolation } from "@/generators/isolate"
 import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
-import { applyBypass, applyRouting, preflightRouting } from "@/generators/settings"
+import { applyBypass } from "@/generators/settings"
 import { applySkills } from "@/generators/skills"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 import { assertBlockWellFormed } from "@/managed-block"
-import { proxyRoute } from "@/proxy"
 
 const homeVar = (abs: string) => {
   const h = home()
@@ -53,14 +52,12 @@ export type ApplyResult = {
 }
 
 // Check every shared file apply edits in place before touching anything: one
-// unparseable .mcp.json, a ~/.gitconfig whose inscope markers are malformed, or a
-// login settings.json that cannot be routed through the proxy aborts here rather than
-// after the hook and earlier files are already rewritten (a half-applied state).
-// Commands that save the config first call this before saving.
+// unparseable .mcp.json, or a ~/.gitconfig whose inscope markers are malformed,
+// aborts here rather than after the hook and earlier files are already rewritten (a
+// half-applied state). Commands that save the config first call this before saving.
 export const preflightApply = (cfg: Config) => {
   preflightMcp(cfg.workspaces)
   assertBlockWellFormed(gitconfigPath(), GITCONFIG_BLOCK_ID)
-  preflightRouting(cfg, proxyRoute(cfg))
 }
 
 export const applyAll = (cfg: Config): ApplyResult => {
@@ -81,9 +78,6 @@ export const applyAll = (cfg: Config): ApplyResult => {
     applyBypass(ws, cfg.bypass ?? false)
     mcp.push(mcpFilePath(ws))
   }
-  // Every login (the shared base and each isolated one) sends its requests through the
-  // proxy while one is configured; without one, inscope's routing keys are cleared.
-  applyRouting(cfg, proxyRoute(cfg))
 
   // One pass over the whole config: the shared ~/.claude/skills is the union of every
   // non-isolated workspace, so skills cannot be materialized per-workspace. Clone-if

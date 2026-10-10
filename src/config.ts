@@ -1,9 +1,8 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { configPath, contractTilde, inscopeHome, resolveAbsolute } from "@/env"
+import { configPath, contractTilde, resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
-import { proxyUrl } from "@/proxy"
 
 // The Slack MCP server package a workspace runs. The @nrjdalal fork is the
 // default and floats on @latest; the original (korotovsky) is pinned for
@@ -77,13 +76,12 @@ export type Servers = {
 }
 
 export type Workspace = {
-  // Give this workspace its own Claude Code config dir: apply scaffolds
-  // `<path>/.inscope`, and the chpwd hook exports CLAUDE_CONFIG_DIR to point there
-  // whenever $PWD is under this subtree (so any launcher that inherits the shell env,
-  // a terminal, cmux, an IDE, uses it). It keeps the workspace's own history,
-  // settings, and skills; with the proxy (`inscope login`) its requests go through
-  // the proxy like every other login. Omit to run on the shared ~/.claude like every
-  // unmapped directory. Kept first so an isolated workspace is flagged at the top.
+  // Give this workspace its own Claude Code login: apply scaffolds a
+  // workspace-local config dir at `<path>/.inscope`, and the chpwd hook exports
+  // CLAUDE_CONFIG_DIR to point there whenever $PWD is under this subtree (so any
+  // launcher that inherits the shell env, a terminal, cmux, an IDE, uses that
+  // login). Omit to run on the shared ~/.claude like every unmapped directory.
+  // Kept first so an isolated workspace is flagged at the top of its block.
   isolate?: boolean
   name: string
   path: string
@@ -134,12 +132,8 @@ export type Config = {
   // fresh login skips the one-time warning dialog). Without it, Claude Code
   // v2.1.283+ starts interactive sessions in auto mode (v2.1.228+ on Pro, Max,
   // and Team plans). The shared ~/.claude base login is yours to manage; inscope
-  // never writes bypass there. Dangerous, so it is opt-in and never implied.
+  // never writes there. Dangerous, so it is opt-in and never implied.
   bypass?: boolean
-  // The local proxy holding your Claude accounts (`inscope login`), by the port it
-  // listens on (127.0.0.1 only). While it is set, every login, the shared ~/.claude
-  // and each isolated workspace's, sends its requests through it.
-  proxy?: { port: number }
   workspaces: Workspace[]
 }
 
@@ -152,9 +146,7 @@ export const defaultConfig = (): Config => ({
 
 export const configExists = () => fs.existsSync(configPath())
 
-// Read and validate the config, dropping fields a newer inscope retired; `notes` says
-// what was dropped and what to do instead (saving the config persists the cleanup).
-export const readConfig = (): { cfg: Config; notes: string[] } => {
+export const loadConfig = (): Config => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
   // A raw JSON.parse throws "Unexpected EOF" with no path; match the friendly,
@@ -169,64 +161,13 @@ export const readConfig = (): { cfg: Config; notes: string[] } => {
   // surface it on its own rather than under the generic "fix it and re-run".
   const versionErr = configVersionError(parsed)
   if (versionErr) throw new Error(versionErr)
-  const notes = retireLegacyFields(parsed)
   try {
     validateConfig(parsed)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
   }
-  return { cfg: parsed, notes }
-}
-
-let noted = false
-
-// readConfig for commands that only use the config: the notes about retired fields go
-// to stderr, once per run however often the config is read.
-export const loadConfig = (): Config => {
-  const { cfg, notes } = readConfig()
-  if (!noted) for (const note of notes) console.error(`inscope: ${note}`)
-  noted = true
-  return cfg
-}
-
-// Fields from canary builds that the proxy replaced, dropped as the config loads (so
-// the next save removes them) with a note on what to do instead: named accounts sign in
-// to the proxy now, a workspace that ran on one runs on the shared login, and a
-// workspace gateway gives way to the proxy every login goes through. Mutates `raw`.
-export const retireLegacyFields = (raw: Record<string, any>): string[] => {
-  const notes: string[] = []
-  const accounts: { name?: unknown; email?: unknown }[] = Array.isArray(raw.accounts)
-    ? raw.accounts
-    : []
-  if ("accounts" in raw) {
-    delete raw.accounts
-    const who = accounts
-      .map((a) => `${a?.name}${typeof a?.email === "string" ? ` (${a.email})` : ""}`)
-      .join(", ")
-    notes.push(
-      `named accounts are retired; sign each Claude account in to the proxy with \`inscope login\`${who ? `: ${who}` : ""}. Their old logins stay in ${contractTilde(path.join(inscopeHome(), "accounts"))} until you delete them.`,
-    )
-  }
-  for (const ws of Array.isArray(raw.workspaces) ? raw.workspaces : []) {
-    if (!ws || typeof ws !== "object") continue
-    if ("account" in ws) {
-      notes.push(
-        `workspace "${ws.name}" ran on account "${ws.account}"; it now uses the shared login.`,
-      )
-      delete ws.account
-    }
-    if ("gateway" in ws) {
-      const url = ws.gateway?.url
-      if (!(raw.proxy && url === proxyUrl(raw.proxy.port)))
-        notes.push(
-          `workspace "${ws.name}" gateway${typeof url === "string" ? ` (${url})` : ""} is dropped; every login goes through the proxy (\`inscope login\`).`,
-        )
-      delete ws.gateway
-    }
-  }
-  if (notes.length) notes.push("These notes stop once the config is saved (`inscope apply`).")
-  return notes
+  return parsed
 }
 
 export const saveConfig = (cfg: Config) => {
@@ -436,10 +377,6 @@ export const currentWorkspace = (
   return best
 }
 
-// A port the proxy may listen on: unprivileged, so no root is needed.
-export const isProxyPort = (port: unknown): port is number =>
-  typeof port === "number" && Number.isInteger(port) && port >= 1024 && port <= 65535
-
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)
@@ -447,8 +384,6 @@ export const validateConfig = (cfg: Config) => {
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   if (cfg.bypass !== undefined && typeof cfg.bypass !== "boolean")
     throw new Error("config bypass must be a boolean")
-  if (cfg.proxy !== undefined && !isProxyPort((cfg.proxy as { port?: unknown })?.port))
-    throw new Error("config proxy.port must be an integer between 1024 and 65535")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")

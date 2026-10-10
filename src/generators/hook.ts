@@ -1,4 +1,4 @@
-import type { Config, Workspace } from "@/config"
+import { type Config, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
 
 const pathPattern = (p: string) => {
@@ -61,7 +61,7 @@ const nestedUnder = (child: string, parent: string): boolean => {
 // CLAUDE_CONFIG_DIR equal to INSCOPE_CCD is inscope's own (keep the inherited base),
 // any other value is the user's own (it becomes the base), and an isolated
 // `*/.inscope` value is never a base.
-const baseCapture = `if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
+const BASE_CAPTURE = `if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
   case "\${CLAUDE_CONFIG_DIR-}" in
     */.inscope|*/.inscope/) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an isolated login is never the base
     *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
@@ -73,7 +73,7 @@ fi
 // still inherit inscope's own export (or an isolated login) from one that had
 // isolation, or from an older config. Restore the base it came from, so no
 // directory runs on that login.
-const dropInherited = `if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+const DROP_INHERITED = `if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
@@ -82,7 +82,7 @@ unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall ba
 
 const renderCcd = (cfg: Config): { block: string; base: string } => {
   const isolated = cfg.workspaces.filter((w) => w.isolate)
-  if (isolated.length === 0) return { block: "", base: dropInherited }
+  if (isolated.length === 0) return { block: "", base: DROP_INHERITED }
 
   // A workspace nested under an isolated one gets its own arm so it reflects its own
   // login rather than inheriting the parent's broad `"<parent>/"*` arm; a
@@ -111,7 +111,7 @@ ${arms}
   esac
   export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"
 `
-  return { block, base: baseCapture }
+  return { block, base: BASE_CAPTURE }
 }
 
 export const renderHook = (cfg: Config): string => {

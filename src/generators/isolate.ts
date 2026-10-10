@@ -31,12 +31,6 @@ export const baseClaudeDir = (): string => {
   return env && path.basename(env) !== INSCOPE_DIR ? env : fallback
 }
 
-// The Claude config dir a workspace runs on: its own `.inscope` when isolated, else the
-// shared base. The one place that decides it, so the hook, status, doctor, skills, and
-// settings all agree.
-export const loginDir = (ws: Workspace): string =>
-  ws.isolate ? inscopeDirPath(ws) : baseClaudeDir()
-
 const gitignorePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".gitignore")
 
 // `.inscope/` holds a Claude login, so it must never be committed. The entry is

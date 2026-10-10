@@ -197,9 +197,9 @@ export const edit = async (args: string[]) => {
       process.exit(1)
     }
   }
-  // --- Claude config: the shared base, or its own .inscope ---
+  // --- isolate: give this workspace its own Claude login in a local .inscope ---
   const isolate = await promptConfirm(
-    "Separate Claude config for this workspace (its own history, settings, and skills)?",
+    "Dedicated Claude login for this workspace?",
     Boolean(ws.isolate),
   )
 
@@ -229,7 +229,7 @@ export const edit = async (args: string[]) => {
   console.log(`\n✓ updated "${next.name}" -> ${next.path}`)
   if (next.isolate && !ws.isolate)
     console.log(
-      `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude config`,
+      `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
   else if (
     ws.isolate &&
@@ -237,7 +237,7 @@ export const edit = async (args: string[]) => {
     fs.existsSync(path.join(resolveAbsolute(next.path), ".inscope"))
   )
     console.log(
-      `\nNote: ${next.path}/.inscope still holds this workspace's Claude config (its history, and any login); it was left in place.\n` +
+      `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
   await finalizeSlack(next, seedSlack)
