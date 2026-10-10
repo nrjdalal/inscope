@@ -5,7 +5,7 @@
   rules) is the bundled skill, skills/inscope/SKILL.md. Keep this README short.
 -->
 
-**Per-directory identity for Claude Code, and all your Claude accounts in one pool.**
+**Per-directory identity for Claude Code, with your Claude accounts pooled behind a local proxy.**
 
 [![Twitter](https://img.shields.io/twitter/follow/nrjdalal_dev?label=%40nrjdalal_dev)](https://twitter.com/nrjdalal_dev)
 [![npm](https://img.shields.io/npm/v/inscope?color=red&logo=npm)](https://www.npmjs.com/package/inscope)
@@ -49,7 +49,7 @@ Or just ask Claude: `npx skills add nrjdalal/inscope`, then _"map ~/work with my
 - 🔁 All your Claude accounts pooled: a conversation carries on past an account's limit
 - 🧰 Pools keep work accounts for work and personal for personal
 - 🔒 Isolated Claude config per directory, when you want one
-- 🔐 Nothing secret on disk: tokens come from `gh` and the macOS Keychain
+- 🔐 GitHub and MCP tokens come from `gh` and the macOS Keychain; Claude account tokens stay in the proxy's owner-only folder
 - 🚀 Works under any launcher: terminal, IDE, cmux, `--resume`
 
 ---
@@ -100,6 +100,7 @@ Every command takes `-h`.
 - At an account's limit, the proxy moves the conversation to the next account.
 - `--pool <name>` makes a separate pool, e.g. for the two accounts your work gave you.
 - `inscope usage` shows each account's 5-hour and weekly limits.
+- Behind the proxy, Claude's claude.ai connectors and Remote Control are off.
 
 > Anthropic's terms forbid third parties that store or relay Claude.ai credentials, which is what a proxy like this does. Running it is your choice and your accounts' risk.
 
