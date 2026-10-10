@@ -14,7 +14,13 @@ import {
 import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
-import { hasBypassAcceptance, hasBypassSetting, loginDefaultMode } from "@/generators/settings"
+import {
+  hasBypassAcceptance,
+  hasBypassSetting,
+  hasGatewaySetting,
+  hasStaleGatewaySetting,
+  loginDefaultMode,
+} from "@/generators/settings"
 import {
   desiredSkillLinks,
   foreignSkillAt,
@@ -147,6 +153,20 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
         },
   )
   out.push(...bypassChecks(tag, ws, bypass))
+  // gateway drift, both directions, like bypass.
+  if (ws.gateway && !hasGatewaySetting(ws))
+    out.push({
+      status: "warn",
+      label: `[${ws.name}] gateway`,
+      detail: "gateway configured but not applied to this login; run `inscope apply`",
+    })
+  else if (hasStaleGatewaySetting(ws))
+    out.push({
+      status: "warn",
+      label: `[${ws.name}] gateway`,
+      detail:
+        "gateway removed from config but this login still routes through it; run `inscope apply`",
+    })
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
   const tracked = run("git", [
@@ -367,6 +387,28 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
               detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "nyk_...")}\``,
             },
       )
+    }
+
+    if (ws.gateway) {
+      const svc = ws.gateway.keychain
+      checks.push(
+        keychainHas(svc, run)
+          ? { status: "ok", label: `${tag} gateway`, detail: `${ws.gateway.url} · ${svc}` }
+          : {
+              status: "fail",
+              label: `${tag} gateway`,
+              detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "<gateway key>")}\``,
+            },
+      )
+      // Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper,
+      // so either one exported in the shell silently bypasses the gateway's key.
+      const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
+      if (shadow.length)
+        checks.push({
+          status: "warn",
+          label: `${tag} gateway`,
+          detail: `${shadow.join(" and ")} is set in this shell and outranks the gateway's key; unset it`,
+        })
     }
 
     if (hasGitIdentity(ws)) {

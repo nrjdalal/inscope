@@ -53,6 +53,8 @@ Sign each GitHub account into `gh` once (`gh auth login`); inscope reads their t
 
 `--isolate` (or the "Dedicated Claude login?" prompt) runs that workspace's `claude` on its own account from a gitignored `.inscope` dir, so a client's subscription or a work/personal split stays fully separate. Sign in once; the hook exports `CLAUDE_CONFIG_DIR` (not a `claude` wrapper), so any launcher (terminal, IDE, cmux, `--resume`) lands on the right login. Set top-level `bypass: true` to skip permission prompts there (Claude Code v2.1.283+ otherwise starts interactive sessions in auto mode); it also pre-accepts Claude's one-time bypass warning, so fresh logins and background sessions start bypassed right away. If Claude offers to switch you to auto mode, decline: accepting rewrites the login's `defaultMode` (`inscope doctor` flags it, `inscope apply` restores it). Your shared `~/.claude` is never touched.
 
+To send an isolated workspace's requests through an LLM gateway (an Anthropic-compatible proxy you run), add `"gateway": { "url": "...", "keychain": "..." }` to it, store the gateway's client key with `security add-generic-password -U -a "$USER" -s <keychain> -w '<key>'`, and run `inscope apply`. inscope writes `env.ANTHROPIC_BASE_URL` and an `apiKeyHelper` that reads the key from the keychain into that login's `.inscope/settings.json`, so the key never lands on disk and the login's own OAuth token is never sent. Behind a non-Anthropic URL, Claude Code turns MCP tool search off by default and disables Remote Control and claude.ai connectors. Anthropic's terms forbid third parties that store or intermediate Claude.ai credentials, so pooling subscriptions in a proxy is your call and your account's risk.
+
 Prefer flags or CI? Every prompt has one, and `-y` takes the defaults. Reaching for it a lot? `npm i -g inscope` and drop the `npx`.
 
 **Several Claude accounts.** `inscope login work --email you@work.com` signs an account in as a named account, through Claude Code's own `claude auth login` in its own config dir, so Claude keeps the login in its own Keychain slot (inscope never stores or refreshes it). The sign-in opens in a new Chrome window on a fresh, throwaway profile, so two accounts never share cookies; you sign in there, and inscope then checks which account actually signed in. Point any workspace at it with `inscope add ~/work --account work`, share one account across several workspaces, and move a workspace to another account with the same flag. `inscope usage` shows every login's 5-hour and weekly usage and when each resets. Or skip the terminal: ask Claude to "log in my alt account"; it opens the sign-in window and confirms once you are through.
@@ -152,6 +154,8 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "git": { "email": "neeraj@acme.org" },
       "servers": { "github": true, "linear": true, "notion": true },
       "skills": ["owner/repo#skills/readme-audit"],
+      // route this login through a gateway, its key read from the keychain
+      "gateway": { "url": "http://127.0.0.1:8317", "keychain": "ANTHROPIC_AUTH_TOKEN_ACME" },
     },
     {
       "account": "alt", // runs on the "alt" account's login (shareable across workspaces)

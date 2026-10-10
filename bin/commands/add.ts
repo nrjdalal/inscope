@@ -370,6 +370,8 @@ export const add = async (args: string[]) => {
     ...existing,
     isolate: isolate || undefined,
     account,
+    // A gateway lives in the isolated login's settings, so it goes with isolation.
+    gateway: isolate ? existing?.gateway : undefined,
     name: label,
     path: contractTilde(target),
     gh,
@@ -405,6 +407,10 @@ export const add = async (args: string[]) => {
     console.log(
       `\nNote: ${existing.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${existing.path}/.inscope`)}`)}`,
+    )
+  if (existing?.gateway && !ws.gateway)
+    console.log(
+      `Note: removed the gateway (${existing.gateway.url}); it requires an isolated login.`,
     )
   await finalizeSlack(ws, seedSlack)
   await finalizeNylas(ws, seedNylas)

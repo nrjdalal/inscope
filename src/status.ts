@@ -13,6 +13,9 @@ export type StatusClaude = {
   isolated: boolean
   // The named account login this workspace runs on, when it uses one.
   account?: string
+  // The gateway host this workspace's Claude routes through, when set; the login
+  // then authenticates with the gateway's key, so there is no account to show.
+  gateway?: string
   configDir: string
   signedIn: boolean
   email?: string
@@ -49,6 +52,7 @@ export const resolveStatus = (
       email: auth.email,
       subscription: auth.subscriptionType,
       org: auth.orgName,
+      ...(ws?.gateway ? { gateway: new URL(ws.gateway.url).host } : {}),
     },
     github: ws?.gh ? { account: ws.gh, token: Boolean(ghToken(ws.gh, run)) } : null,
     git: ws?.git?.email
@@ -84,8 +88,9 @@ export const renderStatus = (snap: StatusSnapshot, c: StatusPainters = PLAIN): s
     : snap.claude.isolated
       ? "isolated"
       : "shared"
-  const who =
-    snap.claude.signedIn && snap.claude.email
+  const who = snap.claude.gateway
+    ? `gateway ${snap.claude.gateway}`
+    : snap.claude.signedIn && snap.claude.email
       ? `${snap.claude.email}${snap.claude.subscription ? ` · ${snap.claude.subscription}` : ""}`
       : c.warn("not signed in; launch `claude` here and log in")
   lines.push(row("Claude", `${scope} · ${who}`))

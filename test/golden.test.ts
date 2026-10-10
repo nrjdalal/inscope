@@ -512,3 +512,21 @@ test("golden: usage table", () => {
   ]
   expect(renderUsage(rows, now)).toMatchSnapshot()
 })
+
+test("golden: status card, isolated login behind a gateway", () => {
+  const snap: StatusSnapshot = {
+    workspace: "acme",
+    path: "~/acme",
+    claude: {
+      isolated: true,
+      configDir: "~/acme/.inscope",
+      signedIn: true,
+      gateway: "127.0.0.1:8317",
+    },
+    github: { account: "neeraj-acme-org", token: true },
+    git: { email: "neeraj@acme.org", source: "workspace" },
+    servers: ["github"],
+    skills: ["inscope"],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
+})
