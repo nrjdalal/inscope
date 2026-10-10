@@ -34,6 +34,7 @@ export const list = (args: string[]) => {
       path: ws.path,
       gh: ws.gh ?? null,
       isolate: Boolean(ws.isolate),
+      account: ws.account ?? null,
       git: ws.git?.email ?? null,
       servers: enabledServers(ws.servers),
       slack: ws.servers.slack ? { keychain: ws.servers.slack.keychain } : null,
@@ -52,6 +53,7 @@ export const list = (args: string[]) => {
     console.log(`  path     ${ws.path}`)
     console.log(`  gh       ${ws.gh ?? "(none)"}`)
     if (ws.isolate) console.log(`  claude   ${ws.path}/.inscope (isolated login)`)
+    if (ws.account) console.log(`  claude   account ${ws.account}`)
     console.log(`  git      ${ws.git?.email ?? "(default)"}`)
     console.log(`  servers  ${enabledServers(ws.servers).join(", ") || "none"}`)
     if (ws.servers.slack) console.log(`  slack    keychain: ${ws.servers.slack.keychain}`)

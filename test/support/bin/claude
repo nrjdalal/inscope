@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+// Fake `claude` for inscope's account tests. Mimics the parts inscope drives:
+// `auth login [--email]` (opens $BROWSER with a sign-in URL, then stores a token in
+// the Keychain slot Claude Code derives from the LITERAL CLAUDE_CONFIG_DIR string),
+// `auth status --json`, `auth logout`, and `-p` (a session start, which refreshes an
+// expired token like Claude Code does). The slot name is computed here independently
+// of inscope, so a test proves the hook exports the same string login signed in with.
+// Refuse to run outside a test sandbox: a fake pointed at a real config dir would
+// overwrite that login's .claude.json (this happened once in development). The sandbox
+// must be a fresh `inscope-acct-*` dir under the OS temp dir, and HOME, FAKE_STATE, and
+// any CLAUDE_CONFIG_DIR must all sit inside it.
+{
+  const fs = require("node:fs")
+  const os = require("node:os")
+  const path = require("node:path")
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p)
+    } catch {
+      return null
+    }
+  }
+  const sb = process.env.FAKE_SANDBOX && real(process.env.FAKE_SANDBOX)
+  const tmp = real(os.tmpdir())
+  const inside = (p) => {
+    const r = typeof p === "string" ? real(p) ?? path.resolve(p) : null
+    return Boolean(sb && r && (r === sb || r.startsWith(sb + path.sep)))
+  }
+  const ok =
+    sb &&
+    tmp &&
+    path.dirname(sb) === tmp &&
+    path.basename(sb).startsWith("inscope-acct-") &&
+    inside(process.env.HOME) &&
+    inside(process.env.FAKE_STATE) &&
+    (process.env.CLAUDE_CONFIG_DIR === undefined || inside(process.env.CLAUDE_CONFIG_DIR))
+  if (!ok) {
+    console.error("fake: refusing to run outside a FAKE_SANDBOX temp dir")
+    process.exit(3)
+  }
+}
+const { createHash } = require("node:crypto")
+const { spawnSync } = require("node:child_process")
+const fs = require("node:fs")
+const path = require("node:path")
+
+const state = process.env.FAKE_STATE
+const ccd = process.env.CLAUDE_CONFIG_DIR
+const args = process.argv.slice(2)
+fs.appendFileSync(
+  path.join(state, "claude-calls.jsonl"),
+  JSON.stringify({
+    args,
+    ccd: ccd ?? null,
+    browser: process.env.BROWSER ?? null,
+    cwd: process.cwd(),
+    credentialVars: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN"].filter(
+      (k) => process.env[k] !== undefined,
+    ),
+  }) + "\n",
+)
+
+const slot = () =>
+  ccd === undefined
+    ? "Claude Code-credentials"
+    : `Claude Code-credentials-${createHash("sha256").update(ccd.normalize("NFC")).digest("hex").slice(0, 8)}`
+const kcFile = path.join(state, "keychain.json")
+const kc = () => (fs.existsSync(kcFile) ? JSON.parse(fs.readFileSync(kcFile, "utf8")) : {})
+const saveKc = (k) => fs.writeFileSync(kcFile, JSON.stringify(k, null, 2))
+const metaFile = () => path.join(ccd ?? path.join(process.env.HOME, ".claude"), ".claude.json")
+const HOUR = 3600_000
+
+if (args[0] === "auth" && args[1] === "login") {
+  const i = args.indexOf("--email")
+  const hint = i >= 0 ? args[i + 1] : ""
+  const url = `https://claude.com/cai/oauth/authorize?code=true&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback${hint ? `&login_hint=${encodeURIComponent(hint)}` : ""}`
+  console.log("Opening browser to sign in…")
+  if (process.env.BROWSER) spawnSync(process.env.BROWSER, [url], { stdio: "inherit" })
+  // inscope's chrome shim launches the browser in the background; give the (fake) person
+  // in that window a moment to sign in before reading who they signed in as.
+  const until = Date.now() + 3000
+  while (
+    (process.env.BROWSER || "").endsWith("chrome.sh") &&
+    !fs.existsSync(path.join(state, "browser-signed-in")) &&
+    Date.now() < until
+  ) {}
+  console.log(`If the browser didn't open, visit: ${url}`)
+  if (process.env.FAKE_LOGIN_FAIL) {
+    console.error("Login failed")
+    process.exit(1)
+  }
+  // Whoever the "user" signed in as in the browser (the fake agent-browser records
+  // it), else the email this test set.
+  const signedFile = path.join(state, "browser-signed-in")
+  const email = fs.existsSync(signedFile)
+    ? fs.readFileSync(signedFile, "utf8").trim()
+    : process.env.FAKE_LOGIN_EMAIL
+  if (fs.existsSync(signedFile)) fs.rmSync(signedFile)
+  const k = kc()
+  k[slot()] = JSON.stringify({
+    claudeAiOauth: {
+      accessToken: `tok-${email}`,
+      refreshToken: `refresh-${email}`,
+      expiresAt: Date.now() + 8 * HOUR,
+      subscriptionType: "max",
+      rateLimitTier: process.env.FAKE_TIER || "default_claude_max_20x",
+    },
+  })
+  saveKc(k)
+  fs.mkdirSync(path.dirname(metaFile()), { recursive: true })
+  fs.writeFileSync(metaFile(), JSON.stringify({ oauthAccount: { emailAddress: email } }))
+  console.log("Login successful.")
+  process.exit(0)
+}
+
+if (args[0] === "auth" && args[1] === "status") {
+  const tok = kc()[slot()]
+  let email
+  try {
+    email = JSON.parse(fs.readFileSync(metaFile(), "utf8")).oauthAccount.emailAddress
+  } catch {}
+  if (!tok || !email) {
+    console.log(JSON.stringify({ loggedIn: false }))
+    process.exit(1)
+  }
+  console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email, subscriptionType: "max" }))
+  process.exit(0)
+}
+
+if (args[0] === "auth" && args[1] === "logout") {
+  if (process.env.FAKE_LOGOUT_FAIL) {
+    console.error("Logout failed")
+    process.exit(1)
+  }
+  const k = kc()
+  delete k[slot()]
+  saveKc(k)
+  if (fs.existsSync(metaFile())) fs.rmSync(metaFile())
+  console.log("Successfully logged out.")
+  process.exit(0)
+}
+
+if (args[0] === "-p") {
+  const k = kc()
+  if (!k[slot()]) {
+    console.error("Not logged in")
+    process.exit(1)
+  }
+  const doc = JSON.parse(k[slot()])
+  // a session start refreshes the login: a new access token and a new expiry
+  doc.claudeAiOauth.expiresAt = Date.now() + 8 * HOUR
+  if (!doc.claudeAiOauth.accessToken.endsWith("-r")) doc.claudeAiOauth.accessToken += "-r"
+  k[slot()] = JSON.stringify(doc)
+  saveKc(k)
+  console.log("ok")
+  process.exit(0)
+}
+
+console.error(`fake claude: unsupported ${args.join(" ")}`)
+process.exit(2)

@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
+import type { Account } from "@/accounts"
 import { configPath, contractTilde, resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
 
@@ -83,6 +84,11 @@ export type Workspace = {
   // login). Omit to run on the shared ~/.claude like every unmapped directory.
   // Kept first so an isolated workspace is flagged at the top of its block.
   isolate?: boolean
+  // Run this workspace on a named account login (see `accounts` on Config) instead
+  // of the shared ~/.claude or a workspace-local `.inscope`: the hook exports that
+  // account's config dir here. Several workspaces can share one account, and moving
+  // a workspace to another account is a one-field change. Excludes `isolate`.
+  account?: string
   name: string
   path: string
   gh?: string
@@ -134,6 +140,9 @@ export type Config = {
   // and Team plans). The shared ~/.claude base login is yours to manage; inscope
   // never writes there. Dangerous, so it is opt-in and never implied.
   bypass?: boolean
+  // Named Claude logins kept by inscope (`inscope login <name>`), each its own config
+  // dir under ~/.config/inscope/accounts/<name>. A workspace opts in with `account`.
+  accounts?: Account[]
   workspaces: Workspace[]
 }
 
@@ -189,6 +198,21 @@ export const workspaceNameError = (name: string): string | null => {
   if (!name) return "must not be empty"
   if (!WORKSPACE_NAME_RE.test(name))
     return "use only letters, digits, dot (.), dash (-), or underscore (_)"
+  return null
+}
+
+// An account name becomes a directory under ~/.config/inscope/accounts and is
+// interpolated (double-quoted) into the hook as part of that path, so it is a lowercase
+// slug: macOS volumes are case-insensitive, so `work` and `Work` would share one dir
+// while Claude keys two Keychain slots on the two spellings. No leading dot (no hidden
+// or `.`/`..` dirs), and not "none", which `--account none` reserves for "no account".
+export const ACCOUNT_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/
+
+export const accountNameError = (name: string): string | null => {
+  if (!name) return "must not be empty"
+  if (name === "none") return '"none" is reserved (it means no account)'
+  if (!ACCOUNT_NAME_RE.test(name))
+    return "use lowercase letters, digits, dot (.), dash (-), or underscore (_), starting with a letter or digit"
   return null
 }
 
@@ -384,6 +408,24 @@ export const validateConfig = (cfg: Config) => {
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   if (cfg.bypass !== undefined && typeof cfg.bypass !== "boolean")
     throw new Error("config bypass must be a boolean")
+  const accountNames = new Set<string>()
+  if (cfg.accounts !== undefined) {
+    if (!Array.isArray(cfg.accounts)) throw new Error("config.accounts must be an array")
+    for (const acc of cfg.accounts) {
+      if (!acc || typeof acc !== "object" || Array.isArray(acc))
+        throw new Error("an account is not an object")
+      if (typeof acc.name !== "string" || !acc.name) throw new Error("an account is missing a name")
+      const nameErr = accountNameError(acc.name)
+      if (nameErr) throw new Error(`account name "${acc.name}" is invalid: ${nameErr}`)
+      if (acc.email !== undefined) {
+        const emailErr =
+          typeof acc.email === "string" ? gitValueError(acc.email) : "must be a string"
+        if (emailErr) throw new Error(`account "${acc.name}" email is invalid: ${emailErr}`)
+      }
+      if (accountNames.has(acc.name)) throw new Error(`duplicate account name "${acc.name}"`)
+      accountNames.add(acc.name)
+    }
+  }
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")
@@ -399,6 +441,18 @@ export const validateConfig = (cfg: Config) => {
     }
     if (ws.isolate !== undefined && typeof ws.isolate !== "boolean")
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
+    if (ws.account !== undefined) {
+      if (typeof ws.account !== "string" || !ws.account)
+        throw new Error(`workspace "${ws.name}" account must be a non-empty string`)
+      if (ws.isolate)
+        throw new Error(
+          `workspace "${ws.name}" sets both isolate and account; pick one (an account is already its own login)`,
+        )
+      if (!accountNames.has(ws.account))
+        throw new Error(
+          `workspace "${ws.name}" uses account "${ws.account}", which does not exist; run \`inscope login ${ws.account}\` first`,
+        )
+    }
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
     if (ws.git?.email) {
@@ -531,8 +585,8 @@ export const upsertWorkspace = (cfg: Config, ws: Workspace): Config => {
   // arm, .mcp.json, and git include at the wrong directory.
   // Canonical key order (isolate first, then name and path), so an update that sets
   // isolation on an existing entry does not append it after the other fields.
-  const { isolate, name, path: p, ...rest } = ws
-  next.push({ isolate, name, path: contractTilde(resolveAbsolute(p)), ...rest })
+  const { isolate, account, name, path: p, ...rest } = ws
+  next.push({ isolate, account, name, path: contractTilde(resolveAbsolute(p)), ...rest })
   next.sort((a, b) => a.name.localeCompare(b.name))
   return { ...cfg, workspaces: next }
 }
@@ -548,3 +602,24 @@ export const removeWorkspace = (cfg: Config, key: string): { cfg: Config; remove
     removed,
   }
 }
+
+// Add or replace an account by name, keeping accounts name-sorted like workspaces.
+export const upsertAccount = (cfg: Config, acc: Account): Config => {
+  const next = (cfg.accounts ?? []).filter((a) => a.name !== acc.name)
+  next.push(acc)
+  next.sort((a, b) => a.name.localeCompare(b.name))
+  return { ...cfg, accounts: next }
+}
+
+export const removeAccount = (cfg: Config, name: string): Config => {
+  const next = (cfg.accounts ?? []).filter((a) => a.name !== name)
+  const { accounts: _drop, ...rest } = cfg
+  return next.length ? { ...rest, accounts: next } : rest
+}
+
+export const findAccount = (cfg: Config, name: string): Account | undefined =>
+  cfg.accounts?.find((a) => a.name === name)
+
+// The workspaces running on an account, by name.
+export const accountUsers = (cfg: Config, name: string): string[] =>
+  cfg.workspaces.filter((w) => w.account === name).map((w) => w.name)

@@ -1,6 +1,6 @@
 ---
 name: inscope
-description: Manage per-workspace Claude Code identity with inscope (the GitHub account, git commit email, MCP servers, an isolated Claude login, or skills for a directory). Use when the user wants to add, edit, remove, or inspect a workspace or its skills.
+description: Manage per-workspace Claude Code identity with inscope (the GitHub account, git commit email, MCP servers, an isolated Claude login, named Claude accounts, or skills for a directory). Use when the user wants to add, edit, remove, or inspect a workspace or its skills, log a Claude account in or out, move a workspace to another account, or see their Claude usage limits.
 ---
 
 # inscope
@@ -19,6 +19,9 @@ Change identity through inscope so its generated files stay in sync. The source 
 - An isolated login is delivered by exporting `CLAUDE_CONFIG_DIR` from the hook (not a `claude` wrapper), so any launcher that inherits the shell (a terminal, cmux, an IDE) runs on it and cmux session restore still works.
 - To skip Claude's permission prompts in isolated logins, set top-level `bypass: true` in `inscope.json` (no CLI flag), then `inscope apply`; it writes `defaultMode: bypassPermissions` plus the pre-accepted bypass dialog (`skipDangerousModePermissionPrompt: true`) into each `.inscope/settings.json`, so a fresh login skips the one-time warning and background sessions are not refused. Without it, Claude Code v2.1.283+ starts interactive sessions in auto mode (a classifier reviews actions; v2.1.228+ on Pro, Max, and Team plans). Claude offers once to switch a login's `defaultMode` to auto; accepting rewrites it, so tell the user to decline, and if it happened, `inscope doctor` flags it and `inscope apply` restores bypass. A resumed session that ended in bypass restarts in the mode a new session would, so the setting (not the old session) decides. The shared `~/.claude` login is the user's own to configure, and an org's managed settings can disable bypass entirely (`inscope doctor` flags that).
 
+- **Accounts** are named Claude logins inscope keeps outside any workspace (`~/.config/inscope/accounts/<name>`). A workspace runs on one with `account: <name>` (excludes `isolate`); several workspaces can share an account, and moving a workspace to another account is one flag. The hook exports the account's dir as `CLAUDE_CONFIG_DIR`, so the change reaches the next `claude` launched there (a running session keeps its login, and `--resume` only sees sessions from the account it ran on).
+- Drive everything from this conversation; never ask the user to open another terminal. Every command below has flags for a non-interactive run, and a login runs in the background while the user signs in themselves (see **Logging in an account**).
+
 ## Commands
 
 `inscope <command> --help` prints the exact flags.
@@ -30,6 +33,13 @@ Change identity through inscope so its generated files stay in sync. The source 
 - `inscope list` (`ls`): show workspaces with their identity, servers, and skills. `--json` for scripting.
 - `inscope edit [path|label]`: change a workspace through the same prompts.
 - `inscope rm [path|label]`: unmap a workspace (drops its git include, managed MCP servers, and skill links). Confirms by typing the label; `-y` skips it.
+
+### Accounts
+
+- `inscope login <name> [--email <email>] [--browser chrome|system|none]`: sign a Claude account in as a named account, through Claude Code's own `claude auth login` on the account's dir (Claude keeps the token in its own Keychain slot; inscope never stores or refreshes it). By default it opens a new Chrome window on a fresh, throwaway profile (no other account's cookies), straight on Claude's sign-in page with nothing pre-filled; the user signs in there, and the profile is deleted afterwards. Afterwards it reads back the account that actually signed in and refuses (signing it back out) if it is not `--email`, or if that Claude account is already another named account. Re-running on an existing name signs it in again.
+- `inscope logout <name>`: sign an account out (its Keychain token is deleted) and forget it. Refused while a workspace uses it.
+- `inscope usage [--refresh] [--json]`: each login's 5-hour and weekly usage and time to reset, for the base login, every account, and every signed-in isolated workspace, with the workspaces using each. Read-only: a login whose token expired shows as expired, and `--refresh` first lets Claude Code refresh it with a one-word Haiku prompt.
+- Assign: `inscope add <path> --account <name> -y` (or pick it in `inscope edit`); `--isolate` switches back to an own `.inscope` login, `--account none` back to the shared one.
 
 ### Skills
 
@@ -44,9 +54,21 @@ Change identity through inscope so its generated files stay in sync. The source 
 - `inscope doctor`: verify tokens, identities, the hook, and skill links resolve, each with its fix. `--json` for scripting (exits non-zero if any check fails).
 - `inscope diff`: preview what apply would change (hook, git includes, `.mcp.json`, skills). `--adopt` folds config-expressible on-disk `.mcp.json` settings back in; `--exit-code` gates CI.
 
+## Logging in an account
+
+The user signs in; you only start it and report the result. Never fill in the sign-in page, click through it, or attempt its human checks (Cloudflare, hCaptcha) yourself: they are the user's to complete, and an automated sign-in gets flagged.
+
+1. Ask for the account's email if you do not have it, and a short lowercase name for it (e.g. `work`, `alt`).
+2. Start `inscope login <name> --email <email>` in the **background** (it waits until the sign-in completes). A new Chrome window opens on Claude's sign-in page, on a fresh profile.
+3. Tell the user, briefly: "A new Chrome window just opened on Claude's sign-in page. Enter <email>, then the code Claude emails you, complete any check it shows, and authorize Claude Code. I'll confirm here when it's done."
+4. When the background `inscope login` exits, read its output: `✓ account "<name>" -> <email>` means it is signed in and verified; otherwise report its error (a different account signed in, the sign-in was cancelled). Never read, print, or store a token.
+
+Then offer to assign it (`inscope add <path> --account <name> -y`) and show `inscope usage`.
+
 ## Recipes
 
 - **Personal, work, client:** `inscope add ~/personal --gh personal-account --email you@personal.com` (shared login), `inscope add ~/work --gh work-account --email you@work.com --isolate` (its own login), `inscope add ~/clients/acme --isolate` (a client on its own login and subscription).
 - **Who am I here:** `inscope status` (or `whoami`) prints the resolved Claude login and subscription, GitHub account, git email, MCP servers, and skills.
 - **Skill in the current workspace:** `inscope skill add owner/repo#skills/the-skill`, or `inscope skill add owner/repo --list` to browse first.
 - **Wrong account here:** run `inscope doctor` in the directory; it names the resolved workspace and whether its token and identity are present, says to run `inscope apply` if the hook is stale, then relaunch.
+- **Several accounts:** `inscope login work --email you@work.com`, `inscope login alt --email you@alt.com`, then `inscope add ~/work --account work -y`. To move `~/work` when it nears its limit: `inscope usage`, then `inscope add ~/work --account alt -y` and relaunch `claude` there.

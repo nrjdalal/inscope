@@ -36,6 +36,8 @@ import {
   finalizeSlack,
   ghChoices,
   gitGlobalHint,
+  loginChoices,
+  resolveLoginFlags,
   NYLAS_REGION_CHOICES,
   nylasKeychainFor,
   persist,
@@ -61,6 +63,8 @@ Options:
                         <path>/.inscope config dir (gitignored) and launch claude
                         there when you run it from this subtree (--no-isolate
                         turns it off when updating a workspace)
+  --account <name>      run this workspace on a named account login
+                        (\`${name} login <name>\`) instead; "none" clears it
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -115,6 +119,7 @@ export const add = async (args: string[]) => {
       yes: { type: "boolean", short: "y" },
       gh: { type: "string" },
       isolate: { type: "boolean" },
+      account: { type: "string" },
       email: { type: "string" },
       "git-name": { type: "string" },
       label: { type: "string" },
@@ -318,10 +323,25 @@ export const add = async (args: string[]) => {
       seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
-  // --- isolate: give this workspace its own Claude login in a local .inscope ---
-  let isolate = values.isolate !== undefined ? values.isolate : Boolean(existing?.isolate)
-  if (values.isolate === undefined && interactive) {
-    isolate = await promptConfirm("\nDedicated Claude login for this workspace?", isolate)
+  // --- Claude login: the shared base, its own .inscope, or a named account ---
+  const accounts = cfg?.accounts ?? []
+  let { isolate, account } = resolveLoginFlags(
+    { account: values.account, isolate: values.isolate },
+    existing ? { isolate: Boolean(existing.isolate), account: existing.account } : undefined,
+  )
+  if (values.isolate === undefined && values.account === undefined && interactive) {
+    if (accounts.length) {
+      const { choices, initial } = loginChoices(accounts, { isolate, account })
+      ;({ isolate, account } = await selectOne(
+        "\nClaude login for this workspace",
+        choices,
+        initial,
+      ))
+    } else isolate = await promptConfirm("\nDedicated Claude login for this workspace?", isolate)
+  }
+  if (account && !accounts.some((a) => a.name === account)) {
+    console.error(`\nNo account named "${account}". Sign it in first: ${name} login ${account}`)
+    process.exit(1)
   }
 
   // gh account and Slack keychain are interpolated into the chpwd hook; reject
@@ -349,6 +369,7 @@ export const add = async (args: string[]) => {
   const ws: Workspace = {
     ...existing,
     isolate: isolate || undefined,
+    account,
     name: label,
     path: contractTilde(target),
     gh,
@@ -392,11 +413,13 @@ export const add = async (args: string[]) => {
       `\nFirst run: reload your shell to load the hook: source ~/.zshrc (or open a new terminal).`,
     )
   console.log(
-    ws.isolate
-      ? hadLogin
-        ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`
-        : `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
-      : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
+    ws.account
+      ? `\nLaunch \`claude\` from ${ws.path}; it runs on account ${ws.account}.`
+      : ws.isolate
+        ? hadLogin
+          ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`
+          : `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
+        : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
   )
   process.exit(0)
 }

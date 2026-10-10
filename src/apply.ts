@@ -6,7 +6,7 @@ import { applyGitconfig, GITCONFIG_BLOCK_ID } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { applyIsolation } from "@/generators/isolate"
 import { applyMcp, mcpFilePath, preflightMcp } from "@/generators/mcp"
-import { applyBypass } from "@/generators/settings"
+import { applyAccountsBypass, applyBypass } from "@/generators/settings"
 import { applySkills } from "@/generators/skills"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
 import { assertBlockWellFormed } from "@/managed-block"
@@ -78,6 +78,7 @@ export const applyAll = (cfg: Config): ApplyResult => {
     applyBypass(ws, cfg.bypass ?? false)
     mcp.push(mcpFilePath(ws))
   }
+  applyAccountsBypass(cfg)
 
   // One pass over the whole config: the shared ~/.claude/skills is the union of every
   // non-isolated workspace, so skills cannot be materialized per-workspace. Clone-if

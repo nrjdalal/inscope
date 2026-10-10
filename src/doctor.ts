@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
+import { accountDir, keychainServiceFor } from "@/accounts"
 import { zshrcSourcesHook } from "@/apply"
 import { type Config, normalizeSkill, type Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
@@ -23,6 +24,7 @@ import {
 import { readFileOrNull } from "@/io"
 import { assertBlockWellFormed, readBlock } from "@/managed-block"
 import {
+  claudeAuthStatus,
   defaultRunner,
   ghToken,
   gitEmailForFile,
@@ -89,30 +91,16 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
   }
 }
 
-// An isolated workspace runs Claude from a workspace-local `.inscope`. Two things
-// can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
-// which Claude fills on first login), and the dir, which holds that login, could
-// be committed. Warn on both; neither is a hard failure.
-const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => {
-  const tag = `[${ws.name}] claude`
-  const dir = inscopeDirPath(ws)
+// Bypass drift on a login inscope owns (an isolated `.inscope` or an account dir),
+// both directions: configured but not applied, and the dangerous reverse, turned off
+// in config but the login still auto-approves on disk. A login written by an older
+// inscope has the mode without the dialog acceptance, so Claude still shows the
+// one-time bypass dialog and refuses background sessions there; a re-run of apply
+// seeds it. Claude Code (v2.1.283+ makes auto the built-in default) offers once to
+// switch a login's defaultMode to auto, and accepting rewrites it in place, so that
+// case gets its own hint.
+const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
   const out: Check[] = []
-  out.push(
-    inscopeSignedIn(dir)
-      ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
-      : {
-          status: "warn",
-          label: tag,
-          detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
-        },
-  )
-  // bypass drift, both directions: configured but not applied, and the dangerous
-  // reverse, turned off in config but the login still auto-approves on disk. A
-  // login written by an older inscope has the mode without the dialog acceptance,
-  // so Claude still shows the one-time bypass dialog and refuses background
-  // sessions there; a re-run of apply seeds it. Claude Code (v2.1.283+ makes auto
-  // the built-in default) offers once to switch a login's defaultMode to auto, and
-  // accepting rewrites it in place, so that case gets its own hint.
   if (bypass && loginDefaultMode(ws) === "auto")
     out.push({
       status: "warn",
@@ -138,6 +126,27 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
       label: tag,
       detail: "bypass applied without the dialog acceptance seeded; run `inscope apply`",
     })
+  return out
+}
+
+// An isolated workspace runs Claude from a workspace-local `.inscope`. Two things
+// can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
+// which Claude fills on first login), and the dir, which holds that login, could
+// be committed. Warn on both; neither is a hard failure.
+const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => {
+  const tag = `[${ws.name}] claude`
+  const dir = inscopeDirPath(ws)
+  const out: Check[] = []
+  out.push(
+    inscopeSignedIn(dir)
+      ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
+      : {
+          status: "warn",
+          label: tag,
+          detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
+        },
+  )
+  out.push(...bypassChecks(tag, ws, bypass))
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
   const tracked = run("git", [
@@ -153,6 +162,51 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
       label: tag,
       detail: `${INSCOPE_DIR} holds a login and is tracked by git; run \`git rm -r --cached ${INSCOPE_DIR}\``,
     })
+  return out
+}
+
+// An account login is signed in through `inscope login`, which records the email it
+// saw. Doctor confirms the login is still live under that exact dir, is the account
+// it was recorded as, and that Claude Code's Keychain slot for that literal path
+// exists (the hook exports the same string, so a missing slot means Claude would start
+// signed out there). Bypass drift is checked once per account, not per workspace.
+const accountChecks = (cfg: Config, run: Runner): Check[] => {
+  const out: Check[] = []
+  for (const acc of cfg.accounts ?? []) {
+    const tag = `[account ${acc.name}]`
+    const dir = accountDir(acc.name)
+    const auth = claudeAuthStatus(dir, run)
+    const slot = isMacOS()
+      ? run("security", ["find-generic-password", "-s", keychainServiceFor(dir)]).status === 0
+      : true
+    const users = cfg.workspaces.filter((w) => w.account === acc.name).map((w) => w.name)
+    const usedBy = users.length ? `used by ${users.join(", ")}` : "not used by any workspace"
+    if (!auth.signedIn || !slot)
+      out.push({
+        status: "fail",
+        label: tag,
+        detail: `not signed in at ${contractTilde(dir)}; run \`inscope login ${acc.name}\``,
+      })
+    else if (acc.email && auth.email && auth.email !== acc.email)
+      out.push({
+        status: "fail",
+        label: tag,
+        detail: `signed in as ${auth.email}, recorded as ${acc.email}; run \`inscope login ${acc.name}\``,
+      })
+    else
+      out.push({
+        status: "ok",
+        label: tag,
+        detail: `${auth.email ?? acc.email ?? "signed in"}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ""} · ${usedBy}`,
+      })
+    out.push(
+      ...bypassChecks(
+        tag,
+        { name: acc.name, path: dir, servers: {}, account: acc.name },
+        cfg.bypass ?? false,
+      ),
+    )
+  }
   return out
 }
 
@@ -268,6 +322,8 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
     )
   }
 
+  checks.push(...accountChecks(cfg, run))
+
   for (const ws of cfg.workspaces) {
     const tag = `[${ws.name}]`
 
@@ -284,6 +340,8 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
     }
 
     if (ws.isolate) checks.push(...isolateChecks(ws, run, cfg.bypass ?? false))
+    if (ws.account)
+      checks.push({ status: "ok", label: `${tag} claude`, detail: `account ${ws.account}` })
 
     if (ws.servers.slack) {
       const svc = ws.servers.slack.keychain

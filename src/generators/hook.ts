@@ -1,4 +1,5 @@
-import { type Config, type Workspace } from "@/config"
+import { accountDir, accountsRoot } from "@/accounts"
+import { type Config, hookValueError, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
 
 const pathPattern = (p: string) => {
@@ -61,10 +62,19 @@ const nestedUnder = (child: string, parent: string): boolean => {
 // CLAUDE_CONFIG_DIR equal to INSCOPE_CCD is inscope's own (keep the inherited base),
 // any other value is the user's own (it becomes the base), and an isolated
 // `*/.inscope` value is never a base.
-const BASE_CAPTURE = `if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
+// With accounts configured, an inherited account login is likewise never the base:
+// one extra arm matches anything under the accounts root.
+const accountArm = (cfg: Config) =>
+  cfg.accounts?.length
+    ? `    "${shellPath(accountsRoot())}/"*) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an account login is never the base\n`
+    : ""
+
+const baseCapture = (
+  cfg: Config,
+) => `if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
   case "\${CLAUDE_CONFIG_DIR-}" in
     */.inscope|*/.inscope/) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an isolated login is never the base
-    *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
+${accountArm(cfg)}    *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
   esac
 fi
 `
@@ -73,30 +83,39 @@ fi
 // still inherit inscope's own export (or an isolated login) from one that had
 // isolation, or from an older config. Restore the base it came from, so no
 // directory runs on that login.
-const DROP_INHERITED = `if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+const dropInherited = (
+  cfg: Config,
+) => `if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/${cfg.accounts?.length ? ` || "\${CLAUDE_CONFIG_DIR-}" == "${shellPath(accountsRoot())}/"*` : ""} ]]; then
   # inherited from a shell that had an isolated workspace; none is isolated now
   if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
 fi
 unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 `
 
+// A dedicated login is a workspace's own `.inscope` or its account's dir; both export
+// CLAUDE_CONFIG_DIR. The account dir is rendered from the same absolute path `inscope
+// login` signed in with (as a $HOME-relative token), because Claude Code keys the
+// Keychain slot on that literal string.
+const loginTarget = (w: Workspace) =>
+  w.account ? `dir="${shellPath(accountDir(w.account))}"` : `dir="${shellPath(w.path)}/.inscope"`
+
 const renderCcd = (cfg: Config): { block: string; base: string } => {
-  const isolated = cfg.workspaces.filter((w) => w.isolate)
-  if (isolated.length === 0) return { block: "", base: DROP_INHERITED }
+  const isolated = cfg.workspaces.filter((w) => w.isolate || w.account)
+  if (isolated.length === 0) return { block: "", base: dropInherited(cfg) }
 
   // A workspace nested under an isolated one gets its own arm so it reflects its own
   // login rather than inheriting the parent's broad `"<parent>/"*` arm; a
   // non-isolated nested one gets a no-op shadow arm so it keeps the base login.
   // Name-sort then most-specific-first, matching the resolver's order.
   const shadows = cfg.workspaces.filter(
-    (w) => !w.isolate && isolated.some((a) => a.name !== w.name && nestedUnder(w.path, a.path)),
+    (w) =>
+      !w.isolate &&
+      !w.account &&
+      isolated.some((a) => a.name !== w.name && nestedUnder(w.path, a.path)),
   )
   const byName = [...isolated, ...shadows].sort((a, b) => a.name.localeCompare(b.name))
   const arms = bySpecificity(byName)
-    .map(
-      (w) =>
-        `    ${pathPattern(w.path)}) ${w.isolate ? `dir="${shellPath(w.path)}/.inscope"` : ":"} ;;`,
-    )
+    .map((w) => `    ${pathPattern(w.path)}) ${w.isolate || w.account ? loginTarget(w) : ":"} ;;`)
     .join("\n")
 
   const block = `
@@ -111,10 +130,16 @@ ${arms}
   esac
   export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"
 `
-  return { block, base: BASE_CAPTURE }
+  return { block, base: baseCapture(cfg) }
 }
 
 export const renderHook = (cfg: Config): string => {
+  // Account dirs are interpolated into double-quoted hook strings, like workspace paths.
+  if (cfg.accounts?.length) {
+    const err = hookValueError(accountsRoot())
+    if (err)
+      throw new Error(`the accounts dir ${accountsRoot()} cannot be used in the hook: ${err}`)
+  }
   const byName = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
 
   const dirArms =
