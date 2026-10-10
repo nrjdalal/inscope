@@ -47,7 +47,7 @@ const main = async () => {
       case "add":
         return await add(rest)
       case "edit":
-        return edit(rest)
+        return await edit(rest)
       case "rm":
       case "remove":
         return await remove(rest)

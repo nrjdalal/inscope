@@ -242,11 +242,9 @@ test("golden: gitconfig includeIf block", () => {
 })
 
 // gitdir patterns for home root, non-home absolute, and a path with spaces, the
-// no-git-identity workspace ("nogit") filtered out, and a deliberately
-// non-alphabetical input order (opt before home) so the snapshot locks that
-// renderGitInclude preserves config order rather than sorting it (unlike
-// renderHook, which name-sorts). A regression that introduced a sort here would
-// change this snapshot and fail.
+// no-git-identity workspace ("nogit") filtered out. The blocks come out
+// least-specific-first (the home root first), since git lets the last matching
+// includeIf win and a nested workspace must override its parent.
 test("golden: includeIf for tricky paths, skipping a no-git workspace", () => {
   expect(
     renderGitInclude({
@@ -261,6 +259,21 @@ test("golden: includeIf for tricky paths, skipping a no-git workspace", () => {
           servers: {},
         },
         { name: "nogit", path: "~/nogit", servers: {} },
+      ],
+    }),
+  ).toMatchSnapshot()
+})
+
+// A nested pair whose names sort the wrong way ("acme" < "work"): the parent's
+// block must still come first so the nested workspace's identity wins in git.
+test("golden: includeIf puts a nested workspace after its parent", () => {
+  expect(
+    renderGitInclude({
+      version: 1,
+      workspaces: [
+        { name: "acme", path: "~/work/acme", git: { email: "a@acme.dev" }, servers: {} },
+        { name: "personal", path: "~", git: { email: "me@home.dev" }, servers: {} },
+        { name: "work", path: "~/work", git: { email: "w@corp.dev" }, servers: {} },
       ],
     }),
   ).toMatchSnapshot()

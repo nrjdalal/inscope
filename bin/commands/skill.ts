@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 
+import { preflightApply } from "@/apply"
 import {
   absolutizeLocalSource,
   type Config,
@@ -11,14 +12,18 @@ import {
   renameSkillSpec,
   skillNameError,
   type SkillSpec,
+  upsertWorkspace,
   type Workspace,
 } from "@/config"
 import { contractTilde } from "@/env"
 import {
   applySkills,
   discoverSkills,
+  foreignSkillAt,
   resolveSkillDir,
   SELF_SKILL_NAME,
+  selfSkillProvidedElsewhere,
+  sharedNameClash,
   skillHasSkillMd,
   skillLinked,
   skillsDir,
@@ -157,6 +162,13 @@ const skillAdd = async (args: string[]) => {
       console.log(`\nThe inscope self-skill is already enabled for "${ws.name}".`)
       process.exit(0)
     }
+    const clash = selfSkillProvidedElsewhere(skillsDir(ws))
+      ? null // the user's own install of the inscope skill already provides it
+      : foreignSkillAt(ws, SELF_SKILL_NAME)
+    if (clash) {
+      console.error(`Cannot enable the inscope self-skill: ${clash}; remove it first.`)
+      process.exit(1)
+    }
     const enabled: Workspace = { ...ws }
     delete enabled.selfSkill
     persist(enabled)
@@ -190,6 +202,7 @@ const skillAdd = async (args: string[]) => {
   const commit = (specs: SkillSpec[]) => {
     const have = new Set((ws.skills ?? []).map((sp) => normalizeSkill(sp).name))
     const toAdd: SkillSpec[] = []
+    let clashes = 0
     for (const spec of specs) {
       const n = normalizeSkill(spec).name
       if (n === SELF_SKILL_NAME) {
@@ -200,12 +213,20 @@ const skillAdd = async (args: string[]) => {
         console.log(`skipping "${n}": already in "${ws.name}"`)
         continue
       }
+      // A skill of that name that inscope did not create (the user's own dir or link)
+      // is never replaced; refuse now rather than declare a skill that cannot link.
+      const clash = foreignSkillAt(ws, n) ?? sharedNameClash(cfg, ws, spec)
+      if (clash) {
+        console.error(`skipping "${n}": ${clash}; add it under another name with --name`)
+        clashes++
+        continue
+      }
       have.add(n)
       toAdd.push(spec)
     }
     if (!toAdd.length) {
       console.log("\nNothing to add.")
-      process.exit(0)
+      process.exit(clashes ? 1 : 0)
     }
     persist({ ...ws, skills: [...(ws.skills ?? []), ...toAdd] })
     console.log(`\n✓ added ${toAdd.length} skill${toAdd.length > 1 ? "s" : ""} to "${ws.name}"`)
@@ -376,9 +397,12 @@ const skillRemove = (args: string[]) => {
   const remaining = specs.filter((_, i) => i !== idx)
   const next: Workspace = { ...ws, skills: remaining }
   if (!remaining.length) delete next.skills
-  // Drop this skill's link explicitly (a local source is not cache-backed, so the
-  // apply below would not prune it); persist then re-links anything still declared.
-  unlinkSkillLink(ws, target)
+  // Refuse before touching the link, so a malformed shared file leaves nothing half done.
+  preflightApply(upsertWorkspace(cfg, next))
+  // Drop this skill's link now (a link from an older version points straight at a local
+  // source, so the apply below would not prune it); persist re-links anything still
+  // declared, e.g. by another workspace sharing ~/.claude/skills.
+  unlinkSkillLink(ws, target, specs[idx])
   persist(next) // re-applies: reconciles the personal skills dir
 
   console.log(`\n✓ removed skill "${target}" from "${ws.name}"`)
@@ -431,10 +455,17 @@ const skillRename = (args: string[]) => {
   // shorthand and preserves source/subdir/ref).
   const nextSkills = specs.map((sp, i) => (i === idx ? renameSkillSpec(sp, to) : sp))
 
+  const clash = foreignSkillAt(ws, to)
+  if (clash) {
+    console.error(`Cannot rename to "${to}": ${clash}; pick another name.`)
+    process.exit(1)
+  }
+  const renamed: Workspace = { ...ws, skills: nextSkills }
+  preflightApply(upsertWorkspace(cfg, renamed)) // refuse before touching the link
   // Drop the old-name link explicitly (persist re-links under the new name and
   // prunes owned links no longer declared).
-  unlinkSkillLink(ws, from)
-  persist({ ...ws, skills: nextSkills })
+  unlinkSkillLink(ws, from, specs[idx])
+  persist(renamed)
 
   console.log(`\n✓ renamed skill "${from}" to "${to}" in "${ws.name}"`)
   console.log(`Relaunch \`claude\` from ${ws.path} to pick up the new /command name.`)

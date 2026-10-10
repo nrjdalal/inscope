@@ -1,3 +1,5 @@
+import fs from "node:fs"
+import path from "node:path"
 import { parseArgs } from "node:util"
 
 import {
@@ -9,7 +11,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
-import { ghAccounts, keychainHas } from "@/secrets"
+import { ghAccounts, keychainHas, shQuotePath } from "@/secrets"
 import { requireConfig } from "~/bin/commands/_config"
 import {
   isInteractive,
@@ -26,6 +28,7 @@ import {
   enabledServers,
   finalizeNylas,
   finalizeSlack,
+  ghChoices,
   NYLAS_REGION_CHOICES,
   nylasKeychainFor,
   persist,
@@ -93,18 +96,12 @@ export const edit = async (args: string[]) => {
 
   // --- gh account, pre-selected to the current one ---
   // gh is not re-validated here (unlike add.ts): it can only be a real account
-  // from selectOne(ghAccounts()) or empty, never free text, so it cannot carry
-  // hook metacharacters. validateConfig is the backstop. If a --gh flag is ever
-  // added to edit, validate it with hookValueError the way add.ts does.
-  const ghChoices = [
-    ...ghAccounts().map((a) => ({ label: a, value: a })),
-    { label: "(none)", value: "" },
-  ]
-  const ghInitial = Math.max(
-    0,
-    ghChoices.findIndex((c) => c.value === (ws.gh ?? "")),
-  )
-  const gh = (await selectOne("GitHub account", ghChoices, ghInitial)) || undefined
+  // from ghAccounts(), the stored one (validated when the config loaded), or empty,
+  // never free text, so it cannot carry hook metacharacters. validateConfig is the
+  // backstop. If a --gh flag is ever added to edit, validate it with hookValueError
+  // the way add.ts does.
+  const { choices: ghOptions, initial: ghInitial } = ghChoices(ghAccounts(), ws.gh ?? "")
+  const gh = (await selectOne("GitHub account", ghOptions, ghInitial)) || undefined
 
   // --- git identity: enter keeps current, "-" inherits the global config ---
   const curEmail = ws.git?.email
@@ -206,7 +203,10 @@ export const edit = async (args: string[]) => {
     Boolean(ws.isolate),
   )
 
+  // Start from the stored workspace so fields this prompt flow does not manage
+  // (skills, selfSkill) survive the edit; upsert replaces the whole entry.
   const next: Workspace = {
+    ...ws,
     isolate: isolate || undefined,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
@@ -221,6 +221,7 @@ export const edit = async (args: string[]) => {
         ? { keychain: slackSvc, addMessageTool: slackMessage, package: slackPackage }
         : null,
       { datadogSite, nylas },
+      ws.servers,
     ),
   }
 
@@ -230,10 +231,14 @@ export const edit = async (args: string[]) => {
     console.log(
       `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude login`,
     )
-  else if (ws.isolate && !next.isolate)
+  else if (
+    ws.isolate &&
+    !next.isolate &&
+    fs.existsSync(path.join(resolveAbsolute(next.path), ".inscope"))
+  )
     console.log(
       `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
-        `Delete it with: ${orange(`rm -rf ${next.path}/.inscope`)}`,
+        `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)

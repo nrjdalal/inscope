@@ -241,6 +241,11 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
+if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+  # inherited from a shell that had an isolated workspace; none is isolated now
+  if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
+fi
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -290,6 +295,11 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
+if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+  # inherited from a shell that had an isolated workspace; none is isolated now
+  if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
+fi
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -339,6 +349,11 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
+if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+  # inherited from a shell that had an isolated workspace; none is isolated now
+  if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
+fi
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -396,6 +411,11 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
+if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ ]]; then
+  # inherited from a shell that had an isolated workspace; none is isolated now
+  if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
+fi
+unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -425,14 +445,15 @@ __inscope_resolve_identity() {
   # Pin the Claude login for this location and export it, so any launcher that
   # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
   # \`claude\`. An isolated workspace uses its local .inscope login; every other
-  # directory keeps your base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude).
-  local dir="\${__inscope_base_ccd:-$HOME/.claude}"
+  # directory keeps your base login (INSCOPE_BASE_CCD, else ~/.claude). INSCOPE_CCD
+  # records what inscope set, so a re-source or child shell can tell it apart.
+  local dir="\${INSCOPE_BASE_CCD:-$HOME/.claude}"
   case "\${PWD}/" in
     "$HOME/My Client (x)/"*) dir="$HOME/My Client (x)/.inscope" ;;
     "/opt/srv/"*) dir="/opt/srv/.inscope" ;;
     "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
   esac
-  export CLAUDE_CONFIG_DIR="$dir"
+  export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"
   unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
   local gh_user="" slack_svc=""
@@ -463,7 +484,12 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
-__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"   # login to fall back to outside an isolated subtree (empty -> ~/.claude)
+if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
+  case "\${CLAUDE_CONFIG_DIR-}" in
+    */.inscope|*/.inscope/) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an isolated login is never the base
+    *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
+  esac
+fi
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -491,13 +517,14 @@ __inscope_resolve_identity() {
   # Pin the Claude login for this location and export it, so any launcher that
   # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
   # \`claude\`. An isolated workspace uses its local .inscope login; every other
-  # directory keeps your base login (an inherited CLAUDE_CONFIG_DIR, else ~/.claude).
-  local dir="\${__inscope_base_ccd:-$HOME/.claude}"
+  # directory keeps your base login (INSCOPE_BASE_CCD, else ~/.claude). INSCOPE_CCD
+  # records what inscope set, so a re-source or child shell can tell it apart.
+  local dir="\${INSCOPE_BASE_CCD:-$HOME/.claude}"
   case "\${PWD}/" in
     "$HOME/acme/sub/"*) : ;;
     "$HOME/acme/"*) dir="$HOME/acme/.inscope" ;;
   esac
-  export CLAUDE_CONFIG_DIR="$dir"
+  export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"
   unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
 
   local gh_user="" slack_svc=""
@@ -526,7 +553,12 @@ __inscope_resolve_identity() {
 
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd __inscope_resolve_identity
-__inscope_base_ccd="\${CLAUDE_CONFIG_DIR-}"   # login to fall back to outside an isolated subtree (empty -> ~/.claude)
+if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
+  case "\${CLAUDE_CONFIG_DIR-}" in
+    */.inscope|*/.inscope/) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an isolated login is never the base
+    *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
+  esac
+fi
 __inscope_ws="__init__"          # force the first resolve, clearing any inherited token
 __inscope_resolve_identity
 "
@@ -540,12 +572,21 @@ exports[`golden: gitconfig includeIf block 1`] = `
 `;
 
 exports[`golden: includeIf for tricky paths, skipping a no-git workspace 1`] = `
-"[includeIf "gitdir:/opt/work/"]
-	path = ~/.config/inscope/git/opt.gitconfig
-[includeIf "gitdir:~/"]
+"[includeIf "gitdir:~/"]
 	path = ~/.config/inscope/git/home.gitconfig
+[includeIf "gitdir:/opt/work/"]
+	path = ~/.config/inscope/git/opt.gitconfig
 [includeIf "gitdir:~/My Project (work)/"]
 	path = ~/.config/inscope/git/spaced.gitconfig"
+`;
+
+exports[`golden: includeIf puts a nested workspace after its parent 1`] = `
+"[includeIf "gitdir:~/"]
+	path = ~/.config/inscope/git/personal.gitconfig
+[includeIf "gitdir:~/work/"]
+	path = ~/.config/inscope/git/work.gitconfig
+[includeIf "gitdir:~/work/acme/"]
+	path = ~/.config/inscope/git/acme.gitconfig"
 `;
 
 exports[`golden: includeIf is empty when no workspace has a git identity 1`] = `""`;

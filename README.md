@@ -65,17 +65,17 @@ Bare `inscope add` prompts for the directory (defaulting to where you are); pass
 
 ## Commands
 
-| Command               | What it does                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `inscope add [path]`  | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run |
-| `inscope status`      | Show the identity resolved for the current directory (alias `whoami`)                                        |
-| `inscope list`        | List configured workspaces (alias `ls`)                                                                      |
-| `inscope edit [path]` | Change a workspace through the same prompts                                                                  |
-| `inscope rm [path]`   | Unmap a workspace (alias `remove`)                                                                           |
-| `inscope skill`       | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                 |
-| `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                 |
-| `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                       |
-| `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                               |
+| Command               | What it does                                                                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inscope add [path]`  | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run. Re-running it on a label updates that workspace and keeps whatever you do not pass (`--no-isolate` turns isolation off) |
+| `inscope status`      | Show the identity resolved for the current directory (alias `whoami`)                                                                                                                                                                 |
+| `inscope list`        | List configured workspaces (alias `ls`)                                                                                                                                                                                               |
+| `inscope edit [path]` | Change a workspace through the same prompts                                                                                                                                                                                           |
+| `inscope rm [path]`   | Unmap a workspace (alias `remove`)                                                                                                                                                                                                    |
+| `inscope skill`       | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                                                                                                                                          |
+| `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                                                                                                                                          |
+| `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                                                                                                                                                |
+| `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                                                                                                                                                        |
 
 Run any command with `-h` for its flags. Mutating commands apply in one step; `apply` is only for after you hand-edit the config.
 
@@ -102,7 +102,7 @@ One `.mcp.json` per workspace, each server suffixed with the workspace label (`g
 
 `github` · `atlassian` · `canva` · `clickup` · `datadog` · `hubspot` · `intercom` · `linear` · `monday` · `notion` · `nylas` · `plane` · `posthog` · `sentry` · `slack` · `stripe` · `vercel` · `webflow` · `xquik`
 
-Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting). Datadog serves each region from its own host, so pick yours with `--datadog-site` (`us1` default, `us3`, `us5`, `eu`, `ap1`, `ap2`, `uk1`), stored as `"datadog": { "site": "datadoghq.eu" }`. Nylas has no OAuth: it sends your Nylas API key as a Bearer header, read from the Keychain at connect time (`--seed-nylas` stores it, `--nylas-region eu` for EU apps). PostHog uses one endpoint and routes US and EU accounts itself. OAuth connectors, including Datadog, PostHog, and Xquik, authenticate in Claude Code at connect time. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
+Slack is opt-in (`--seed-slack` stores the `xoxp` token, `--slack-message` allows posting and `--no-slack-message` turns it back off). Datadog serves each region from its own host, so pick yours with `--datadog-site` (`us1` default, `us3`, `us5`, `eu`, `ap1`, `ap2`, `uk1`), stored as `"datadog": { "site": "datadoghq.eu" }`. Nylas has no OAuth: it sends your Nylas API key as a Bearer header, read from the Keychain at connect time (`--seed-nylas` stores it, `--nylas-region eu` for EU apps). PostHog uses one endpoint and routes US and EU accounts itself. OAuth connectors, including Datadog, PostHog, and Xquik, authenticate in Claude Code at connect time. Claude Code asks you to trust a workspace's servers the first time you open `claude` there; approve once.
 
 ---
 

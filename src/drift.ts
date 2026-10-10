@@ -33,7 +33,7 @@ import {
   skillsDir,
 } from "@/generators/skills"
 import { readFileOrEmpty } from "@/io"
-import { readBlock } from "@/managed-block"
+import { assertBlockWellFormed, readBlock } from "@/managed-block"
 
 const parseDoc = (file: string): Record<string, any> | null => {
   const raw = readFileOrEmpty(file)
@@ -73,12 +73,24 @@ export const computeDrift = (cfg: Config): Drift[] => {
   const hp = hookPath()
   drifts.push({ label: "hook", path: hp, current: readFileOrEmpty(hp), next: renderHook(cfg) })
 
-  drifts.push({
-    label: "gitconfig",
-    path: gitconfigPath(),
-    current: readBlock(gitconfigPath(), GITCONFIG_BLOCK_ID) ?? "",
-    next: renderGitInclude(cfg),
-  })
+  // apply refuses a ~/.gitconfig whose inscope markers are malformed; say so instead of
+  // "In sync" or a misleading addition.
+  let gitconfigErr: string | undefined
+  try {
+    assertBlockWellFormed(gitconfigPath(), GITCONFIG_BLOCK_ID)
+  } catch (err) {
+    gitconfigErr = err instanceof Error ? err.message : String(err)
+  }
+  drifts.push(
+    gitconfigErr
+      ? { label: "gitconfig", path: gitconfigPath(), current: "", next: "", error: gitconfigErr }
+      : {
+          label: "gitconfig",
+          path: gitconfigPath(),
+          current: readBlock(gitconfigPath(), GITCONFIG_BLOCK_ID) ?? "",
+          next: renderGitInclude(cfg),
+        },
+  )
 
   for (const ws of cfg.workspaces) {
     if (!hasGitIdentity(ws)) continue
