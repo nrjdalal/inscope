@@ -106,16 +106,35 @@ export const openSignInWindow = (name: string, url: string): void => {
 }
 
 // Close the login window and delete its profile (and the claude.ai session in it).
+// Chrome keeps writing into its profile for a moment after SIGTERM, so wait for it to
+// exit before removing the profile, and never fail a sign-in over cleanup: a profile
+// left behind is removed when the next sign-in starts.
 export const closeWindow = (name: string) => {
   const profile = loginProfileDir(name)
   const pidFile = `${profile}.pid`
   try {
     const pid = Number(fs.readFileSync(pidFile, "utf8").trim())
-    if (pid > 0) process.kill(pid, "SIGTERM")
+    if (pid > 0) {
+      process.kill(pid, "SIGTERM")
+      const until = Date.now() + 5000
+      while (Date.now() < until && isRunning(pid)) sleepSync(100)
+    }
   } catch {}
-  fs.rmSync(pidFile, { force: true })
-  fs.rmSync(profile, { recursive: true, force: true })
+  try {
+    fs.rmSync(pidFile, { force: true })
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch {}
 }
+
+// Whether a process is still running. A browser this process launched stays a zombie
+// after it exits (nothing reaps it while closeWindow waits), so ask ps for its state.
+const isRunning = (pid: number) => {
+  const r = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" })
+  return r.status === 0 && !r.stdout.trim().startsWith("Z")
+}
+
+export const sleepSync = (ms: number) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
 export type LoginResult = { email: string; subscriptionType?: string }
 
