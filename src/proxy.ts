@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
-import { type Config, type Gateway, gatewayAfterLoginChange, type Workspace } from "@/config"
+import type { Config } from "@/config"
 import { home, inscopeHome } from "@/env"
 import { writeFileAtomic } from "@/io"
 import {
@@ -21,9 +21,9 @@ import { defaultRunner, keychainSet, type Runner } from "@/secrets"
 // request that comes back 429 is retried on the next account in the same round, and
 // session affinity then keeps the conversation on that account. inscope installs a
 // pinned, checksum-verified release, writes a hardened config (loopback only, a random
-// client key, no management API or web panel), runs it as a launchd agent, and points a
-// workspace's Claude Code at it through the workspace gateway (ANTHROPIC_BASE_URL plus a
-// Keychain apiKeyHelper). The accounts' tokens live only in the proxy's own auth dir.
+// client key, no management API or web panel), runs it as a launchd agent, and points
+// every Claude Code login at it (ANTHROPIC_BASE_URL plus a Keychain apiKeyHelper, see
+// generators/settings.ts). The accounts' tokens live only in the proxy's own auth dir.
 //
 // Anthropic's terms forbid third parties that store or intermediate Claude.ai
 // credentials, which is what a proxy like this does; running it is the user's choice.
@@ -70,8 +70,12 @@ export const launchAgentPath = () =>
 
 export const proxyUrl = (port: number) => `http://127.0.0.1:${port}`
 
-// The gateway a workspace uses to reach the proxy.
-export const proxyGateway = (port: number): Gateway => ({
+// Where a login's Claude Code sends its requests: the proxy's URL, and the Keychain item
+// holding the client key it expects (sent as both `Authorization: Bearer` and
+// `x-api-key`).
+export type Route = { url: string; keychain: string }
+
+export const routeTo = (port: number): Route => ({
   url: proxyUrl(port),
   keychain: PROXY_KEYCHAIN,
 })
@@ -368,7 +372,9 @@ export const loginProxyAccount = async (opts: {
       opened = true
       if (mode !== "none")
         log(
-          `Sign in to Claude in ${mode === "chrome" ? "the new Chrome window" : "your browser"}; this continues when you are done.`,
+          mode === "chrome"
+            ? "A new Chrome window (a fresh profile, deleted afterwards) opened on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize; this continues once you do."
+            : "Sign in to Claude in your browser; this continues once you do.",
         )
       // An opener that throws (no Chrome, say) must not leave the login running.
       try {
@@ -418,12 +424,38 @@ export const logoutProxyAccount = (email: string): boolean => {
   return hits.length > 0
 }
 
+// Install (or keep) the pinned proxy, make sure its client key exists, write its
+// config and launchd agent, (re)start it, and wait until it answers. Throws when it
+// does not come up. Does not touch the inscope config: the caller records the port
+// once there is an account to route to.
+export const setupProxy = async (
+  port: number,
+  opts: { run?: Runner; log?: (line: string) => void } = {},
+) => {
+  const run = opts.run ?? defaultRunner
+  opts.log?.(`Installing CLIProxyAPI ${PROXY_VERSION} (checksum-verified)...`)
+  const bin = await installProxy({ run })
+  const key = ensureProxyKey(run)
+  writeProxyFiles(port, key, bin)
+  startProxy(run)
+  if (!(await proxyHealthy(port, key, { waitMs: 15_000 })))
+    throw new Error(
+      `the proxy did not come up on ${proxyUrl(port)}; see ${proxyLogPath()}. Is the port in use? Pick another with --port.`,
+    )
+}
+
+// Stop the proxy and remove its launchd agent, so launchd neither restarts it nor starts
+// it at the next login. The binary, config, and accounts stay.
+export const retireProxyAgent = (run: Runner = defaultRunner) => {
+  stopProxy(run)
+  fs.rmSync(launchAgentPath(), { force: true })
+}
+
 // Stop the proxy and remove its launchd agent and binary. `purge` also removes its
 // accounts, config, and logs, and the client key from the Keychain.
 export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => {
   const run = opts.run ?? defaultRunner
-  stopProxy(run)
-  fs.rmSync(launchAgentPath(), { force: true })
+  retireProxyAgent(run)
   fs.rmSync(path.join(proxyRoot(), "bin"), { recursive: true, force: true })
   if (opts.purge) {
     fs.rmSync(proxyRoot(), { recursive: true, force: true })
@@ -431,25 +463,6 @@ export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => 
   }
 }
 
-// Whether a workspace's gateway is the proxy.
-export const onProxy = (cfg: Config | null | undefined, ws: Workspace | undefined): boolean =>
-  Boolean(cfg?.proxy && ws?.gateway?.url === proxyUrl(cfg.proxy.port))
-
-// The workspaces whose gateway is the proxy.
-export const proxyUsers = (cfg: Config): string[] =>
-  cfg.workspaces.filter((w) => onProxy(cfg, w)).map((w) => w.name)
-
-// The gateway a workspace ends up with when `add` changes its login: `--proxy` (want
-// true) points it at the proxy, `--no-proxy` (want false) takes it off the proxy, and
-// otherwise the gateway follows the isolated login (gatewayAfterLoginChange).
-export const proxyAfterLoginChange = (
-  cfg: Config | null | undefined,
-  prior: Workspace | undefined,
-  isolate: boolean,
-  want: boolean | undefined,
-): { gateway: Gateway | undefined; note?: string } => {
-  if (want && cfg?.proxy) return { gateway: proxyGateway(cfg.proxy.port) }
-  if (want === false && onProxy(cfg, prior))
-    return { gateway: undefined, note: "Note: this workspace no longer goes through the proxy." }
-  return gatewayAfterLoginChange(prior, isolate)
-}
+// Where every login sends its requests: the proxy, while one is configured.
+export const proxyRoute = (cfg: Config | null | undefined): Route | undefined =>
+  cfg?.proxy ? routeTo(cfg.proxy.port) : undefined

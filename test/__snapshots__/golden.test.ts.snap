@@ -707,168 +707,37 @@ exports[`golden: status card, isolated login not signed in 1`] = `
   Skills  inscope"
 `;
 
-exports[`golden: hook with accounts 1`] = `
-"# Managed by inscope. Do not edit by hand.
-# Source of truth: ~/.config/inscope/inscope.json
-# Edit there, then run \`inscope apply\` to regenerate this file.
-#
-# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
-# the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
-# is written to disk, and there is no shared mutable state for sessions to race.
-__inscope_resolve_identity() {
-  local ws
-  case "\${PWD}/" in
-    "$HOME/side/notes/"*) ws="side-notes" ;;
-    "$HOME/client/"*) ws="client" ;;
-    "$HOME/side/"*) ws="side" ;;
-    "$HOME/team/"*) ws="team" ;;
-    *) ws="" ;;
-  esac
-  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
-  __inscope_ws="$ws"
-
-  # Pin the Claude login for this location and export it, so any launcher that
-  # inherits this shell (a terminal, cmux, an IDE) runs on it, not just a typed
-  # \`claude\`. An isolated workspace uses its local .inscope login; every other
-  # directory keeps your base login (INSCOPE_BASE_CCD, else ~/.claude). INSCOPE_CCD
-  # records what inscope set, so a re-source or child shell can tell it apart.
-  local dir="\${INSCOPE_BASE_CCD:-$HOME/.claude}"
-  case "\${PWD}/" in
-    "$HOME/side/notes/"*) : ;;
-    "$HOME/client/"*) dir="$HOME/client/.inscope" ;;
-    "$HOME/side/"*) dir="$HOME/.config/inscope/accounts/alt" ;;
-    "$HOME/team/"*) dir="$HOME/.config/inscope/accounts/work" ;;
-  esac
-  export CLAUDE_CONFIG_DIR="$dir" INSCOPE_CCD="$dir"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
-
-  local gh_user="" slack_svc=""
-  case "$ws" in
-    client) : ;;
-    side) : ;;
-    side-notes) : ;;
-    team) : ;;
-    *) return ;;                                     # outside a mapped workspace: nothing set
-  esac
-
-  local tok
-  if [[ -n "$gh_user" ]]; then
-    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
-    else
-      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
-    fi
-  fi
-  if [[ -n "$slack_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export SLACK_MCP_XOXP_TOKEN="$tok"
-    else
-      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
-    fi
-  fi
-}
-
-autoload -Uz add-zsh-hook
-add-zsh-hook chpwd __inscope_resolve_identity
-if [[ -z "\${INSCOPE_CCD+x}" || "\${CLAUDE_CONFIG_DIR-}" != "$INSCOPE_CCD" ]]; then
-  case "\${CLAUDE_CONFIG_DIR-}" in
-    */.inscope|*/.inscope/) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an isolated login is never the base
-    "$HOME/.config/inscope/accounts/"*) export INSCOPE_BASE_CCD="\${INSCOPE_BASE_CCD-}" ;;   # an account login is never the base
-    *) export INSCOPE_BASE_CCD="\${CLAUDE_CONFIG_DIR-}" ;;                        # your own value (empty -> ~/.claude)
-  esac
-fi
-__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
-__inscope_resolve_identity
-"
-`;
-
-exports[`golden: hook with accounts but no workspace on one yet 1`] = `
-"# Managed by inscope. Do not edit by hand.
-# Source of truth: ~/.config/inscope/inscope.json
-# Edit there, then run \`inscope apply\` to regenerate this file.
-#
-# One chpwd hook resolves per-workspace secrets from $PWD on every cd: it maps
-# the current directory to a workspace, then pulls that workspace's GitHub token
-# from the gh keyring and Slack tokens from the macOS keychain. Nothing sensitive
-# is written to disk, and there is no shared mutable state for sessions to race.
-__inscope_resolve_identity() {
-  local ws
-  case "\${PWD}/" in
-    "$HOME/p/"*) ws="p" ;;
-    *) ws="" ;;
-  esac
-  [[ "$ws" == "$__inscope_ws" ]] && return            # workspace unchanged, skip the lookups
-  __inscope_ws="$ws"
-  unset GITHUB_TOKEN GH_TOKEN SLACK_MCP_XOXP_TOKEN   # clear previous (and any inherited) tokens
-
-  local gh_user="" slack_svc=""
-  case "$ws" in
-    p) : ;;
-    *) return ;;                                     # outside a mapped workspace: nothing set
-  esac
-
-  local tok
-  if [[ -n "$gh_user" ]]; then
-    if tok="$(gh auth token -u "$gh_user" 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"
-    else
-      print -u2 "inscope: no gh token for $gh_user; GITHUB_TOKEN/GH_TOKEN unset"
-    fi
-  fi
-  if [[ -n "$slack_svc" ]]; then
-    if tok="$(security find-generic-password -a "$USER" -s "$slack_svc" -w 2>/dev/null)" && [[ -n "$tok" ]]; then
-      export SLACK_MCP_XOXP_TOKEN="$tok"
-    else
-      print -u2 "inscope: $slack_svc not in keychain; SLACK_MCP_XOXP_TOKEN unset"
-    fi
-  fi
-}
-
-autoload -Uz add-zsh-hook
-add-zsh-hook chpwd __inscope_resolve_identity
-if [[ ( -n "\${INSCOPE_CCD+x}" && "\${CLAUDE_CONFIG_DIR-}" == "$INSCOPE_CCD" ) || "\${CLAUDE_CONFIG_DIR-}" == */.inscope || "\${CLAUDE_CONFIG_DIR-}" == */.inscope/ || "\${CLAUDE_CONFIG_DIR-}" == "$HOME/.config/inscope/accounts/"* ]]; then
-  # inherited from a shell that had an isolated workspace; none is isolated now
-  if [[ -n "\${INSCOPE_BASE_CCD-}" ]]; then export CLAUDE_CONFIG_DIR="$INSCOPE_BASE_CCD"; else unset CLAUDE_CONFIG_DIR; fi
-fi
-unset INSCOPE_CCD INSCOPE_BASE_CCD   # no isolated workspace: nothing to fall back from
-__inscope_ws="__init__"          # force the first resolve, clearing any inherited token
-__inscope_resolve_identity
-"
-`;
-
-exports[`golden: status on an account 1`] = `
-"  side  ~/side
-
-  Claude  account alt · alt@x.dev · max
-          ~/.config/inscope/accounts/alt
-  MCP     github
-  Git     neeraj@x.dev (global)"
-`;
-
 exports[`golden: usage table 1`] = `
-"  LOGIN   EMAIL         PLAN     5-HOUR       WEEKLY        USED BY
-  base    me@x.dev      max 20x  3% · 2h 05m  99% · 1d 5h   personal
-  alt     alt@x.dev     max 5x   0%           72% · 4d 21h  side, team
-  old     old@x.dev     pro      expired      -             -
-  gone    -             -        signed out   -             -
-  fresh   fresh@x.dev   max 20x  - · 1h 00m   0%            -
-  client  c@client.com  team     unavailable  -             client
+"  ACCOUNT                 PLAN     5-HOUR       WEEKLY
+  me@x.dev                max 20x  3% · 2h 05m  99% · 1d 5h
+  alt@x.dev               max 5x   0%           72% · 4d 21h
+  old@x.dev               -        expired      -
+  gone@x.dev              -        signed out   -
+  fresh@x.dev (disabled)  pro      - · 1h 00m   0%
+  c@client.com            team     unavailable  -
 
-  expired (old): run \`inscope usage --refresh\`, or use that login once
-  signed out (gone): sign in with \`inscope login <name>\` (or \`claude\` there)
-  unavailable (client): usage endpoint returned 500"
+  expired (old@x.dev): the proxy renews tokens on its own; if this stays, sign in again with \`inscope login\`
+  signed out (gone@x.dev): sign in again with \`inscope login\`
+  unavailable (c@client.com): usage endpoint returned 500"
 `;
 
-exports[`golden: status card, isolated login behind a gateway 1`] = `
+exports[`golden: status card, isolated login through the proxy 1`] = `
 "  acme  ~/acme
 
-  Claude  isolated · gateway 127.0.0.1:8317
+  Claude  isolated · proxy 127.0.0.1:8317 · 3 accounts
           ~/acme/.inscope
   MCP     github
   GitHub  neeraj-acme-org · token ok
   Git     neeraj@acme.org (workspace)
   Skills  inscope"
+`;
+
+exports[`golden: status card, shared login through a proxy with no accounts 1`] = `
+"  no workspace  ~/scratch
+
+  Claude  shared · proxy 127.0.0.1:8317 · no accounts; run \`inscope login\`
+          ~/.claude
+  Git     neeraj@x.dev (global)"
 `;
 
 exports[`golden: proxy config 1`] = `

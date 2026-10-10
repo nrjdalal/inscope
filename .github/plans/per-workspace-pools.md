@@ -4,7 +4,7 @@ Status: idea, to discuss. Not designed yet.
 
 ## The idea
 
-Today `inscope proxy` has one pool, and every proxied workspace rotates across all of its accounts. Instead, each workspace (isolated or the shared login) would get its own pool. For example:
+Today the proxy has one pool, and every login (the shared one and each isolated workspace) rotates across all of its accounts. Instead, each workspace (isolated or the shared login) would get its own pool. For example:
 
 - the shared login keeps one personal account;
 - the `work` workspace rotates between the two accounts the employer gave (`a@work`, `b@work`).

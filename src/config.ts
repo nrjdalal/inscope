@@ -1,9 +1,9 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import type { Account } from "@/accounts"
-import { configPath, contractTilde, resolveAbsolute } from "@/env"
+import { configPath, contractTilde, inscopeHome, resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
+import { proxyUrl } from "@/proxy"
 
 // The Slack MCP server package a workspace runs. The @nrjdalal fork is the
 // default and floats on @latest; the original (korotovsky) is pinned for
@@ -77,18 +77,14 @@ export type Servers = {
 }
 
 export type Workspace = {
-  // Give this workspace its own Claude Code login: apply scaffolds a
-  // workspace-local config dir at `<path>/.inscope`, and the chpwd hook exports
-  // CLAUDE_CONFIG_DIR to point there whenever $PWD is under this subtree (so any
-  // launcher that inherits the shell env, a terminal, cmux, an IDE, uses that
-  // login). Omit to run on the shared ~/.claude like every unmapped directory.
-  // Kept first so an isolated workspace is flagged at the top of its block.
+  // Give this workspace its own Claude Code config dir: apply scaffolds
+  // `<path>/.inscope`, and the chpwd hook exports CLAUDE_CONFIG_DIR to point there
+  // whenever $PWD is under this subtree (so any launcher that inherits the shell env,
+  // a terminal, cmux, an IDE, uses it). It keeps the workspace's own history,
+  // settings, and skills; with the proxy (`inscope login`) its requests go through
+  // the proxy like every other login. Omit to run on the shared ~/.claude like every
+  // unmapped directory. Kept first so an isolated workspace is flagged at the top.
   isolate?: boolean
-  // Run this workspace on a named account login (see `accounts` on Config) instead
-  // of the shared ~/.claude or a workspace-local `.inscope`: the hook exports that
-  // account's config dir here. Several workspaces can share one account, and moving
-  // a workspace to another account is a one-field change. Excludes `isolate`.
-  account?: string
   name: string
   path: string
   gh?: string
@@ -104,17 +100,7 @@ export type Workspace = {
   // linked into every workspace by default. Set false to opt this workspace out;
   // `inscope skill rm inscope` writes that, `inscope skill add inscope` clears it.
   selfSkill?: boolean
-  // Route this workspace's Claude Code through an LLM gateway (an Anthropic-
-  // compatible proxy you run). Requires `isolate`: apply writes the gateway URL
-  // as `env.ANTHROPIC_BASE_URL` and an `apiKeyHelper` that reads the gateway's
-  // client key from the macOS keychain into `<path>/.inscope/settings.json`, so
-  // the key never lands on disk and the login's own OAuth token is never sent.
-  gateway?: Gateway
 }
-
-// An LLM gateway: its base URL and the keychain service holding the client key
-// the gateway expects (sent as both `Authorization: Bearer` and `x-api-key`).
-export type Gateway = { url: string; keychain: string }
 
 // A skill declared on a workspace. Either a string shorthand `"<source>#<subdir>"`
 // (e.g. `"owner/repo#skills/readme-audit"`) or the object form. See normalizeSkill
@@ -148,13 +134,11 @@ export type Config = {
   // fresh login skips the one-time warning dialog). Without it, Claude Code
   // v2.1.283+ starts interactive sessions in auto mode (v2.1.228+ on Pro, Max,
   // and Team plans). The shared ~/.claude base login is yours to manage; inscope
-  // never writes there. Dangerous, so it is opt-in and never implied.
+  // never writes bypass there. Dangerous, so it is opt-in and never implied.
   bypass?: boolean
-  // Named Claude logins kept by inscope (`inscope login <name>`), each its own config
-  // dir under ~/.config/inscope/accounts/<name>. A workspace opts in with `account`.
-  accounts?: Account[]
-  // The local CLIProxyAPI `inscope proxy setup` runs, by the port it listens on
-  // (127.0.0.1 only). A workspace reaches it through its gateway (`add --proxy`).
+  // The local proxy holding your Claude accounts (`inscope login`), by the port it
+  // listens on (127.0.0.1 only). While it is set, every login, the shared ~/.claude
+  // and each isolated workspace's, sends its requests through it.
   proxy?: { port: number }
   workspaces: Workspace[]
 }
@@ -168,7 +152,9 @@ export const defaultConfig = (): Config => ({
 
 export const configExists = () => fs.existsSync(configPath())
 
-export const loadConfig = (): Config => {
+// Read and validate the config, dropping fields a newer inscope retired; `notes` says
+// what was dropped and what to do instead (saving the config persists the cleanup).
+export const readConfig = (): { cfg: Config; notes: string[] } => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
   // A raw JSON.parse throws "Unexpected EOF" with no path; match the friendly,
@@ -183,13 +169,64 @@ export const loadConfig = (): Config => {
   // surface it on its own rather than under the generic "fix it and re-run".
   const versionErr = configVersionError(parsed)
   if (versionErr) throw new Error(versionErr)
+  const notes = retireLegacyFields(parsed)
   try {
     validateConfig(parsed)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
   }
-  return parsed
+  return { cfg: parsed, notes }
+}
+
+let noted = false
+
+// readConfig for commands that only use the config: the notes about retired fields go
+// to stderr, once per run however often the config is read.
+export const loadConfig = (): Config => {
+  const { cfg, notes } = readConfig()
+  if (!noted) for (const note of notes) console.error(`inscope: ${note}`)
+  noted = true
+  return cfg
+}
+
+// Fields from canary builds that the proxy replaced, dropped as the config loads (so
+// the next save removes them) with a note on what to do instead: named accounts sign in
+// to the proxy now, a workspace that ran on one runs on the shared login, and a
+// workspace gateway gives way to the proxy every login goes through. Mutates `raw`.
+export const retireLegacyFields = (raw: Record<string, any>): string[] => {
+  const notes: string[] = []
+  const accounts: { name?: unknown; email?: unknown }[] = Array.isArray(raw.accounts)
+    ? raw.accounts
+    : []
+  if ("accounts" in raw) {
+    delete raw.accounts
+    const who = accounts
+      .map((a) => `${a?.name}${typeof a?.email === "string" ? ` (${a.email})` : ""}`)
+      .join(", ")
+    notes.push(
+      `named accounts are retired; sign each Claude account in to the proxy with \`inscope login\`${who ? `: ${who}` : ""}. Their old logins stay in ${contractTilde(path.join(inscopeHome(), "accounts"))} until you delete them.`,
+    )
+  }
+  for (const ws of Array.isArray(raw.workspaces) ? raw.workspaces : []) {
+    if (!ws || typeof ws !== "object") continue
+    if ("account" in ws) {
+      notes.push(
+        `workspace "${ws.name}" ran on account "${ws.account}"; it now uses the shared login.`,
+      )
+      delete ws.account
+    }
+    if ("gateway" in ws) {
+      const url = ws.gateway?.url
+      if (!(raw.proxy && url === proxyUrl(raw.proxy.port)))
+        notes.push(
+          `workspace "${ws.name}" gateway${typeof url === "string" ? ` (${url})` : ""} is dropped; every login goes through the proxy (\`inscope login\`).`,
+        )
+      delete ws.gateway
+    }
+  }
+  if (notes.length) notes.push("These notes stop once the config is saved (`inscope apply`).")
+  return notes
 }
 
 export const saveConfig = (cfg: Config) => {
@@ -211,21 +248,6 @@ export const workspaceNameError = (name: string): string | null => {
   if (!name) return "must not be empty"
   if (!WORKSPACE_NAME_RE.test(name))
     return "use only letters, digits, dot (.), dash (-), or underscore (_)"
-  return null
-}
-
-// An account name becomes a directory under ~/.config/inscope/accounts and is
-// interpolated (double-quoted) into the hook as part of that path, so it is a lowercase
-// slug: macOS volumes are case-insensitive, so `work` and `Work` would share one dir
-// while Claude keys two Keychain slots on the two spellings. No leading dot (no hidden
-// or `.`/`..` dirs), and not "none", which `--account none` reserves for "no account".
-export const ACCOUNT_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/
-
-export const accountNameError = (name: string): string | null => {
-  if (!name) return "must not be empty"
-  if (name === "none") return '"none" is reserved (it means no account)'
-  if (!ACCOUNT_NAME_RE.test(name))
-    return "use lowercase letters, digits, dot (.), dash (-), or underscore (_), starting with a letter or digit"
   return null
 }
 
@@ -414,48 +436,9 @@ export const currentWorkspace = (
   return best
 }
 
-// A gateway is written into the isolated login's own settings.json, so it needs
-// `isolate` (inscope never writes the shared ~/.claude, and an account's dir is shared
-// by every workspace on it). The URL becomes ANTHROPIC_BASE_URL, so it must be an
-// absolute http(s) URL; the keychain service is interpolated into the apiKeyHelper
-// shell command, so it gets the same metacharacter guard as the other keychain values.
-const gatewayError = (ws: Workspace): string | null => {
-  const gw = ws.gateway as unknown
-  if (gw === undefined) return null
-  if (!gw || typeof gw !== "object" || Array.isArray(gw)) return "must be an object"
-  const { url, keychain } = gw as Record<string, unknown>
-  if (!ws.isolate) return "requires isolate: true (it lives in the workspace's own login)"
-  if (typeof url !== "string" || !url) return "is missing a url"
-  let proto: string
-  try {
-    proto = new URL(url).protocol
-  } catch {
-    return `url "${url}" is not a valid URL`
-  }
-  if (proto !== "http:" && proto !== "https:") return `url "${url}" must be http or https`
-  if (typeof keychain !== "string" || !keychain) return "is missing a keychain service"
-  const kcErr = hookValueError(keychain)
-  return kcErr ? `keychain "${keychain}" is invalid: ${kcErr}` : null
-}
-
 // A port the proxy may listen on: unprivileged, so no root is needed.
 export const isProxyPort = (port: unknown): port is number =>
   typeof port === "number" && Number.isInteger(port) && port >= 1024 && port <= 65535
-
-// The gateway a workspace keeps after its login changes: it lives in the isolated
-// login's settings, so it goes away with isolation (turning isolation off, or moving
-// the workspace to an account). Returns the note to print when one was dropped.
-export const gatewayAfterLoginChange = (
-  prior: Workspace | undefined,
-  isolate: boolean,
-): { gateway: Gateway | undefined; note?: string } => {
-  if (!prior?.gateway) return { gateway: undefined }
-  if (isolate) return { gateway: prior.gateway }
-  return {
-    gateway: undefined,
-    note: `Note: removed the gateway (${prior.gateway.url}); it requires an isolated login.`,
-  }
-}
 
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
@@ -466,24 +449,6 @@ export const validateConfig = (cfg: Config) => {
     throw new Error("config bypass must be a boolean")
   if (cfg.proxy !== undefined && !isProxyPort((cfg.proxy as { port?: unknown })?.port))
     throw new Error("config proxy.port must be an integer between 1024 and 65535")
-  const accountNames = new Set<string>()
-  if (cfg.accounts !== undefined) {
-    if (!Array.isArray(cfg.accounts)) throw new Error("config.accounts must be an array")
-    for (const acc of cfg.accounts) {
-      if (!acc || typeof acc !== "object" || Array.isArray(acc))
-        throw new Error("an account is not an object")
-      if (typeof acc.name !== "string" || !acc.name) throw new Error("an account is missing a name")
-      const nameErr = accountNameError(acc.name)
-      if (nameErr) throw new Error(`account name "${acc.name}" is invalid: ${nameErr}`)
-      if (acc.email !== undefined) {
-        const emailErr =
-          typeof acc.email === "string" ? gitValueError(acc.email) : "must be a string"
-        if (emailErr) throw new Error(`account "${acc.name}" email is invalid: ${emailErr}`)
-      }
-      if (accountNames.has(acc.name)) throw new Error(`duplicate account name "${acc.name}"`)
-      accountNames.add(acc.name)
-    }
-  }
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")
@@ -499,18 +464,6 @@ export const validateConfig = (cfg: Config) => {
     }
     if (ws.isolate !== undefined && typeof ws.isolate !== "boolean")
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
-    if (ws.account !== undefined) {
-      if (typeof ws.account !== "string" || !ws.account)
-        throw new Error(`workspace "${ws.name}" account must be a non-empty string`)
-      if (ws.isolate)
-        throw new Error(
-          `workspace "${ws.name}" sets both isolate and account; pick one (an account is already its own login)`,
-        )
-      if (!accountNames.has(ws.account))
-        throw new Error(
-          `workspace "${ws.name}" uses account "${ws.account}", which does not exist; run \`inscope login ${ws.account}\` first`,
-        )
-    }
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
     if (ws.git?.email) {
@@ -568,8 +521,6 @@ export const validateConfig = (cfg: Config) => {
           `workspace "${ws.name}" Nylas region "${nylas.region}" is invalid: use one of ${NYLAS_REGIONS.join(", ")}`,
         )
     }
-    const gwErr = gatewayError(ws)
-    if (gwErr) throw new Error(`workspace "${ws.name}" gateway ${gwErr}`)
     if (ws.skills !== undefined) {
       if (!Array.isArray(ws.skills))
         throw new Error(`workspace "${ws.name}" skills must be an array`)
@@ -645,8 +596,8 @@ export const upsertWorkspace = (cfg: Config, ws: Workspace): Config => {
   // arm, .mcp.json, and git include at the wrong directory.
   // Canonical key order (isolate first, then name and path), so an update that sets
   // isolation on an existing entry does not append it after the other fields.
-  const { isolate, account, name, path: p, ...rest } = ws
-  next.push({ isolate, account, name, path: contractTilde(resolveAbsolute(p)), ...rest })
+  const { isolate, name, path: p, ...rest } = ws
+  next.push({ isolate, name, path: contractTilde(resolveAbsolute(p)), ...rest })
   next.sort((a, b) => a.name.localeCompare(b.name))
   return { ...cfg, workspaces: next }
 }
@@ -662,24 +613,3 @@ export const removeWorkspace = (cfg: Config, key: string): { cfg: Config; remove
     removed,
   }
 }
-
-// Add or replace an account by name, keeping accounts name-sorted like workspaces.
-export const upsertAccount = (cfg: Config, acc: Account): Config => {
-  const next = (cfg.accounts ?? []).filter((a) => a.name !== acc.name)
-  next.push(acc)
-  next.sort((a, b) => a.name.localeCompare(b.name))
-  return { ...cfg, accounts: next }
-}
-
-export const removeAccount = (cfg: Config, name: string): Config => {
-  const next = (cfg.accounts ?? []).filter((a) => a.name !== name)
-  const { accounts: _drop, ...rest } = cfg
-  return next.length ? { ...rest, accounts: next } : rest
-}
-
-export const findAccount = (cfg: Config, name: string): Account | undefined =>
-  cfg.accounts?.find((a) => a.name === name)
-
-// The workspaces running on an account, by name.
-export const accountUsers = (cfg: Config, name: string): string[] =>
-  cfg.workspaces.filter((w) => w.account === name).map((w) => w.name)

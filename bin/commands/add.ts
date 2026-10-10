@@ -17,7 +17,6 @@ import {
 } from "@/config"
 import { contractTilde, resolveAbsolute, sameDir } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
-import { onProxy, proxyAfterLoginChange } from "@/proxy"
 import { ghAccounts, gitGlobal, keychainHas, shQuotePath } from "@/secrets"
 import {
   isInteractive,
@@ -37,8 +36,6 @@ import {
   finalizeSlack,
   ghChoices,
   gitGlobalHint,
-  loginChoices,
-  resolveLoginFlags,
   NYLAS_REGION_CHOICES,
   nylasKeychainFor,
   persist,
@@ -50,7 +47,7 @@ import {
 } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
-const helpMessage = `Map a workspace: a Claude login (shared or isolated), MCP servers, a GitHub account, a git commit email, and skills.
+const helpMessage = `Map a workspace: a Claude config (shared or isolated), MCP servers, a GitHub account, a git commit email, and skills.
 Runs interactively in a terminal; pass flags or -y to skip the prompts. Re-running
 with the same label updates that workspace: the flags you pass change it and
 everything else is kept. Each directory maps to one workspace.
@@ -60,16 +57,11 @@ Usage:
 
 Options:
   --gh <account>        gh account whose token this workspace uses
-  --isolate             give this workspace its own Claude login: scaffold a local
-                        <path>/.inscope config dir (gitignored) and launch claude
-                        there when you run it from this subtree (--no-isolate
-                        turns it off when updating a workspace)
-  --proxy               route this workspace through the local multi-account proxy
-                        (\`${name} proxy setup\`): its own login dir, with requests
-                        sent through the proxy, so earlier conversations from the
-                        shared login are not resumable there (--no-proxy turns it off)
-  --account <name>      run this workspace on a named account login
-                        (\`${name} login <name>\`) instead; "none" clears it
+  --isolate             give this workspace its own Claude config (history,
+                        settings, skills): scaffold a local <path>/.inscope dir
+                        (gitignored) and launch claude there when you run it from
+                        this subtree; with the proxy (\`${name} login\`) it still
+                        goes through it (--no-isolate turns it off)
   --email <email>       git commit email (omit to inherit your global identity)
   --git-name <name>     git commit author name (omit to inherit global)
   --label <name>        workspace name; defaults to the directory basename
@@ -124,8 +116,6 @@ export const add = async (args: string[]) => {
       yes: { type: "boolean", short: "y" },
       gh: { type: "string" },
       isolate: { type: "boolean" },
-      account: { type: "string" },
-      proxy: { type: "boolean" },
       email: { type: "string" },
       "git-name": { type: "string" },
       label: { type: "string" },
@@ -329,39 +319,13 @@ export const add = async (args: string[]) => {
       seedSlack = await promptConfirm("Store the Slack token now?", true)
   }
 
-  // --- Claude login: the shared base, its own .inscope, or a named account ---
-  const accounts = cfg?.accounts ?? []
-  let { isolate, account } = resolveLoginFlags(
-    { account: values.account, isolate: values.isolate },
-    existing ? { isolate: Boolean(existing.isolate), account: existing.account } : undefined,
-  )
-  if (values.isolate === undefined && values.account === undefined && interactive) {
-    if (accounts.length) {
-      const { choices, initial } = loginChoices(accounts, { isolate, account })
-      ;({ isolate, account } = await selectOne(
-        "\nClaude login for this workspace",
-        choices,
-        initial,
-      ))
-    } else isolate = await promptConfirm("\nDedicated Claude login for this workspace?", isolate)
-  }
-  // --proxy is an isolated login whose gateway is the proxy; --no-proxy drops it.
-  if (values.proxy) {
-    if (!cfg?.proxy) {
-      console.error(`\nThe proxy is not set up. Run \`${name} proxy setup\` first.`)
-      process.exit(1)
-    }
-    if (values.account && values.account !== "none") {
-      console.error("\n--proxy and --account each pick the login; pass one, not both")
-      process.exit(1)
-    }
-    isolate = true
-    account = undefined
-  }
-  if (account && !accounts.some((a) => a.name === account)) {
-    console.error(`\nNo account named "${account}". Sign it in first: ${name} login ${account}`)
-    process.exit(1)
-  }
+  // --- Claude config: the shared base, or its own .inscope ---
+  let isolate = values.isolate ?? Boolean(existing?.isolate)
+  if (values.isolate === undefined && interactive)
+    isolate = await promptConfirm(
+      "\nSeparate Claude config for this workspace (its own history, settings, and skills)?",
+      isolate,
+    )
 
   // gh account and Slack keychain are interpolated into the chpwd hook; reject
   // values that would break out of the quoting (the --gh / --slack-keychain
@@ -385,12 +349,9 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
-  const gatewayChange = proxyAfterLoginChange(cfg, existing, isolate, values.proxy)
   const ws: Workspace = {
     ...existing,
     isolate: isolate || undefined,
-    account,
-    gateway: gatewayChange.gateway,
     name: label,
     path: contractTilde(target),
     gh,
@@ -409,8 +370,8 @@ export const add = async (args: string[]) => {
   // A move is a different directory (and so a different .inscope login), even when a
   // worktree's .mcp.json is shared with the old one.
   const moved = !!existing && !sameDir(existing.path, ws.path)
-  // What is on disk decides the login messages: a directory moved with `mv` carries
-  // its .inscope login along, and its old path no longer holds one.
+  // What is on disk decides the messages: a directory moved with `mv` carries its
+  // .inscope along, and its old path no longer holds one.
   const loginAt = (p: string) => fs.existsSync(path.join(resolveAbsolute(p), ".inscope"))
   const hadLogin = loginAt(ws.path)
   persist(ws)
@@ -419,31 +380,30 @@ export const add = async (args: string[]) => {
   console.log(`✓ regenerated the hook, git includes, and ${ws.path}/.mcp.json`)
   if (ws.isolate && !hadLogin)
     console.log(
-      `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude login`,
+      `✓ scaffolded ${ws.path}/.inscope (gitignored) for this workspace's own Claude config`,
     )
-  // The old login stays where it was: after turning isolation off, or after a move.
+  // The old config stays where it was: after turning isolation off, or after a move.
   if (existing?.isolate && (!ws.isolate || moved) && loginAt(existing.path))
     console.log(
-      `\nNote: ${existing.path}/.inscope still holds a Claude login; it was left in place.\n` +
+      `\nNote: ${existing.path}/.inscope still holds that workspace's Claude config (its history, and any login); it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${existing.path}/.inscope`)}`)}`,
     )
-  if (gatewayChange.note) console.log(gatewayChange.note)
   await finalizeSlack(ws, seedSlack)
   await finalizeNylas(ws, seedNylas)
   if (firstRun)
     console.log(
       `\nFirst run: reload your shell to load the hook: source ~/.zshrc (or open a new terminal).`,
     )
+  // With the proxy every login goes through it, so an isolated one needs no sign-in.
+  const routed = Boolean(cfg?.proxy)
   console.log(
-    ws.account
-      ? `\nLaunch \`claude\` from ${ws.path}; it runs on account ${ws.account}.`
-      : ws.gateway
-        ? `\nLaunch \`claude\` from ${ws.path}; its requests go through the ${onProxy(cfg, ws) ? "proxy" : "gateway"}, so there is nothing to sign in to.`
-        : ws.isolate
-          ? hadLogin
-            ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`
-            : `\nLaunch \`claude\` from ${ws.path} and sign in once; this workspace keeps its own login in .inscope.`
-          : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
+    ws.isolate
+      ? routed
+        ? `\nLaunch \`claude\` from ${ws.path}; it keeps its own config in .inscope and goes through the proxy.`
+        : hadLogin
+          ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own config in .inscope.`
+          : `\nLaunch \`claude\` from ${ws.path} and sign in once (or sign your accounts in to the proxy with \`${name} login\`); this workspace keeps its own config in .inscope.`
+      : `\nLaunch \`claude\` from ${ws.path} (or relaunch) to pick up the new identity.`,
   )
   process.exit(0)
 }

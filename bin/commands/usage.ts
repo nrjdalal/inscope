@@ -5,20 +5,16 @@ import { renderUsage, resolveUsage, usageJson } from "@/usage"
 import { dim, green, orange, red, yellow } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
-const helpMessage = `Show each Claude login's subscription limits: the 5-hour and weekly
-usage and when each resets, for your base login, every account (\`${name} login\`),
-and every signed-in isolated workspace.
+const helpMessage = `Show your Claude accounts' subscription limits: for each account in the proxy
+(\`${name} login\`), its plan and its 5-hour and weekly usage, and when each resets.
 
 Usage is read from Anthropic's subscription usage endpoint (the one behind Claude
-Code's /usage), using each login's own token from the Keychain, read-only. A login
-whose token has expired shows as expired: inscope never refreshes a token itself.
+Code's /usage), with each account's own token from the proxy, read-only.
 
 Usage:
   $ ${name} usage [options]
 
 Options:
-  --refresh   first let Claude Code refresh any expired login by sending it a
-              one-word Haiku prompt (uses a sliver of that account's usage)
   --json      print the rows as JSON
   -h, --help  Display help message`
 
@@ -28,7 +24,6 @@ export const usage = async (args: string[]) => {
     options: {
       help: { type: "boolean", short: "h" },
       json: { type: "boolean" },
-      refresh: { type: "boolean" },
     },
     args,
   })
@@ -36,14 +31,14 @@ export const usage = async (args: string[]) => {
     console.log(helpMessage)
     process.exit(0)
   }
-  // No config yet still has a base login worth showing.
   const cfg = configExists() ? loadConfig() : defaultConfig()
-  const rows = await resolveUsage(cfg, {
-    refresh: values.refresh,
-    onRefresh: (label) => console.error(dim(`refreshing ${label}...`)),
-  })
+  const rows = await resolveUsage(cfg)
   if (values.json) {
     console.log(JSON.stringify(usageJson(rows), null, 2))
+    process.exit(0)
+  }
+  if (!rows.length) {
+    console.log(`No Claude accounts yet. Sign one in with \`${name} login\`.`)
     process.exit(0)
   }
   console.log()

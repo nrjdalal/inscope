@@ -7,9 +7,19 @@ import { createEmulator, defineEmulator } from "emulate"
 // limit, a server error, and a response whose shape drifted. The real response
 // (captured 2026-10-10) carries `five_hour`/`seven_day` objects with `utilization`
 // (percent) and `resets_at` (ISO), plus many nullable extras; the emulator returns the
-// same shape so the parser is tested against what the endpoint actually sends.
+// same shape so the parser is tested against what the endpoint actually sends. It also
+// answers GET /api/oauth/profile (behind Claude Code's account view) with the
+// `organization` fields inscope reads the plan from, in the shape captured 2026-10-10.
 export type TokenBehavior =
-  | { kind: "ok"; fiveHour: number; week: number; fiveHourResets: string; weekResets: string }
+  | {
+      kind: "ok"
+      fiveHour: number
+      week: number
+      fiveHourResets: string
+      weekResets: string
+      // The organization's rate-limit tier the profile endpoint reports.
+      tier?: string
+    }
   | { kind: "status"; status: number }
   | { kind: "shape"; body: unknown }
 
@@ -22,6 +32,29 @@ const anthropic = defineEmulator<AnthropicState>({
   name: "anthropic-oauth",
   state: () => ({ tokens: {}, requests: [] }),
   setup({ app, state }) {
+    app.get("/api/oauth/profile", (c) => {
+      const authorization = c.req.header("authorization") ?? null
+      state.requests.push({
+        path: "/api/oauth/profile",
+        authorization,
+        beta: c.req.header("anthropic-beta") ?? null,
+      })
+      const behavior = authorization?.startsWith("Bearer ")
+        ? state.tokens[authorization.slice("Bearer ".length)]
+        : undefined
+      if (behavior?.kind !== "ok")
+        return c.json({ type: "error", error: { type: "authentication_error" } }, 401)
+      return c.json({
+        account: { uuid: "u", email: "x@x.dev", has_claude_max: true, has_claude_pro: false },
+        organization: {
+          uuid: "o",
+          organization_type: behavior.tier?.includes("max") ? "claude_max" : "claude_pro",
+          billing_type: "stripe_subscription",
+          rate_limit_tier: behavior.tier ?? null,
+          subscription_status: "active",
+        },
+      })
+    })
     app.get("/api/oauth/usage", (c) => {
       const authorization = c.req.header("authorization") ?? null
       const beta = c.req.header("anthropic-beta") ?? null

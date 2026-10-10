@@ -405,107 +405,43 @@ test("golden: status card, isolated login not signed in", () => {
   expect(renderStatus(snap)).toMatchSnapshot()
 })
 
-// Accounts: a workspace on a named account exports that account's dir (rendered from
-// the same absolute path `inscope login` signs in with), an isolated one keeps its own
-// `.inscope`, a nested non-dedicated one keeps the base, and the base capture treats an
-// inherited account login as never-the-base.
-const withAccounts: Config = {
-  version: 1,
-  accounts: [{ name: "alt", email: "alt@x.dev" }, { name: "work" }],
-  workspaces: [
-    { name: "client", path: "~/client", servers: {}, isolate: true },
-    { name: "side", path: "~/side", servers: {}, account: "alt" },
-    { name: "side-notes", path: "~/side/notes", servers: {} },
-    { name: "team", path: "~/team", servers: {}, account: "work" },
-  ],
-}
-
-test("golden: hook with accounts", () => {
-  expect(renderHook(withAccounts)).toMatchSnapshot()
-})
-
-test("golden: hook with accounts but no workspace on one yet", () => {
-  expect(
-    renderHook({
-      version: 1,
-      accounts: [{ name: "alt" }],
-      workspaces: [{ name: "p", path: "~/p", servers: {} }],
-    }),
-  ).toMatchSnapshot()
-})
-
-test("golden: status on an account", () => {
-  const snap: StatusSnapshot = {
-    workspace: "side",
-    path: "~/side",
-    claude: {
-      isolated: false,
-      account: "alt",
-      configDir: "~/.config/inscope/accounts/alt",
-      signedIn: true,
-      email: "alt@x.dev",
-      subscription: "max",
-    },
-    github: null,
-    git: { email: "neeraj@x.dev", source: "global" },
-    servers: ["github"],
-    skills: [],
-  }
-  expect(renderStatus(snap)).toMatchSnapshot()
-})
-
 test("golden: usage table", () => {
   const now = Date.parse("2026-10-10T12:00:00Z")
+  const auth = (e: string) => `/h/.config/inscope/proxy/auth/claude-${e}.json`
   const rows: UsageRow[] = [
     {
-      label: "base",
-      kind: "base",
-      dir: "/h/.claude",
-      usedBy: ["personal"],
       email: "me@x.dev",
+      file: auth("me@x.dev"),
+      disabled: false,
       plan: "max 20x",
       state: "ok",
       fiveHour: { percent: 3.4, resetsAt: "2026-10-10T14:05:00Z" },
       week: { percent: 99, resetsAt: "2026-10-11T17:00:00Z" },
     },
     {
-      label: "alt",
-      kind: "account",
-      dir: "/h/.config/inscope/accounts/alt",
-      usedBy: ["side", "team"],
       email: "alt@x.dev",
+      file: auth("alt@x.dev"),
+      disabled: false,
       plan: "max 5x",
       state: "ok",
       fiveHour: { percent: 0, resetsAt: null },
       week: { percent: 72, resetsAt: "2026-10-15T09:00:00Z" },
     },
+    { email: "old@x.dev", file: auth("old@x.dev"), disabled: false, state: "expired" },
+    { email: "gone@x.dev", file: auth("gone@x.dev"), disabled: false, state: "signed-out" },
     {
-      label: "old",
-      kind: "account",
-      dir: "/h/a/old",
-      usedBy: [],
-      email: "old@x.dev",
-      plan: "pro",
-      state: "expired",
-    },
-    { label: "gone", kind: "account", dir: "/h/a/gone", usedBy: [], state: "signed-out" },
-    {
-      label: "fresh",
-      kind: "account",
-      dir: "/h/a/fresh",
-      usedBy: [],
       email: "fresh@x.dev",
-      plan: "max 20x",
+      file: auth("fresh@x.dev"),
+      disabled: true,
+      plan: "pro",
       state: "ok",
       fiveHour: { percent: null, resetsAt: "2026-10-10T13:00:00Z" },
       week: { percent: 0, resetsAt: null },
     },
     {
-      label: "client",
-      kind: "isolated",
-      dir: "/h/client/.inscope",
-      usedBy: ["client"],
       email: "c@client.com",
+      file: auth("c@client.com"),
+      disabled: false,
       plan: "team",
       state: "error",
       detail: "usage endpoint returned 500",
@@ -514,7 +450,7 @@ test("golden: usage table", () => {
   expect(renderUsage(rows, now)).toMatchSnapshot()
 })
 
-test("golden: status card, isolated login behind a gateway", () => {
+test("golden: status card, isolated login through the proxy", () => {
   const snap: StatusSnapshot = {
     workspace: "acme",
     path: "~/acme",
@@ -522,12 +458,30 @@ test("golden: status card, isolated login behind a gateway", () => {
       isolated: true,
       configDir: "~/acme/.inscope",
       signedIn: true,
-      gateway: "127.0.0.1:8317",
+      proxy: { host: "127.0.0.1:8317", accounts: 3 },
     },
     github: { account: "neeraj-acme-org", token: true },
     git: { email: "neeraj@acme.org", source: "workspace" },
     servers: ["github"],
     skills: ["inscope"],
+  }
+  expect(renderStatus(snap)).toMatchSnapshot()
+})
+
+test("golden: status card, shared login through a proxy with no accounts", () => {
+  const snap: StatusSnapshot = {
+    workspace: null,
+    path: "~/scratch",
+    claude: {
+      isolated: false,
+      configDir: "~/.claude",
+      signedIn: true,
+      proxy: { host: "127.0.0.1:8317", accounts: 0 },
+    },
+    github: null,
+    git: { email: "neeraj@x.dev", source: "global" },
+    servers: [],
+    skills: [],
   }
   expect(renderStatus(snap)).toMatchSnapshot()
 })

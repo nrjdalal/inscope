@@ -1,170 +1,125 @@
-import { createHash } from "node:crypto"
-import path from "node:path"
-
-import { inscopeHome } from "@/env"
+import { applyAll, preflightApply } from "@/apply"
+import { type Config, configExists, defaultConfig, loadConfig, saveConfig } from "@/config"
+import type { BrowserMode } from "@/login"
+import {
+  DEFAULT_PROXY_PORT,
+  loginProxyAccount,
+  logoutProxyAccount,
+  type ProxyAccount,
+  proxyAccounts,
+  proxyHealthy,
+  readProxyKey,
+  retireProxyAgent,
+  setupProxy,
+  uninstallProxy,
+} from "@/proxy"
 import { defaultRunner, type Runner } from "@/secrets"
 
-// A named Claude login inscope keeps outside any workspace, so several workspaces can
-// run on it and a workspace can move between accounts. Each account is its own Claude
-// config dir; `inscope login <name>` signs it in through Claude Code's own
-// `claude auth login`, and a workspace with `account: <name>` runs on it (the hook
-// exports CLAUDE_CONFIG_DIR pointing here).
-export type Account = { name: string; email?: string }
+// Your Claude accounts, as inscope's config sees them: signing one in to the proxy, and
+// moving or removing the proxy. Every change is checked against the config it leads to
+// before anything is touched, then saved and applied, so every login always points at a
+// proxy that runs (or straight at Anthropic once there is none).
 
-export const accountsRoot = () => path.join(inscopeHome(), "accounts")
-
-export const accountDir = (name: string) => path.join(accountsRoot(), name)
-
-// Whether `dir` is (or sits inside) one of inscope's account logins. Used to keep a
-// login the hook exported from ever being mistaken for the user's own base login.
-export const isAccountDir = (dir: string): boolean => {
-  const root = accountsRoot()
-  return dir === root || dir.startsWith(root + path.sep)
+// Check the config a change leads to, make the change, then save and apply that config.
+const reconfigure = async (next: Config, change: () => unknown) => {
+  preflightApply(next)
+  await change()
+  saveConfig(next)
+  applyAll(next)
 }
 
-// Claude Code on macOS keeps each login's OAuth token in a Keychain item named after
-// the LITERAL CLAUDE_CONFIG_DIR string it ran with: `Claude Code-credentials-` plus the
-// first 8 hex of sha256(dir), with only NFC normalization (no realpath, no `~`
-// expansion, no trailing-slash cleanup). Without CLAUDE_CONFIG_DIR it uses the bare
-// `Claude Code-credentials`. So the hook must export exactly the string `inscope
-// login` signed in with, or Claude reads an empty slot.
-export const keychainServiceFor = (configDir: string): string =>
-  `Claude Code-credentials-${createHash("sha256").update(configDir.normalize("NFC")).digest("hex").slice(0, 8)}`
-
-export const BARE_KEYCHAIN_SERVICE = "Claude Code-credentials"
-
-export type OAuthToken = {
-  accessToken: string
-  expiresAt?: number
-  subscriptionType?: string
-  rateLimitTier?: string
+export type SignInOptions = {
+  email?: string
+  mode: BrowserMode
+  // The port for a new proxy; refused when it differs from a running one.
+  port?: number
+  log?: (line: string) => void
+  run?: Runner
 }
 
-const readSlot = (service: string, run: Runner): OAuthToken | null => {
-  const r = run("security", ["find-generic-password", "-s", service, "-w"])
-  if (r.status !== 0 || !r.stdout.trim()) return null
+// Sign a Claude account in to the proxy, setting the proxy up first when it is not
+// running. The proxy is recorded, and every login routed to it, only once it holds an
+// account; a first sign-in that fails leaves no proxy behind.
+export const signIn = async (
+  opts: SignInOptions,
+): Promise<{ account: ProxyAccount; port: number; accounts: number }> => {
+  const run = opts.run ?? defaultRunner
+  const log = opts.log ?? ((l: string) => console.log(l))
+  const cfg = configExists() ? loadConfig() : defaultConfig()
+  if (cfg.proxy && opts.port !== undefined && opts.port !== cfg.proxy.port)
+    throw new Error(
+      `The proxy already runs on port ${cfg.proxy.port}; change it with \`inscope proxy setup --port ${opts.port}\`.`,
+    )
+  const port = cfg.proxy?.port ?? opts.port ?? DEFAULT_PROXY_PORT
+  // Routing every login through the proxy must be possible before anyone signs in: a
+  // settings.json with a key helper of its own stops here, not after the sign-in.
+  preflightApply({ ...cfg, proxy: { port } })
+
+  if (!cfg.proxy)
+    log(
+      "\nThe proxy stores your Claude accounts' tokens locally and relays Claude Code's requests; Anthropic's terms forbid third parties doing that with Claude.ai credentials, so running it is your choice and your accounts' risk.",
+    )
+  let account: ProxyAccount
   try {
-    const o = JSON.parse(r.stdout)?.claudeAiOauth
-    if (!o || typeof o.accessToken !== "string" || !o.accessToken) return null
-    return {
-      accessToken: o.accessToken,
-      expiresAt: typeof o.expiresAt === "number" ? o.expiresAt : undefined,
-      subscriptionType: typeof o.subscriptionType === "string" ? o.subscriptionType : undefined,
-      rateLimitTier: typeof o.rateLimitTier === "string" ? o.rateLimitTier : undefined,
-    }
-  } catch {
-    return null
-  }
-}
-
-// The Keychain slot for a CLAUDE_CONFIG_DIR value; undefined (the variable unset) is
-// Claude Code's bare default slot, a different login from CLAUDE_CONFIG_DIR=~/.claude.
-export const slotFor = (ccd: string | undefined) =>
-  ccd === undefined ? BARE_KEYCHAIN_SERVICE : keychainServiceFor(ccd)
-
-// The OAuth token Claude Code stored for a CLAUDE_CONFIG_DIR value, read straight from
-// the Keychain. Read-only: inscope never refreshes or writes it, so it can never race
-// Claude Code's own refresh of a single-use refresh token.
-export const readOAuth = (
-  ccd: string | undefined,
-  run: Runner = defaultRunner,
-): OAuthToken | null => readSlot(slotFor(ccd), run)
-
-// Variables that would make Claude Code skip its subscription login (an API key or an
-// injected OAuth token) or send its token elsewhere (a gateway). Dropped for every
-// claude inscope runs on an account's behalf.
-export const CREDENTIAL_ENV_VARS = [
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_AUTH_TOKEN",
-  "ANTHROPIC_BASE_URL",
-  "CLAUDE_CODE_OAUTH_TOKEN",
-]
-
-// Anthropic's subscription usage endpoint. Undocumented (it backs Claude Code's own
-// /usage view), so every field is read defensively and any surprise degrades to an
-// error row instead of a crash. INSCOPE_ANTHROPIC_API_URL points it at a local
-// emulator in tests, and is honored only for a loopback host: every login's bearer
-// token goes to this URL, so a stray override must never send them off the machine.
-const ANTHROPIC_API = "https://api.anthropic.com"
-
-export const anthropicApiBase = () => {
-  const raw = process.env.INSCOPE_ANTHROPIC_API_URL?.trim()
-  if (!raw) return ANTHROPIC_API
-  try {
-    const u = new URL(raw)
-    const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname)
-    if (loopback && (u.protocol === "http:" || u.protocol === "https:"))
-      return raw.replace(/\/+$/, "")
-  } catch {}
-  return ANTHROPIC_API
-}
-
-export type UsageWindow = { percent: number | null; resetsAt: string | null }
-
-export type UsageFetch =
-  | { ok: true; fiveHour: UsageWindow | null; week: UsageWindow | null }
-  | { ok: false; reason: "expired" | "rate-limited" | "error"; detail: string }
-
-const toWindow = (w: unknown): UsageWindow | null => {
-  if (!w || typeof w !== "object") return null
-  const o = w as Record<string, unknown>
-  const pct =
-    typeof o.utilization === "number" && Number.isFinite(o.utilization) ? o.utilization : null
-  const at = typeof o.resets_at === "string" && o.resets_at ? o.resets_at : null
-  return pct === null && at === null ? null : { percent: pct, resetsAt: at }
-}
-
-export type FetchLike = (
-  url: string,
-  init: { headers: Record<string, string>; signal?: AbortSignal },
-) => Promise<{
-  status: number
-  json: () => Promise<unknown>
-}>
-
-export const fetchUsage = async (
-  token: string,
-  fetchImpl: FetchLike = fetch as unknown as FetchLike,
-): Promise<UsageFetch> => {
-  let res: Awaited<ReturnType<FetchLike>>
-  try {
-    res = await fetchImpl(`${anthropicApiBase()}/api/oauth/usage`, {
-      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
-      signal: AbortSignal.timeout(10_000),
-    })
+    const key = readProxyKey(run)
+    if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
+      await setupProxy(port, { run, log: (l) => log(`\n${l}`) })
+    account = await loginProxyAccount({ email: opts.email, mode: opts.mode, log })
   } catch (err) {
-    return {
-      ok: false,
-      reason: "error",
-      detail: `request failed: ${err instanceof Error ? err.message : err}`,
-    }
+    // Nothing routes to a first proxy yet, so a setup or sign-in that fails leaves none
+    // running (launchd would otherwise keep restarting it, and start it at every login).
+    // The binary and key stay for the next try.
+    if (!cfg.proxy) retireProxyAgent(run)
+    throw err
   }
-  if (res.status === 401) return { ok: false, reason: "expired", detail: "token rejected (401)" }
-  if (res.status === 429)
-    return { ok: false, reason: "rate-limited", detail: "usage endpoint rate limited (429)" }
-  if (res.status !== 200)
-    return { ok: false, reason: "error", detail: `usage endpoint returned ${res.status}` }
-  let body: unknown
-  try {
-    body = await res.json()
-  } catch {
-    return { ok: false, reason: "error", detail: "usage endpoint returned invalid JSON" }
-  }
-  if (!body || typeof body !== "object")
-    return { ok: false, reason: "error", detail: "usage endpoint returned an unexpected shape" }
-  const b = body as Record<string, unknown>
-  const fiveHour = toWindow(b.five_hour)
-  const week = toWindow(b.seven_day)
-  if (!fiveHour && !week)
-    return { ok: false, reason: "error", detail: "usage endpoint returned no 5h or weekly window" }
-  return { ok: true, fiveHour, week }
+
+  // Re-read: the sign-in can take minutes, and another inscope command may have saved
+  // the config meanwhile.
+  const latest = configExists() ? loadConfig() : cfg
+  await reconfigure({ ...latest, proxy: { port } }, () => {})
+  return { account, port, accounts: proxyAccounts().length }
 }
 
-// A readable plan from what Claude Code stored with the token: the rate-limit tier
-// carries the Max multiplier (`default_claude_max_20x` -> "max 20x"); otherwise the
-// subscription type ("pro", "team", ...).
-export const planLabel = (tok: Pick<OAuthToken, "subscriptionType" | "rateLimitTier"> | null) => {
-  const tier = tok?.rateLimitTier?.match(/max_(\d+x)/)
-  if (tier) return `max ${tier[1]}`
-  return tok?.subscriptionType || undefined
+// Reinstall the proxy and restart it, on `port`; every login's URL moves with it. When
+// it does not come up there, it is set up again where it was, so the logins (which still
+// point at the old port) keep working.
+export const moveProxy = (cfg: Config, port: number, run: Runner = defaultRunner) => {
+  const from = cfg.proxy?.port
+  return reconfigure({ ...cfg, proxy: { port } }, async () => {
+    try {
+      await setupProxy(port, { run })
+    } catch (err) {
+      if (from === undefined || from === port) throw err
+      try {
+        await setupProxy(from, { run })
+      } catch (again) {
+        throw new Error(
+          `${err instanceof Error ? err.message : err}\nPutting it back on port ${from} failed too: ${again instanceof Error ? again.message : again}`,
+        )
+      }
+      throw err
+    }
+  })
+}
+
+// Remove an account from the proxy. The last one is refused: every login goes through the
+// proxy, so it would leave Claude Code with no account (removeProxy stops using it).
+export const signOut = (email: string): void => {
+  const accounts = proxyAccounts()
+  if (!accounts.some((a) => a.email.toLowerCase() === email.toLowerCase()))
+    throw new Error(
+      `No account ${email} in the proxy.${accounts.length ? ` It holds: ${accounts.map((a) => a.email).join(", ")}.` : " Sign one in with `inscope login`."}`,
+    )
+  if (accounts.length === 1)
+    throw new Error(
+      `${email} is the proxy's last account, and every Claude Code login goes through the proxy, so removing it would leave Claude Code with no account. Sign another in first (\`inscope login\`), or stop using the proxy with \`inscope proxy uninstall\`. Nothing was changed.`,
+    )
+  logoutProxyAccount(email)
+}
+
+// Stop using the proxy: remove it (with `purge`, its accounts and key too), and send
+// every login straight to Anthropic again.
+export const removeProxy = (cfg: Config, opts: { purge?: boolean; run?: Runner } = {}) => {
+  const { proxy: _gone, ...rest } = cfg
+  return reconfigure(rest, () => uninstallProxy(opts))
 }
