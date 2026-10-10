@@ -334,6 +334,7 @@ test("loginProxyAccount opens the printed URL, waits for the sign-in, and verifi
       )
 
       // --browser none: the URL is printed for you to open, with no Chrome wording
+      fs.rmSync(flag, { force: true })
       const lines: string[] = []
       const printed = await loginProxyAccount({
         bin,
@@ -346,6 +347,7 @@ test("loginProxyAccount opens the printed URL, waits for the sign-in, and verifi
       expect(printed.email).toBe("n@x.dev")
 
       // signing an account in again replaces its earlier file instead of adding a second
+      fs.rmSync(flag)
       writeAuth(path.join(proxyAuthDir(), "claude-old-a.json"), {
         type: "claude",
         email: "A@x.dev",
