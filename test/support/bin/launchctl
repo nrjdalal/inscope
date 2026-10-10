@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Fake launchctl for the proxy's launchd agent: records each call, and keeps whether
-// the agent is "loaded" in the sandbox (FAKE_BOOTSTRAP_FAIL makes loading fail), so `bootstrap`, `bootout`, and `print` behave
-// like launchd without ever touching the real user domain (the label is per user, not
-// per HOME, so a real launchctl here would replace the live proxy's agent).
+// the agent is "loaded" in the sandbox (FAKE_BOOTSTRAP_FAIL makes loading fail), so
+// `bootstrap`, `bootout`, and `print` behave like launchd without ever touching the
+// real user domain (the label is per user, not per HOME, so a real launchctl here
+// would replace the live proxy's agent).
 // Refuses to run outside a test sandbox, like the other fakes.
 {
   const fs = require("node:fs")

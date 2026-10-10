@@ -4,10 +4,10 @@ import type { BrowserMode } from "@/login"
 import {
   DEFAULT_PROXY_PORT,
   loginProxyAccount,
+  logoutProxyAccount,
   type ProxyAccount,
   proxyAccounts,
   proxyHealthy,
-  logoutProxyAccount,
   readProxyKey,
   retireProxyAgent,
   setupProxy,
@@ -83,21 +83,23 @@ export const signIn = async (
 // Reinstall the proxy and restart it, on `port`; every login's URL moves with it. When
 // it does not come up there, it is set up again where it was, so the logins (which still
 // point at the old port) keep working.
-export const moveProxy = async (cfg: Config, port: number, run: Runner = defaultRunner) => {
+export const moveProxy = (cfg: Config, port: number, run: Runner = defaultRunner) => {
   const from = cfg.proxy?.port
-  try {
-    await reconfigure({ ...cfg, proxy: { port } }, () => setupProxy(port, { run }))
-  } catch (err) {
-    if (from === undefined || from === port) throw err
+  return reconfigure({ ...cfg, proxy: { port } }, async () => {
     try {
-      await setupProxy(from, { run })
-    } catch (again) {
-      throw new Error(
-        `${err instanceof Error ? err.message : err}\nPutting it back on port ${from} failed too: ${again instanceof Error ? again.message : again}`,
-      )
+      await setupProxy(port, { run })
+    } catch (err) {
+      if (from === undefined || from === port) throw err
+      try {
+        await setupProxy(from, { run })
+      } catch (again) {
+        throw new Error(
+          `${err instanceof Error ? err.message : err}\nPutting it back on port ${from} failed too: ${again instanceof Error ? again.message : again}`,
+        )
+      }
+      throw err
     }
-    throw err
-  }
+  })
 }
 
 // Remove an account from the proxy. The last one is refused: every login goes through the

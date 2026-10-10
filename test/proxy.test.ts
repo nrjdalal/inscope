@@ -563,6 +563,15 @@ test("CLI: proxy setup --port that fails puts the proxy back where every login p
   expect(settings(base).env.ANTHROPIC_BASE_URL).toBe(`http://127.0.0.1:${port}`)
   expect(fs.readFileSync(yaml, "utf8")).toContain(`port: ${port}\n`)
   expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded"))).toBe(true)
+
+  // a move the preflight refuses touches nothing, not even the running proxy
+  fs.writeFileSync(path.join(base, "settings.json"), JSON.stringify({ apiKeyHelper: "~/k.sh" }))
+  const calls = s.calls("launchctl").length
+  const refused = await s.cliAsync(["proxy", "setup", "--port", "1999"])
+  expect(refused.status).toBe(1)
+  expect(refused.stderr).toContain("already sets its own apiKeyHelper")
+  expect(s.calls("launchctl").length).toBe(calls)
+  expect(s.readCfg()?.proxy).toEqual({ port })
 }, 30_000)
 
 test("CLI: login refuses a login with its own key helper before setting anything up", async () => {

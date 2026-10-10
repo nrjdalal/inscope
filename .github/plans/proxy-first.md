@@ -90,9 +90,9 @@ canary builds (`0.18.0-canary.*`), never in a release, so they can be reshaped f
    profile endpoint's `rate_limit_tier`.
 6. **`doctor`** checks:
    - the proxy (already done);
-   - the base login's gateway, configured but not applied, or stale after the
+   - the base login's routing, configured but not applied, or stale after the
      proxy is removed;
-   - each isolated login's gateway.
+   - each isolated login's routing.
 7. **Tests.**
    - CLI `login`/`logout` against a stand-in proxy binary, plus fake `launchctl`,
      `security`, and Chrome on PATH. The real launchd and Keychain are never
