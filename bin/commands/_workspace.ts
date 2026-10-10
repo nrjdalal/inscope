@@ -273,6 +273,8 @@ export const resolveLoginFlags = (
   flags: { account?: string; isolate?: boolean },
   existing: LoginChoice | undefined,
 ): LoginChoice => {
+  if (flags.isolate && flags.account && flags.account !== "none")
+    throw new Error("--isolate and --account each pick the login; pass one, not both")
   let isolate = flags.isolate !== undefined ? flags.isolate : Boolean(existing?.isolate)
   let account = existing?.account
   if (flags.account !== undefined) {

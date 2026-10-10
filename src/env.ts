@@ -10,7 +10,13 @@ import { fileURLToPath } from "node:url"
 // gitconfig writes would escape the sandbox onto the real dotfiles.
 export const home = () => process.env.HOME?.trim() || os.homedir()
 
-export const configHome = () => process.env.XDG_CONFIG_HOME?.trim() || path.join(home(), ".config")
+// XDG_CONFIG_HOME counts only when absolute (the XDG spec says to ignore a relative
+// one): a relative value would resolve against whatever directory a command ran from,
+// so account dirs, and the exact path Claude keys their Keychain slot on, would move.
+export const configHome = () => {
+  const xdg = process.env.XDG_CONFIG_HOME?.trim()
+  return xdg && path.isAbsolute(xdg) ? xdg : path.join(home(), ".config")
+}
 
 export const expandTilde = (p: string) => {
   if (p === "~") return home()

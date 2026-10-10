@@ -1,5 +1,5 @@
 import { accountDir, accountsRoot } from "@/accounts"
-import { type Config, type Workspace } from "@/config"
+import { type Config, hookValueError, type Workspace } from "@/config"
 import { contractTilde } from "@/env"
 
 const pathPattern = (p: string) => {
@@ -134,6 +134,12 @@ ${arms}
 }
 
 export const renderHook = (cfg: Config): string => {
+  // Account dirs are interpolated into double-quoted hook strings, like workspace paths.
+  if (cfg.accounts?.length) {
+    const err = hookValueError(accountsRoot())
+    if (err)
+      throw new Error(`the accounts dir ${accountsRoot()} cannot be used in the hook: ${err}`)
+  }
   const byName = [...cfg.workspaces].sort((a, b) => a.name.localeCompare(b.name))
 
   const dirArms =

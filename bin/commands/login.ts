@@ -12,14 +12,14 @@ import {
 } from "@/config"
 import { contractTilde } from "@/env"
 import { applyAccountsBypass } from "@/generators/settings"
-import { agentBrowserAvailable, BROWSER_MODES, type BrowserMode, loginAccount } from "@/login"
+import { BROWSER_MODES, type BrowserMode, defaultBrowserMode, loginAccount } from "@/login"
 import { green, isInteractive, promptText } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Sign a Claude account in as a named account inscope keeps for you.
 Runs Claude Code's own \`claude auth login\` with the account's own config dir
 (~/.config/inscope/accounts/<name>), so Claude stores the login in its own Keychain
-slot. inscope never sees the credential. Assign the account to a workspace with
+slot; inscope never stores or refreshes it. Assign the account to a workspace with
 \`${name} add <path> --account <name>\` (or \`${name} edit\`). Re-running login on an
 existing name signs that account in again.
 
@@ -27,10 +27,12 @@ Usage:
   $ ${name} login <name> [options]
 
 Options:
-  --email <email>     the Claude account to sign in; pre-fills the sign-in page and
-                      fails if a different account signs in
-  --browser <mode>    agent (default when agent-browser is installed): a fresh,
-                      isolated agent-browser window, so accounts never share cookies
+  --email <email>     the Claude account you expect to sign in; nothing is
+                      pre-filled (you type it on the page), but if a different
+                      account signs in, it is signed back out and nothing is saved
+  --browser <mode>    chrome (default when Chrome is installed): a new Chrome window
+                      on a fresh profile, opened on the sign-in page; you finish the
+                      sign-in there, and the profile is deleted afterwards
                       system: your default browser
                       none: print the sign-in URL to open yourself
   -h, --help          Display help message`
@@ -63,7 +65,7 @@ export const login = (args: string[]) =>
       process.exit(1)
     }
 
-    const mode = (values.browser ?? (agentBrowserAvailable() ? "agent" : "system")) as BrowserMode
+    const mode = (values.browser ?? defaultBrowserMode()) as BrowserMode
     if (!(BROWSER_MODES as readonly string[]).includes(mode)) {
       console.error(`Invalid --browser "${values.browser}": use ${BROWSER_MODES.join(", ")}`)
       process.exit(1)
@@ -75,9 +77,9 @@ export const login = (args: string[]) =>
     console.log(
       `\n${prior ? "Signing account" : "Adding account"} "${accountName}" in ${contractTilde(accountDir(accountName))}`,
     )
-    if (mode === "agent")
+    if (mode === "chrome")
       console.log(
-        "Finish signing in in the agent-browser window (email code or Google); this terminal continues when it is done.",
+        "A new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize Claude Code. This finishes on its own once you do.",
       )
     else if (mode === "none")
       console.log("Open the sign-in URL below in the browser you want to sign in with.")
@@ -87,7 +89,8 @@ export const login = (args: string[]) =>
       name: accountName,
       email,
       mode,
-      otherAccounts: cfg.accounts ?? [],
+      existing: Boolean(prior),
+      currentAccounts: () => (configExists() ? loadConfig() : cfg).accounts ?? [],
     })
 
     // Re-read: the login can take minutes, and another inscope command may have saved

@@ -202,12 +202,17 @@ export const workspaceNameError = (name: string): string | null => {
 }
 
 // An account name becomes a directory under ~/.config/inscope/accounts and is
-// interpolated (double-quoted) into the hook as part of that path, so it follows the
-// workspace-name slug rule, minus a leading dot (no hidden or `.`/`..` dirs).
+// interpolated (double-quoted) into the hook as part of that path, so it is a lowercase
+// slug: macOS volumes are case-insensitive, so `work` and `Work` would share one dir
+// while Claude keys two Keychain slots on the two spellings. No leading dot (no hidden
+// or `.`/`..` dirs), and not "none", which `--account none` reserves for "no account".
+export const ACCOUNT_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/
+
 export const accountNameError = (name: string): string | null => {
-  const err = workspaceNameError(name)
-  if (err) return err
-  if (name.startsWith(".")) return "must not start with a dot"
+  if (!name) return "must not be empty"
+  if (name === "none") return '"none" is reserved (it means no account)'
+  if (!ACCOUNT_NAME_RE.test(name))
+    return "use lowercase letters, digits, dot (.), dash (-), or underscore (_), starting with a letter or digit"
   return null
 }
 

@@ -19,12 +19,14 @@ Usage:
   $ ${name} logout <name>
 
 Options:
+  --force     forget the account even if \`claude auth logout\` fails (its Keychain
+              token may then remain)
   -h, --help  Display help message`
 
 export const logout = (args: string[]) => {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { help: { type: "boolean", short: "h" } },
+    options: { help: { type: "boolean", short: "h" }, force: { type: "boolean" } },
     args,
   })
   if (values.help) {
@@ -49,6 +51,12 @@ export const logout = (args: string[]) => {
     process.exit(1)
   }
   const signedOut = logoutAccount(accountName)
+  if (!signedOut && !values.force) {
+    console.error(
+      `\`claude auth logout\` failed for account "${accountName}", so its Keychain token may remain; nothing was changed. Retry, or pass --force to forget it anyway.`,
+    )
+    process.exit(1)
+  }
   saveConfig(removeAccount(cfg, accountName))
   const dir = contractTilde(accountDir(accountName))
   console.log(`\n✓ ${signedOut ? "signed out and removed" : "removed"} account "${accountName}"`)

@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
+import { configExists, defaultConfig, loadConfig } from "@/config"
 import { renderUsage, resolveUsage, usageJson } from "@/usage"
-import { requireConfig } from "~/bin/commands/_config"
 import { dim, green, orange, red, yellow } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -36,7 +36,8 @@ export const usage = async (args: string[]) => {
     console.log(helpMessage)
     process.exit(0)
   }
-  const cfg = requireConfig()
+  // No config yet still has a base login worth showing.
+  const cfg = configExists() ? loadConfig() : defaultConfig()
   const rows = await resolveUsage(cfg, {
     refresh: values.refresh,
     onRefresh: (label) => console.error(dim(`refreshing ${label}...`)),

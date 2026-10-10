@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import path from "node:path"
 
-import { home, inscopeHome } from "@/env"
+import { inscopeHome } from "@/env"
 import { defaultRunner, type Runner } from "@/secrets"
 
 // A named Claude login inscope keeps outside any workspace, so several workspaces can
@@ -57,20 +57,47 @@ const readSlot = (service: string, run: Runner): OAuthToken | null => {
   }
 }
 
-// The OAuth token Claude Code stored for a config dir, read straight from the Keychain
-// (read-only: inscope never refreshes or writes it, so it can never race Claude Code's
-// own refresh of a single-use refresh token). The default ~/.claude login also falls
-// back to the bare slot, which Claude Code uses when CLAUDE_CONFIG_DIR is unset.
-export const readOAuth = (configDir: string, run: Runner = defaultRunner): OAuthToken | null =>
-  readSlot(keychainServiceFor(configDir), run) ??
-  (configDir === path.join(home(), ".claude") ? readSlot(BARE_KEYCHAIN_SERVICE, run) : null)
+// The Keychain slot for a CLAUDE_CONFIG_DIR value; undefined (the variable unset) is
+// Claude Code's bare default slot, a different login from CLAUDE_CONFIG_DIR=~/.claude.
+export const slotFor = (ccd: string | undefined) =>
+  ccd === undefined ? BARE_KEYCHAIN_SERVICE : keychainServiceFor(ccd)
+
+// The OAuth token Claude Code stored for a CLAUDE_CONFIG_DIR value, read straight from
+// the Keychain. Read-only: inscope never refreshes or writes it, so it can never race
+// Claude Code's own refresh of a single-use refresh token.
+export const readOAuth = (
+  ccd: string | undefined,
+  run: Runner = defaultRunner,
+): OAuthToken | null => readSlot(slotFor(ccd), run)
+
+// Variables that would make Claude Code skip its subscription login (an API key or an
+// injected OAuth token) or send its token elsewhere (a gateway). Dropped for every
+// claude inscope runs on an account's behalf.
+export const CREDENTIAL_ENV_VARS = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+]
 
 // Anthropic's subscription usage endpoint. Undocumented (it backs Claude Code's own
 // /usage view), so every field is read defensively and any surprise degrades to an
 // error row instead of a crash. INSCOPE_ANTHROPIC_API_URL points it at a local
-// emulator in tests.
-export const anthropicApiBase = () =>
-  process.env.INSCOPE_ANTHROPIC_API_URL?.trim().replace(/\/+$/, "") || "https://api.anthropic.com"
+// emulator in tests, and is honored only for a loopback host: every login's bearer
+// token goes to this URL, so a stray override must never send them off the machine.
+const ANTHROPIC_API = "https://api.anthropic.com"
+
+export const anthropicApiBase = () => {
+  const raw = process.env.INSCOPE_ANTHROPIC_API_URL?.trim()
+  if (!raw) return ANTHROPIC_API
+  try {
+    const u = new URL(raw)
+    const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname)
+    if (loopback && (u.protocol === "http:" || u.protocol === "https:"))
+      return raw.replace(/\/+$/, "")
+  } catch {}
+  return ANTHROPIC_API
+}
 
 export type UsageWindow = { percent: number | null; resetsAt: string | null }
 

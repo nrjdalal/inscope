@@ -489,6 +489,17 @@ test("golden: usage table", () => {
     },
     { label: "gone", kind: "account", dir: "/h/a/gone", usedBy: [], state: "signed-out" },
     {
+      label: "fresh",
+      kind: "account",
+      dir: "/h/a/fresh",
+      usedBy: [],
+      email: "fresh@x.dev",
+      plan: "max 20x",
+      state: "ok",
+      fiveHour: { percent: null, resetsAt: "2026-10-10T13:00:00Z" },
+      week: { percent: 0, resetsAt: null },
+    },
+    {
       label: "client",
       kind: "isolated",
       dir: "/h/client/.inscope",

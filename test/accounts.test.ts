@@ -4,8 +4,15 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-import { type FetchLike, fetchUsage, keychainServiceFor, planLabel } from "@/accounts"
+import {
+  anthropicApiBase,
+  type FetchLike,
+  fetchUsage,
+  keychainServiceFor,
+  planLabel,
+} from "@/accounts"
 import { type Config, validateConfig } from "@/config"
+import { configHome, home } from "@/env"
 import { resetsIn } from "@/usage"
 import { loginChoices, resolveLoginFlags } from "~/bin/commands/_workspace"
 
@@ -62,8 +69,10 @@ test("validateConfig accepts accounts and a workspace that runs on one", () => {
 
 test("validateConfig rejects bad accounts and bad account references", () => {
   const bad: [Partial<Config>, string][] = [
-    [{ accounts: [{ name: ".hidden" }] }, "must not start with a dot"],
-    [{ accounts: [{ name: "a b" }] }, "use only letters"],
+    [{ accounts: [{ name: ".hidden" }] }, "starting with a letter or digit"],
+    [{ accounts: [{ name: "a b" }] }, "use lowercase letters"],
+    [{ accounts: [{ name: "Work" }] }, "use lowercase letters"],
+    [{ accounts: [{ name: "none" }] }, '"none" is reserved'],
     [{ accounts: [{ name: "a" }, { name: "a" }] }, 'duplicate account name "a"'],
     [{ accounts: [{ name: "a", email: "x\ny" }] }, "must not contain a newline"],
     [{ accounts: "nope" as never }, "config.accounts must be an array"],
@@ -105,6 +114,49 @@ test("resolveLoginFlags: an account replaces isolation, and the reverse, and non
     isolate: false,
     account: undefined,
   })
+})
+
+test("resolveLoginFlags refuses --isolate together with a real --account", () => {
+  expect(() => resolveLoginFlags({ isolate: true, account: "work" }, undefined)).toThrow(
+    "--isolate and --account each pick the login",
+  )
+  expect(resolveLoginFlags({ isolate: true, account: "none" }, undefined)).toEqual({
+    isolate: true,
+    account: undefined,
+  })
+})
+
+test("anthropicApiBase honors the override only for a loopback host", () => {
+  const prev = process.env.INSCOPE_ANTHROPIC_API_URL
+  try {
+    for (const [v, want] of [
+      ["http://127.0.0.1:4100/", "http://127.0.0.1:4100"],
+      ["http://localhost:9", "http://localhost:9"],
+      ["https://evil.example", "https://api.anthropic.com"],
+      ["http://127.0.0.1.evil.example", "https://api.anthropic.com"],
+      ["file:///etc/passwd", "https://api.anthropic.com"],
+      ["not a url", "https://api.anthropic.com"],
+    ]) {
+      process.env.INSCOPE_ANTHROPIC_API_URL = v
+      expect(anthropicApiBase()).toBe(want)
+    }
+  } finally {
+    if (prev === undefined) delete process.env.INSCOPE_ANTHROPIC_API_URL
+    else process.env.INSCOPE_ANTHROPIC_API_URL = prev
+  }
+})
+
+test("configHome ignores a relative XDG_CONFIG_HOME", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  try {
+    process.env.XDG_CONFIG_HOME = "cfg"
+    expect(configHome()).toBe(path.join(home(), ".config"))
+    process.env.XDG_CONFIG_HOME = "/abs/cfg"
+    expect(configHome()).toBe("/abs/cfg")
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
 })
 
 test("loginChoices offers shared, isolated, then each account, preselecting the current one", () => {
@@ -164,7 +216,7 @@ test("fetchUsage maps the endpoint's answers to ok, expired, rate-limited, or er
   ).toEqual({ ok: true, fiveHour: null, week: { percent: 5, resetsAt: null } })
 })
 
-// --- the real CLI against fake claude/security/agent-browser ------------------------
+// --- the real CLI against fake claude, security, and Chrome --------------------------
 
 const FAKES = path.join(import.meta.dir, "support", "bin")
 const ENTRY = path.join(import.meta.dir, "..", "bin", "index.ts")
@@ -188,6 +240,7 @@ const sandbox = () => {
     GH_CONFIG_DIR: path.join(sb, ".gh"),
     FAKE_SANDBOX: sb,
     FAKE_STATE: state,
+    INSCOPE_CHROME: path.join(FAKES, "chrome"),
   }
   for (const k of [
     "CLAUDE_CONFIG_DIR",
@@ -228,7 +281,7 @@ const sandbox = () => {
   }
   const setKeychain = (k: Record<string, string>) =>
     fs.writeFileSync(path.join(state, "keychain.json"), JSON.stringify(k, null, 2))
-  const calls = (tool: "claude" | "agent-browser"): any[] => {
+  const calls = (tool: "claude" | "chrome"): any[] => {
     const f = path.join(state, `${tool}-calls.jsonl`)
     return fs.existsSync(f)
       ? fs
@@ -257,7 +310,7 @@ const sandbox = () => {
   }
 }
 
-test("CLI: login signs an account in through claude auth login, in an isolated agent-browser session", () => {
+test("CLI: login opens Claude's sign-in in a fresh Chrome profile, then verifies who signed in", () => {
   const s = sandbox()
   const r = s.cli(["login", "work", "--email", "w@x.dev"], { FAKE_LOGIN_EMAIL: "w@x.dev" })
   expect(r.stderr).toBe("")
@@ -268,24 +321,25 @@ test("CLI: login signs an account in through claude auth login, in an isolated a
   const dir = s.accountDir("work")
   expect(fs.statSync(dir).mode & 0o777).toBe(0o700)
   const login = s.calls("claude").find((c) => c.args[1] === "login")
-  expect(login.args).toEqual(["auth", "login", "--email", "w@x.dev"])
+  // nothing pre-filled: the person types the email on the page
+  expect(login.args).toEqual(["auth", "login"])
   expect(login.ccd).toBe(dir)
-  expect(login.browser).toBe(
-    path.join(s.sb, ".config", "inscope", "accounts", ".browser", "agent.sh"),
-  )
+  const browserDir = path.join(s.sb, ".config", "inscope", "accounts", ".browser")
+  expect(login.browser).toBe(path.join(browserDir, "chrome.sh"))
 
-  // a fresh, visible session opened the sign-in URL, and was closed afterwards
-  const ab = s.calls("agent-browser")
-  const open = ab.find((a: string[]) => a.includes("open"))
-  expect(open.slice(0, 4)).toEqual(["--session", open[1], "--headed", "open"])
-  expect(open[1]).toBe("inscope-login-work")
-  expect(r.stdout).toContain("agent-browser session: inscope-login-work")
-  // a stale window from an interrupted login is closed before this one opens
-  expect(
-    ab.findIndex((a: string[]) => a.join(" ") === "--session inscope-login-work close"),
-  ).toBeLessThan(ab.indexOf(open))
-  expect(open[4]).toContain("login_hint=w%40x.dev")
-  expect(ab).toContainEqual(["--session", open[1], "close"])
+  // a new window on a fresh, throwaway profile, opened on the sign-in URL (no login_hint)
+  const [chrome] = s.calls("chrome")
+  const profile = path.join(browserDir, "work-profile")
+  expect(chrome).toContain(`--user-data-dir=${profile}`)
+  expect(chrome).toContain("--new-window")
+  expect(chrome).toContain("--no-first-run")
+  expect(chrome.some((a: string) => a.includes("remote-debugging"))).toBe(false)
+  const url = chrome.at(-1)
+  expect(url).toStartWith("https://claude.com/cai/oauth/authorize")
+  expect(url).not.toContain("login_hint")
+  // the profile (holding that claude.ai session) is gone once the login ends
+  expect(fs.existsSync(profile)).toBe(false)
+  expect(fs.existsSync(`${profile}.pid`)).toBe(false)
 
   // the token sits in the slot Claude derives from that exact dir string, which the fake
   // computed on its own: inscope and Claude agree on the slot
@@ -321,7 +375,7 @@ test("CLI: login re-signs an existing account in, keeping its recorded email as 
   expect(s.readCfg()?.accounts).toEqual([{ name: "a", email: "a@x.dev" }])
 })
 
-test("CLI: login --browser none and system never touch agent-browser", () => {
+test("CLI: login --browser none and system open no Chrome window", () => {
   const s = sandbox()
   const none = s.cli(["login", "a", "--browser", "none"], { FAKE_LOGIN_EMAIL: "a@x.dev" })
   expect(none.status).toBe(0)
@@ -331,10 +385,16 @@ test("CLI: login --browser none and system never touch agent-browser", () => {
   const [c1, c2] = s.calls("claude").filter((c) => c.args[1] === "login")
   expect(c1.browser).toBe(path.join(s.sb, ".config", "inscope", "accounts", ".browser", "none.sh"))
   expect(c2.browser).toBeNull() // system: $BROWSER left as the user had it (unset here)
-  expect(s.calls("agent-browser")).toEqual([])
+  expect(s.calls("chrome")).toEqual([])
   expect(s.cli(["login", "c", "--browser", "lynx"]).stderr).toContain(
-    'Invalid --browser "lynx": use agent, system, none',
+    'Invalid --browser "lynx": use chrome, system, none',
   )
+  // no Chrome-family browser: chrome mode says so instead of hanging
+  const noChrome = s.cli(["login", "d", "--browser", "chrome"], {
+    INSCOPE_CHROME: path.join(s.sb, "missing"),
+  })
+  expect(noChrome.status).toBe(1)
+  expect(noChrome.stderr).toContain("no Chrome-family browser found for the sign-in")
 })
 
 test("CLI: login saves nothing when the sign-in fails", () => {
@@ -344,6 +404,8 @@ test("CLI: login saves nothing when the sign-in fails", () => {
   expect(r.stderr).toContain("claude auth login exited with 1; nothing was saved")
   expect(s.readCfg()).toBeNull()
   expect(s.cli(["login", ".bad"]).stderr).toContain('Invalid account name ".bad"')
+  expect(s.cli(["login", "Work"]).stderr).toContain('Invalid account name "Work"')
+  expect(s.cli(["login", "none"]).stderr).toContain('"none" is reserved')
 })
 
 test("CLI: add --account runs a workspace on a signed-in account; --isolate and none switch it", () => {
@@ -429,6 +491,18 @@ test("CLI: logout refuses while a workspace uses the account, then signs it out"
   expect(s.cli(["logout", "ghost"]).stderr).toContain('No account named "ghost"')
 })
 
+test("CLI: logout keeps the account when claude's own logout fails, unless --force", () => {
+  const s = sandbox()
+  expect(s.cli(["login", "work"], { FAKE_LOGIN_EMAIL: "w@x.dev" }).status).toBe(0)
+  const failed = s.cli(["logout", "work"], { FAKE_LOGOUT_FAIL: "1" })
+  expect(failed.status).toBe(1)
+  expect(failed.stderr).toContain("nothing was changed")
+  expect(s.readCfg()?.accounts).toEqual([{ name: "work", email: "w@x.dev" }])
+  const forced = s.cli(["logout", "work", "--force"], { FAKE_LOGOUT_FAIL: "1" })
+  expect(forced.status).toBe(0)
+  expect(s.readCfg()?.accounts).toBeUndefined()
+})
+
 test("CLI: status, list, and doctor show the account a workspace runs on", () => {
   const s = sandbox()
   const ws = path.join(s.sb, "acme")
@@ -505,6 +579,18 @@ beforeAll(async () => {
     "tok-base@x.dev": { kind: "ok", fiveHour: 4, week: 61, fiveHourResets: FIVE, weekResets: FIVE },
     "tok-w@x.dev": { kind: "ok", fiveHour: 37, week: 92, fiveHourResets: FIVE, weekResets: FIVE },
     "tok-p@x.dev": { kind: "ok", fiveHour: 0, week: 10, fiveHourResets: FIVE, weekResets: FIVE },
+    // refreshed by Claude Code (`claude -p` rotates the access token)
+    "tok-p@x.dev-r": { kind: "ok", fiveHour: 0, week: 10, fiveHourResets: FIVE, weekResets: FIVE },
+    "tok-rev@x.dev-r": {
+      kind: "ok",
+      fiveHour: 50,
+      week: 50,
+      fiveHourResets: FIVE,
+      weekResets: FIVE,
+    },
+    "tok-iso@x.dev": { kind: "ok", fiveHour: 1, week: 2, fiveHourResets: FIVE, weekResets: FIVE },
+    "tok-bare@x.dev": { kind: "ok", fiveHour: 7, week: 8, fiveHourResets: FIVE, weekResets: FIVE },
+    "tok-err@x.dev": { kind: "status", status: 503 },
     "tok-r@x.dev": { kind: "status", status: 429 },
     "tok-d@x.dev": { kind: "shape", body: { renamed: true } },
   })
@@ -587,4 +673,62 @@ test("CLI: usage --refresh lets Claude Code refresh an expired login, then reads
   const refresh = s.calls("claude").find((c) => c.args[0] === "-p")
   expect(refresh.ccd).toBe(s.accountDir("play"))
   expect(refresh.args).toEqual(["-p", "Reply with the single word: ok", "--model", "haiku"])
+}, 30_000)
+
+test("CLI: usage --refresh retries a token rejected before its expiry, cleanly, and never on the base", async () => {
+  const s = sandbox()
+  // base on CLAUDE_CONFIG_DIR=$HOME/.claude (a workspace below has its own login), expired
+  const baseDir = path.join(s.sb, ".claude")
+  s.fakeClaude(["auth", "login"], { FAKE_LOGIN_EMAIL: "base@x.dev", CLAUDE_CONFIG_DIR: baseDir })
+  expireToken(s, baseDir)
+  // "rev": an unexpired token the endpoint rejects (revoked); a refresh rotates it
+  expect(s.cli(["login", "rev"], { FAKE_LOGIN_EMAIL: "rev@x.dev" }).status).toBe(0)
+  const ws = path.join(s.sb, "acme")
+  fs.mkdirSync(ws)
+  expect(s.cli(["add", ws, "--account", "rev", "-y"]).status).toBe(0)
+
+  const plain = await s.cliAsync(["usage", "--json"], { INSCOPE_ANTHROPIC_API_URL: emu.url })
+  const before = Object.fromEntries(JSON.parse(plain.stdout).map((x: any) => [x.login, x]))
+  expect(before.rev).toMatchObject({ state: "expired", detail: "token rejected (401)" })
+  expect(before.base).toMatchObject({ state: "expired" })
+  expect(s.calls("claude").some((c) => c.args[0] === "-p")).toBe(false) // no refresh unasked
+
+  const r = await s.cliAsync(["usage", "--json", "--refresh"], {
+    INSCOPE_ANTHROPIC_API_URL: emu.url,
+    ANTHROPIC_API_KEY: "sk-should-not-be-used",
+    ANTHROPIC_BASE_URL: "https://gateway.example",
+  })
+  const after = Object.fromEntries(JSON.parse(r.stdout).map((x: any) => [x.login, x]))
+  expect(after.rev).toMatchObject({ state: "ok", weekly: { percent: 50 } })
+  expect(after.base).toMatchObject({ state: "expired" }) // the base is never refreshed
+  const refreshes = s.calls("claude").filter((c) => c.args[0] === "-p")
+  expect(refreshes.map((c) => c.ccd)).toEqual([s.accountDir("rev")])
+  expect(refreshes[0].credentialVars).toEqual([]) // no API key or gateway reached it
+  expect(fs.realpathSync(refreshes[0].cwd)).toBe(fs.realpathSync(os.tmpdir()))
+}, 30_000)
+
+test("CLI: usage reads the base from the bare slot when no workspace has its own login, plus isolated rows and server errors", async () => {
+  const s = sandbox()
+  // CLAUDE_CONFIG_DIR unset, as the hook leaves it with nothing isolated: the bare slot
+  expect(s.fakeClaude(["auth", "login"], { FAKE_LOGIN_EMAIL: "bare@x.dev" }).status).toBe(0)
+  expect(s.cli(["login", "err"], { FAKE_LOGIN_EMAIL: "err@x.dev" }).status).toBe(0)
+  const r = await s.cliAsync(["usage", "--json"], { INSCOPE_ANTHROPIC_API_URL: emu.url })
+  const by = Object.fromEntries(JSON.parse(r.stdout).map((x: any) => [x.login, x]))
+  expect(by.base).toMatchObject({ state: "ok", email: "bare@x.dev", weekly: { percent: 8 } })
+  expect(by.err).toMatchObject({ state: "error", detail: "usage endpoint returned 503" })
+
+  // an isolated, signed-in workspace gets its own row
+  const iso = path.join(s.sb, "iso")
+  fs.mkdirSync(iso)
+  expect(s.cli(["add", iso, "--isolate", "-y"]).status).toBe(0)
+  s.fakeClaude(["auth", "login"], {
+    FAKE_LOGIN_EMAIL: "iso@x.dev",
+    CLAUDE_CONFIG_DIR: path.join(iso, ".inscope"),
+  })
+  const r2 = await s.cliAsync(["usage", "--json"], { INSCOPE_ANTHROPIC_API_URL: emu.url })
+  const by2 = Object.fromEntries(JSON.parse(r2.stdout).map((x: any) => [x.login, x]))
+  expect(by2.iso).toMatchObject({ kind: "isolated", state: "ok", usedBy: ["iso"] })
+  // with a workspace on its own login, the hook exports $HOME/.claude for the base, a
+  // different slot than the bare one, and usage follows the hook
+  expect(by2.base).toMatchObject({ state: "signed-out" })
 }, 30_000)

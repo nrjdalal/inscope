@@ -852,6 +852,7 @@ exports[`golden: usage table 1`] = `
   alt     alt@x.dev     max 5x   0%           72% · 4d 21h  side, team
   old     old@x.dev     pro      expired      -             -
   gone    -             -        signed out   -             -
+  fresh   fresh@x.dev   max 20x  - · 1h 00m   0%            -
   client  c@client.com  team     unavailable  -             client
 
   expired (old): run \`inscope usage --refresh\`, or use that login once
