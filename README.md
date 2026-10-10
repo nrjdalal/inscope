@@ -55,6 +55,8 @@ Sign each GitHub account into `gh` once (`gh auth login`); inscope reads their t
 
 Prefer flags or CI? Every prompt has one, and `-y` takes the defaults. Reaching for it a lot? `npm i -g inscope` and drop the `npx`.
 
+**Several Claude accounts.** `inscope login work --email you@work.com` signs an account in as a named account, through Claude Code's own `claude auth login` in its own config dir, so Claude keeps the login in its own Keychain slot and inscope never sees a credential. With [agent-browser](https://github.com/vercel-labs/agent-browser) installed, the sign-in opens in a fresh, isolated browser session, so two accounts never share cookies. Afterwards inscope checks which account actually signed in. Point any workspace at it with `inscope add ~/work --account work`, share one account across several workspaces, and move a workspace to another account with the same flag. `inscope usage` shows every login's 5-hour and weekly usage and when each resets. Or skip the terminal: ask Claude to "log in my alt account" and it drives the sign-in for you, asking only for the emailed code.
+
 Bare `inscope add` prompts for the directory (defaulting to where you are); passing a path just pre-fills that prompt. Either way it walks you through the Claude login, MCP servers, GitHub account, git identity, and skills:
 
 <p align="center">
@@ -65,17 +67,20 @@ Bare `inscope add` prompts for the directory (defaulting to where you are); pass
 
 ## Commands
 
-| Command               | What it does                                                                                                                                                                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `inscope add [path]`  | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run. Re-running it on a label updates that workspace and keeps whatever you do not pass (`--no-isolate` turns isolation off) |
-| `inscope status`      | Show the identity resolved for the current directory (alias `whoami`)                                                                                                                                                                 |
-| `inscope list`        | List configured workspaces (alias `ls`)                                                                                                                                                                                               |
-| `inscope edit [path]` | Change a workspace through the same prompts                                                                                                                                                                                           |
-| `inscope rm [path]`   | Unmap a workspace (alias `remove`)                                                                                                                                                                                                    |
-| `inscope skill`       | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                                                                                                                                          |
-| `inscope doctor`      | Verify tokens, identities, the hook, and skill links resolve                                                                                                                                                                          |
-| `inscope diff`        | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                                                                                                                                                |
-| `inscope apply`       | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                                                                                                                                                        |
+| Command                 | What it does                                                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inscope add [path]`    | Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run. Re-running it on a label updates that workspace and keeps whatever you do not pass (`--no-isolate` turns isolation off) |
+| `inscope status`        | Show the identity resolved for the current directory (alias `whoami`)                                                                                                                                                                 |
+| `inscope list`          | List configured workspaces (alias `ls`)                                                                                                                                                                                               |
+| `inscope edit [path]`   | Change a workspace through the same prompts                                                                                                                                                                                           |
+| `inscope rm [path]`     | Unmap a workspace (alias `remove`)                                                                                                                                                                                                    |
+| `inscope skill`         | Manage a workspace's Claude skills (`add`, `list`, `rename`, `rm`, `update`)                                                                                                                                                          |
+| `inscope login <name>`  | Sign a Claude account in as a named account; assign it with `add --account <name>`                                                                                                                                                    |
+| `inscope logout <name>` | Sign a named account out and forget it                                                                                                                                                                                                |
+| `inscope usage`         | Each login's 5-hour and weekly usage and when it resets (`--refresh` revives expired logins)                                                                                                                                          |
+| `inscope doctor`        | Verify tokens, identities, the hook, and skill links resolve                                                                                                                                                                          |
+| `inscope diff`          | Preview what `apply` would change; `--adopt` pulls on-disk extras back                                                                                                                                                                |
+| `inscope apply`         | Regenerate the hook, git includes, `.mcp.json`, and skill links (alias `sync`)                                                                                                                                                        |
 
 Run any command with `-h` for its flags. Mutating commands apply in one step; `apply` is only for after you hand-edit the config.
 
@@ -127,7 +132,9 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
 ```jsonc
 {
   "version": 1,
-  "bypass": true, // skip permission prompts in isolated logins
+  "bypass": true, // skip permission prompts in isolated logins and accounts
+  // named Claude logins from `inscope login`, each in ~/.config/inscope/accounts/<name>
+  "accounts": [{ "name": "alt", "email": "neeraj@alt.com" }],
   "workspaces": [
     {
       "isolate": true, // its own Claude login in ~/work/.inscope
@@ -146,7 +153,13 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "servers": { "github": true, "linear": true, "notion": true },
       "skills": ["owner/repo#skills/readme-audit"],
     },
-    // a workspace without "isolate" shares your ~/.claude login (e.g. ~/personal)
+    {
+      "account": "alt", // runs on the "alt" account's login (shareable across workspaces)
+      "name": "side",
+      "path": "~/side",
+      "servers": { "github": true },
+    },
+    // a workspace without "isolate" or "account" shares your ~/.claude login (e.g. ~/personal)
   ],
 }
 ```

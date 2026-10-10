@@ -1,15 +1,20 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import type { Workspace } from "@/config"
-import { inscopeDirPath } from "@/generators/isolate"
+import { accountDir } from "@/accounts"
+import type { Config, Workspace } from "@/config"
+import { hasOwnLogin, inscopeDirPath, loginDir } from "@/generators/isolate"
 import { writeFileAtomic } from "@/io"
 
-// An isolated workspace's own Claude user-scope settings live at the root of its
-// config dir, so `permissions.defaultMode` there governs that login under any
-// launcher (unlike a project `.claude/settings.json`, where bypassPermissions does
-// not take effect and the session starts in Manual mode).
-export const inscopeSettingsPath = (ws: Workspace) => path.join(inscopeDirPath(ws), "settings.json")
+// A login's own Claude user-scope settings live at the root of its config dir (an
+// isolated workspace's `.inscope`, or an account's dir), so `permissions.defaultMode`
+// there governs that login under any launcher (unlike a project
+// `.claude/settings.json`, where bypassPermissions does not take effect and the
+// session starts in Manual mode).
+// Never the shared base: inscope does not write ~/.claude, so a workspace without its
+// own login still maps to its (unused) `.inscope`, which applyBypass never writes.
+export const inscopeSettingsPath = (ws: Workspace) =>
+  path.join(ws.account ? accountDir(ws.account) : inscopeDirPath(ws), "settings.json")
 
 const BYPASS_MODE = "bypassPermissions"
 
@@ -63,12 +68,9 @@ const readSettings = (file: string): Record<string, any> => {
   }
 }
 
-// Reconcile an isolated workspace's `.inscope/settings.json` to the desired bypass
-// state. A no-op for a non-isolated workspace (it runs on the shared ~/.claude,
-// which inscope never writes).
-export const applyBypass = (ws: Workspace, bypass: boolean) => {
-  if (!ws.isolate) return
-  const file = inscopeSettingsPath(ws)
+// Reconcile one login dir's settings.json to the desired bypass state.
+const applyBypassAt = (dir: string, bypass: boolean) => {
+  const file = path.join(dir, "settings.json")
   const existed = fs.existsSync(file)
   const next = mergeBypassSettings(readSettings(file), bypass)
   // Nothing left to declare (a bypass-only file just turned off, or there was
@@ -79,6 +81,24 @@ export const applyBypass = (ws: Workspace, bypass: boolean) => {
     return
   }
   writeFileAtomic(file, JSON.stringify(next, null, 2) + "\n")
+}
+
+// Reconcile a workspace's own login settings (its `.inscope`, or its account's dir) to
+// the desired bypass state. A no-op for a non-isolated workspace (it runs on the shared
+// ~/.claude, which inscope never writes).
+export const applyBypass = (ws: Workspace, bypass: boolean) => {
+  if (!hasOwnLogin(ws)) return
+  applyBypassAt(loginDir(ws), bypass)
+}
+
+// Bypass is a property of each login inscope owns, so every account login gets it,
+// including one no workspace uses yet (it is one `account:` edit away from being used).
+// Only an account that has been signed in (its dir exists) is touched.
+export const applyAccountsBypass = (cfg: Config) => {
+  for (const acc of cfg.accounts ?? []) {
+    const dir = accountDir(acc.name)
+    if (fs.existsSync(dir)) applyBypassAt(dir, cfg.bypass ?? false)
+  }
 }
 
 // The `permissions.defaultMode` an isolated login's settings.json declares, if any.

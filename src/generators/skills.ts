@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
+import { accountDir } from "@/accounts"
 import {
   type Config,
   type NormalizedSkill,
@@ -11,7 +12,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
+import { loginDir } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
 
@@ -19,11 +20,11 @@ import { defaultRunner, type Runner } from "@/secrets"
 // is personal scope: Claude lists it in the `/` menu and loads it in every project
 // of that login, with no `--add-dir` and no per-repo linking (so it works under any
 // launcher, cmux included). An isolated workspace has its own login, so its skills
-// stay private in `<ws>/.inscope/skills`; a non-isolated one shares the base login's
-// `skills` dir with every other non-isolated workspace, because they share one config
-// dir and therefore cannot be scoped apart.
-export const skillsDir = (ws: Workspace): string =>
-  ws.isolate ? path.join(inscopeDirPath(ws), "skills") : path.join(baseClaudeDir(), "skills")
+// stay private in `<ws>/.inscope/skills`; a workspace on an account shares that
+// account's `skills` dir with every other workspace on it, and a non-isolated one
+// shares the base login's with every other non-isolated workspace: they share one
+// config dir and therefore cannot be scoped apart.
+export const skillsDir = (ws: Workspace): string => path.join(loginDir(ws), "skills")
 
 // One shared content cache for every workspace. Each git source is cloned exactly
 // once here, keyed by host/owner/repo (plus @ref when pinned), so five workspaces
@@ -587,6 +588,12 @@ export const applySkills = (
   // skills were all removed still gets its now-orphaned owned links pruned below.
   const byDir = new Map<string, DesiredLink[]>()
   for (const ws of cfg.workspaces) if (!byDir.has(skillsDir(ws))) byDir.set(skillsDir(ws), [])
+  // Every account's dir is seeded too, so an account whose last workspace was removed or
+  // moved away still has its now-orphaned links pruned (nothing else revisits it).
+  for (const acc of cfg.accounts ?? []) {
+    const dir = path.join(accountDir(acc.name), "skills")
+    if (!byDir.has(dir)) byDir.set(dir, [])
+  }
   const push = (dir: string, l: DesiredLink) => byDir.get(dir)?.push(l)
   for (const ws of cfg.workspaces) {
     const dir = skillsDir(ws)

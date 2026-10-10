@@ -29,6 +29,7 @@ import {
   finalizeNylas,
   finalizeSlack,
   ghChoices,
+  loginChoices,
   NYLAS_REGION_CHOICES,
   nylasKeychainFor,
   persist,
@@ -197,17 +198,24 @@ export const edit = async (args: string[]) => {
       process.exit(1)
     }
   }
-  // --- isolate: give this workspace its own Claude login in a local .inscope ---
-  const isolate = await promptConfirm(
-    "Dedicated Claude login for this workspace?",
-    Boolean(ws.isolate),
-  )
+  // --- Claude login: the shared base, its own .inscope, or a named account ---
+  const accounts = cfg.accounts ?? []
+  let isolate = Boolean(ws.isolate)
+  let account = ws.account
+  if (accounts.length) {
+    const { choices, initial } = loginChoices(accounts, { isolate, account })
+    ;({ isolate, account } = await selectOne("Claude login for this workspace", choices, initial))
+  } else {
+    isolate = await promptConfirm("Dedicated Claude login for this workspace?", isolate)
+    account = undefined
+  }
 
   // Start from the stored workspace so fields this prompt flow does not manage
   // (skills, selfSkill) survive the edit; upsert replaces the whole entry.
   const next: Workspace = {
     ...ws,
     isolate: isolate || undefined,
+    account,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
     // persist stores; also normalizes a legacy config whose path was saved
@@ -242,6 +250,7 @@ export const edit = async (args: string[]) => {
     )
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)
+  if (next.account !== ws.account && next.account) console.log(`✓ runs on account ${next.account}`)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)
   process.exit(0)
 }

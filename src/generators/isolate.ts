@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 
+import { accountDir, isAccountDir } from "@/accounts"
 import type { Workspace } from "@/config"
 import { home, resolveAbsolute } from "@/env"
 import { readFileOrEmpty, writeFileAtomic } from "@/io"
@@ -28,8 +29,18 @@ export const baseClaudeDir = (): string => {
   const base = process.env.INSCOPE_BASE_CCD
   if (base !== undefined && process.env.INSCOPE_CCD !== undefined) return base.trim() || fallback
   const env = process.env.CLAUDE_CONFIG_DIR?.trim()
-  return env && path.basename(env) !== INSCOPE_DIR ? env : fallback
+  return env && path.basename(env) !== INSCOPE_DIR && !isAccountDir(env) ? env : fallback
 }
+
+// Whether a workspace runs on a login of its own (its `.inscope`, or a named account)
+// rather than the shared base login. The hook exports CLAUDE_CONFIG_DIR only for these.
+export const hasOwnLogin = (ws: Workspace): boolean => Boolean(ws.isolate || ws.account)
+
+// The Claude config dir a workspace runs on: its account's login, its own `.inscope`,
+// or the shared base. The one place that decides it, so the hook, status, doctor,
+// skills, and settings all agree on where a workspace's login lives.
+export const loginDir = (ws: Workspace): string =>
+  ws.account ? accountDir(ws.account) : ws.isolate ? inscopeDirPath(ws) : baseClaudeDir()
 
 const gitignorePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".gitignore")
 

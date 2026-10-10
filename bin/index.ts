@@ -5,9 +5,12 @@ import { diff } from "~/bin/commands/diff"
 import { doctor } from "~/bin/commands/doctor"
 import { edit } from "~/bin/commands/edit"
 import { list } from "~/bin/commands/list"
+import { login } from "~/bin/commands/login"
+import { logout } from "~/bin/commands/logout"
 import { remove } from "~/bin/commands/remove"
 import { skill } from "~/bin/commands/skill"
 import { status } from "~/bin/commands/status"
+import { usage } from "~/bin/commands/usage"
 import { author, name, version } from "~/package.json"
 
 const helpMessage = `Version:
@@ -26,6 +29,9 @@ Commands:
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
   skill          Manage a workspace's Claude skills (add, list, rename, rm, update)
+  login <name>   Sign a Claude account in as a named account (assign it with add/edit --account)
+  logout <name>  Sign a named account out and forget it
+  usage          Show each login's 5-hour and weekly limits and when they reset
   doctor         Verify tokens, identities, the hook, and skill links resolve correctly
   diff           Preview what apply would change; --adopt pulls on-disk extras back
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
@@ -59,6 +65,12 @@ const main = async () => {
         return status(rest)
       case "skill":
         return await skill(rest)
+      case "login":
+        return await login(rest)
+      case "logout":
+        return logout(rest)
+      case "usage":
+        return await usage(rest)
       case "diff":
         return diff(rest)
       case "apply":

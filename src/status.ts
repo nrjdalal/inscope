@@ -1,6 +1,6 @@
 import { type Config, currentWorkspace } from "@/config"
 import { contractTilde } from "@/env"
-import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
+import { baseClaudeDir, loginDir } from "@/generators/isolate"
 import { SERVER_TYPES } from "@/generators/mcp"
 import { desiredSkillLinks } from "@/generators/skills"
 import { claudeAuthStatus, defaultRunner, ghToken, gitGlobal, type Runner } from "@/secrets"
@@ -11,6 +11,8 @@ import { claudeAuthStatus, defaultRunner, ghToken, gitGlobal, type Runner } from
 // resolve (which shells out to claude/gh/git) is the only side-effecting part.
 export type StatusClaude = {
   isolated: boolean
+  // The named account login this workspace runs on, when it uses one.
+  account?: string
   configDir: string
   signedIn: boolean
   email?: string
@@ -34,13 +36,14 @@ export const resolveStatus = (
 ): StatusSnapshot => {
   const ws = currentWorkspace(cfg, cwd)
   const isolated = Boolean(ws?.isolate)
-  const configDir = isolated && ws ? inscopeDirPath(ws) : baseClaudeDir()
+  const configDir = ws ? loginDir(ws) : baseClaudeDir()
   const auth = claudeAuthStatus(configDir, run)
   return {
     workspace: ws?.name ?? null,
     path: ws ? ws.path : contractTilde(cwd),
     claude: {
       isolated,
+      ...(ws?.account ? { account: ws.account } : {}),
       configDir: contractTilde(configDir),
       signedIn: auth.signedIn,
       email: auth.email,
@@ -76,7 +79,11 @@ export const renderStatus = (snap: StatusSnapshot, c: StatusPainters = PLAIN): s
   lines.push(`  ${c.head(snap.workspace ?? "no workspace")}  ${c.dim(snap.path)}`)
   lines.push("")
 
-  const scope = snap.claude.isolated ? "isolated" : "shared"
+  const scope = snap.claude.account
+    ? `account ${snap.claude.account}`
+    : snap.claude.isolated
+      ? "isolated"
+      : "shared"
   const who =
     snap.claude.signedIn && snap.claude.email
       ? `${snap.claude.email}${snap.claude.subscription ? ` · ${snap.claude.subscription}` : ""}`
