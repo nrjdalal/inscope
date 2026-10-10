@@ -37,6 +37,8 @@ import {
   proxyConfigPath,
   poolFlag,
   poolHasKey,
+  poolLabel,
+  poolOf,
   proxyLabel,
   proxyLoaded,
   readProxyKey,
@@ -160,7 +162,7 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
 const routingDrift = (dir: string, cfg: Config, ws?: Workspace): string | null => {
   const route = routeFor(cfg, ws)
   if (route && !routedAt(dir, route))
-    return `does not go through ${ws?.pool ? `pool ${ws.pool}` : "the proxy"} yet; run \`inscope apply\``
+    return `does not go through ${poolLabel(poolOf(ws))} yet; run \`inscope apply\``
   if (!route && staleRoutingAt(dir))
     return "still points at the proxy, which is no longer set up; run `inscope apply`"
   return null

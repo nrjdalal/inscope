@@ -18,8 +18,7 @@ import {
   proxyRoot,
   proxyUrl,
   readProxyKey,
-  startProxy,
-  stopProxy,
+  setPoolsRunning,
 } from "@/proxy"
 import { defaultRunner } from "@/secrets"
 import { green, yellow } from "~/bin/commands/_prompt"
@@ -78,7 +77,11 @@ export const proxy = async (args: string[]) => {
 
   if (sub === "setup") {
     const cfg = requireProxy()
-    const pool = values.pool || DEFAULT_POOL
+    if (values.pool === "") {
+      console.error("--pool needs a name")
+      process.exit(1)
+    }
+    const pool = values.pool ?? DEFAULT_POOL
     const current = poolPort(cfg, pool)
     if (current === undefined) {
       console.error(`No pool ${pool}. See \`${name} pool list\`.`)
@@ -139,17 +142,7 @@ export const proxy = async (args: string[]) => {
   }
 
   if (sub === "start" || sub === "stop") {
-    const cfg = requireProxy()
-    // Each pool on its own: one that fails to start must not leave the others stopped.
-    const failed: string[] = []
-    for (const p of configPools(cfg)) {
-      try {
-        if (sub === "start") startProxy(run, { pool: p.name })
-        else stopProxy(run, { pool: p.name })
-      } catch (err) {
-        failed.push(`${p.name}: ${err instanceof Error ? err.message : err}`)
-      }
-    }
+    const failed = setPoolsRunning(requireProxy(), sub === "start", run)
     if (failed.length) {
       console.error(`Could not ${sub} every pool:\n  ${failed.join("\n  ")}`)
       process.exit(1)

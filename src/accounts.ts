@@ -36,9 +36,10 @@ import {
 import { defaultRunner, type Runner } from "@/secrets"
 
 // Your Claude accounts, as inscope's config sees them: signing one in to a pool of the
-// proxy, signing one out, a workspace's pool, and moving or removing the proxy. Every change is checked against the config it leads to
-// before anything is touched, then saved and applied, so every login always points at a
-// proxy that runs (or straight at Anthropic once there is none).
+// proxy, signing one out, a workspace's pool, and moving or removing the proxy. Every
+// change is checked against the config it leads to before anything is touched, then
+// saved and applied, so every login always points at a proxy that runs (or straight at
+// Anthropic once there is none).
 
 // Check the config a change leads to, make the change, then save and apply that config.
 const reconfigure = async (next: Config, change: () => unknown) => {
@@ -112,11 +113,10 @@ export const signIn = async (
   const port =
     existing ?? opts.port ?? (pool === DEFAULT_POOL ? DEFAULT_PROXY_PORT : await nextPoolPort(cfg))
   const fresh = existing === undefined
-  // A new named pool starts empty: files left by an earlier pool of that name (the
-  // default pool instead keeps its accounts across an uninstall without --purge, which
-  // also drops every named pool, so they cannot be in two pools);
-  // here, files from a proxy uninstall that kept them, or an interrupted sign-in, would
-  // hand it accounts the config does not know, maybe ones another pool holds.
+  // A new named pool starts empty. Files an earlier pool of that name left (from an
+  // uninstall without --purge, or a sign-in cut short) would hand it accounts the config
+  // does not know, maybe ones another pool holds. (The default pool keeps its accounts
+  // across an uninstall instead: that also drops every named pool, so none is doubled.)
   if (fresh && pool !== DEFAULT_POOL && fs.existsSync(poolDir(pool))) {
     log(`\nRemoving files an earlier pool ${pool} left in ${contractTilde(poolDir(pool))}.`)
     dropPool(pool, run)

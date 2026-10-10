@@ -572,6 +572,25 @@ export const poolAccounts = (cfg: Config | null | undefined) =>
     proxyAccounts(p.name).map((account) => ({ pool: p.name, account })),
   )
 
+// Start (or stop) every pool's proxy, each on its own: one that fails does not leave the
+// others stopped. Returns the failures, as "<pool>: <error>".
+export const setPoolsRunning = (
+  cfg: Config,
+  on: boolean,
+  run: Runner = defaultRunner,
+): string[] => {
+  const failed: string[] = []
+  for (const p of configPools(cfg)) {
+    try {
+      if (on) startProxy(run, { pool: p.name })
+      else stopProxy(run, { pool: p.name })
+    } catch (err) {
+      failed.push(`${p.name}: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+  return failed
+}
+
 // Who a pool serves: "the shared login" for the default pool, then every isolated
 // workspace routed to it, by name.
 export const poolUsers = (cfg: Config, pool: string): string[] => [
