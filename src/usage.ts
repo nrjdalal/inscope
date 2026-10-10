@@ -20,18 +20,21 @@ import {
   inscopeDirPath,
   inscopeSignedIn,
 } from "@/generators/isolate"
+import { type ProxyAccount, proxyAccounts, proxyUsers } from "@/proxy"
 import { claudeAuthStatus, defaultRunner, type Runner } from "@/secrets"
 
 // Every Claude login inscope knows about: the shared base, each named account, and each
 // isolated workspace that has been signed in. `usedBy` is the workspaces that run on it.
 export type LoginRef = {
   label: string
-  kind: "base" | "account" | "isolated"
+  kind: "base" | "account" | "isolated" | "proxy"
   dir: string
   // The CLAUDE_CONFIG_DIR value Claude runs this login with; undefined means unset, which
   // is Claude's bare default Keychain slot (a different login from `~/.claude` spelled out).
   ccd: string | undefined
   usedBy: string[]
+  // A proxy account's token comes from the proxy's own auth file, not the Keychain.
+  proxyAccount?: ProxyAccount
 }
 
 // The CLAUDE_CONFIG_DIR the base login actually runs with, matching the hook: once any
@@ -61,14 +64,28 @@ export const knownLogins = (cfg: Config): LoginRef[] => {
       ccd: accountDir(acc.name),
       usedBy: cfg.workspaces.filter((w) => w.account === acc.name).map((w) => w.name),
     })
+  // A workspace behind a gateway has no login of its own: its requests carry the
+  // gateway's key, and the gateway's accounts are listed below (when it is the proxy).
   for (const ws of cfg.workspaces)
-    if (ws.isolate && inscopeSignedIn(inscopeDirPath(ws)))
+    if (ws.isolate && !ws.gateway && inscopeSignedIn(inscopeDirPath(ws)))
       out.push({
         label: ws.name,
         kind: "isolated",
         dir: inscopeDirPath(ws),
         ccd: inscopeDirPath(ws),
         usedBy: [ws.name],
+      })
+  // The proxy's accounts (`inscope proxy login`): the proxy keeps their tokens fresh
+  // itself, so their usage reads even when no session has used them for a while.
+  if (cfg.proxy)
+    for (const acc of proxyAccounts())
+      out.push({
+        label: "proxy",
+        kind: "proxy",
+        dir: acc.file,
+        ccd: undefined,
+        usedBy: proxyUsers(cfg),
+        proxyAccount: acc,
       })
   return out
 }
@@ -139,10 +156,16 @@ export const resolveUsage = async (
 
   const rows: (UsageRow | Pending)[] = knownLogins(cfg).map((login) => {
     const base = { label: login.label, kind: login.kind, dir: login.dir, usedBy: login.usedBy }
-    let tok = readOAuth(login.ccd, run)
-    if (!tok) return { ...base, state: "signed-out" } as UsageRow
-    const auth = claudeAuthStatus(login.ccd, run)
-    const row = { ...base, email: auth.email, plan: planLabel(tok) }
+    const pa = login.proxyAccount
+    let tok = pa
+      ? pa.accessToken
+        ? { accessToken: pa.accessToken, expiresAt: pa.expiresAt }
+        : null
+      : readOAuth(login.ccd, run)
+    if (!tok)
+      return { ...base, ...(pa ? { email: pa.email } : {}), state: "signed-out" } as UsageRow
+    const email = pa ? pa.email : claudeAuthStatus(login.ccd, run).email
+    const row = { ...base, email, plan: planLabel(tok) }
     const expired = (t: typeof tok) => t?.expiresAt !== undefined && t.expiresAt <= now
     let refreshed = false
     if (expired(tok) && canRefresh(login)) {

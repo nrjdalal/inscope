@@ -39,7 +39,8 @@ const fs = require("node:fs")
 const path = require("node:path")
 const state = process.env.FAKE_STATE
 fs.appendFileSync(path.join(state, "chrome-calls.jsonl"), JSON.stringify(process.argv.slice(2)) + "\n")
-fs.writeFileSync(
-  path.join(state, "browser-signed-in"),
-  process.env.FAKE_BROWSER_EMAIL || process.env.FAKE_LOGIN_EMAIL,
-)
+// Atomically (write, then rename): the fake claude polls for this file, and a plain
+// write lets it see the file created but still empty on a slow machine.
+const signed = path.join(state, "browser-signed-in")
+fs.writeFileSync(`${signed}.tmp`, process.env.FAKE_BROWSER_EMAIL || process.env.FAKE_LOGIN_EMAIL)
+fs.renameSync(`${signed}.tmp`, signed)

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -40,7 +40,7 @@ export const defaultBrowserMode = (): BrowserMode => (findChrome() ? "chrome" : 
 // Credential variables are dropped for every claude this runs, so the sign-in is always
 // the claude.ai OAuth flow, its new token is never sent through a gateway, and the
 // read-back sees the account's own login rather than an inherited token.
-const childEnv = (extra: Record<string, string>): NodeJS.ProcessEnv => {
+export const childEnv = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra }
   for (const k of CREDENTIAL_ENV_VARS) delete env[k]
   return env
@@ -80,17 +80,61 @@ exit 0
   return file
 }
 
+// Open `url` in a new Chrome window on a fresh, throwaway profile for `name`, for a
+// sign-in that does not go through $BROWSER (the proxy's own login prints its URL).
+// Same profile and pid file as the $BROWSER shim, so closeWindow cleans up either.
+export const openSignInWindow = (name: string, url: string): void => {
+  const chrome = findChrome()
+  if (!chrome)
+    throw new Error("no Chrome-family browser found for the sign-in (set INSCOPE_CHROME)")
+  closeWindow(name)
+  const profile = loginProfileDir(name)
+  fs.mkdirSync(profile, { recursive: true, mode: 0o700 })
+  const child = spawn(
+    chrome,
+    [
+      `--user-data-dir=${profile}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--new-window",
+      url,
+    ],
+    { detached: true, stdio: "ignore" },
+  )
+  child.unref()
+  if (child.pid) writeFileAtomic(`${profile}.pid`, String(child.pid))
+}
+
 // Close the login window and delete its profile (and the claude.ai session in it).
-const closeWindow = (name: string) => {
+// Chrome keeps writing into its profile for a moment after SIGTERM, so wait for it to
+// exit before removing the profile, and never fail a sign-in over cleanup: a profile
+// left behind is removed when the next sign-in starts.
+export const closeWindow = (name: string) => {
   const profile = loginProfileDir(name)
   const pidFile = `${profile}.pid`
   try {
     const pid = Number(fs.readFileSync(pidFile, "utf8").trim())
-    if (pid > 0) process.kill(pid, "SIGTERM")
+    if (pid > 0) {
+      process.kill(pid, "SIGTERM")
+      const until = Date.now() + 5000
+      while (Date.now() < until && isRunning(pid)) sleepSync(100)
+    }
   } catch {}
-  fs.rmSync(pidFile, { force: true })
-  fs.rmSync(profile, { recursive: true, force: true })
+  try {
+    fs.rmSync(pidFile, { force: true })
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch {}
 }
+
+// Whether a process is still running. A browser this process launched stays a zombie
+// after it exits (nothing reaps it while closeWindow waits), so ask ps for its state.
+const isRunning = (pid: number) => {
+  const r = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" })
+  return r.status === 0 && !r.stdout.trim().startsWith("Z")
+}
+
+export const sleepSync = (ms: number) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
 export type LoginResult = { email: string; subscriptionType?: string }
 

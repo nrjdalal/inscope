@@ -30,6 +30,16 @@ import {
 import { readFileOrNull } from "@/io"
 import { assertBlockWellFormed, readBlock } from "@/managed-block"
 import {
+  PROXY_KEYCHAIN,
+  PROXY_VERSION,
+  proxyAccounts,
+  proxyAuthDir,
+  proxyBinPath,
+  proxyConfigPath,
+  proxyLoaded,
+  proxyUrl,
+} from "@/proxy"
+import {
   claudeAuthStatus,
   defaultRunner,
   ghToken,
@@ -171,6 +181,59 @@ const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
   return out
 }
 
+// The local proxy (`inscope proxy setup`): installed at the pinned version, its client
+// key in the Keychain, its config private, its launchd agent loaded and listening on
+// the port, and at least one account signed in.
+const proxyChecks = (cfg: Config, run: Runner): Check[] => {
+  if (!cfg.proxy) return []
+  const label = "proxy"
+  const out: Check[] = []
+  const fix = "run `inscope proxy setup`"
+  if (!fs.existsSync(proxyBinPath()))
+    out.push({
+      status: "fail",
+      label,
+      detail: `CLIProxyAPI ${PROXY_VERSION} is not installed; ${fix}`,
+    })
+  if (!keychainHasService(PROXY_KEYCHAIN, run))
+    out.push({ status: "fail", label, detail: `${PROXY_KEYCHAIN} not in keychain; ${fix}` })
+  try {
+    if ((fs.statSync(proxyConfigPath()).mode & 0o077) !== 0)
+      out.push({
+        status: "warn",
+        label,
+        detail: `${contractTilde(proxyConfigPath())} is readable by others (it holds the client key); ${fix}`,
+      })
+  } catch {
+    out.push({ status: "fail", label, detail: `no ${contractTilde(proxyConfigPath())}; ${fix}` })
+  }
+  try {
+    if ((fs.statSync(proxyAuthDir()).mode & 0o077) !== 0)
+      out.push({
+        status: "warn",
+        label,
+        detail: `${contractTilde(proxyAuthDir())} is readable by others (it holds account tokens); run \`chmod 700 ${contractTilde(proxyAuthDir())}\``,
+      })
+  } catch {}
+  const listening = run("lsof", ["-nP", `-iTCP:${cfg.proxy.port}`, "-sTCP:LISTEN"]).status === 0
+  if (!proxyLoaded(run) || !listening)
+    out.push({
+      status: "fail",
+      label,
+      detail: `not running on ${proxyUrl(cfg.proxy.port)}; run \`inscope proxy start\``,
+    })
+  const accounts = proxyAccounts()
+  if (!accounts.length)
+    out.push({ status: "warn", label, detail: "no accounts signed in; run `inscope proxy login`" })
+  if (!out.some((c) => c.status === "fail"))
+    out.unshift({
+      status: "ok",
+      label,
+      detail: `${proxyUrl(cfg.proxy.port)} · CLIProxyAPI ${PROXY_VERSION} · ${accounts.length} account(s)`,
+    })
+  return out
+}
+
 // An isolated workspace runs Claude from a workspace-local `.inscope`. Two things
 // can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
 // which Claude fills on first login), and the dir, which holds that login, could
@@ -180,13 +243,15 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
   const dir = inscopeDirPath(ws)
   const out: Check[] = []
   out.push(
-    inscopeSignedIn(dir)
-      ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
-      : {
-          status: "warn",
-          label: tag,
-          detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
-        },
+    ws.gateway
+      ? { status: "ok", label: tag, detail: `isolated, signed in through the gateway` }
+      : inscopeSignedIn(dir)
+        ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
+        : {
+            status: "warn",
+            label: tag,
+            detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
+          },
   )
   out.push(...bypassChecks(tag, ws, bypass))
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
@@ -365,6 +430,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
   }
 
   checks.push(...accountChecks(cfg, run))
+  checks.push(...proxyChecks(cfg, run))
 
   for (const ws of cfg.workspaces) {
     const tag = `[${ws.name}]`

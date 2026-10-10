@@ -5,6 +5,7 @@ import type { Config, Workspace } from "@/config"
 import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { renderMcp, SERVER_TYPES } from "@/generators/mcp"
+import { renderLaunchAgent, renderProxyConfig } from "@/proxy"
 import { renderStatus, type StatusSnapshot } from "@/status"
 import { renderUsage, type UsageRow } from "@/usage"
 import { slackKeychainFor } from "~/bin/commands/_workspace"
@@ -529,4 +530,24 @@ test("golden: status card, isolated login behind a gateway", () => {
     skills: ["inscope"],
   }
   expect(renderStatus(snap)).toMatchSnapshot()
+})
+
+test("golden: proxy config", () => {
+  expect(
+    renderProxyConfig({
+      port: 8317,
+      key: "inscope-0123abcd",
+      authDir: "/h/.config/inscope/proxy/auth",
+    }),
+  ).toMatchSnapshot()
+})
+
+test("golden: proxy launchd agent", () => {
+  expect(
+    renderLaunchAgent({
+      bin: "/h/.config/inscope/proxy/bin/8.0.23/cli-proxy-api",
+      config: "/h/.config/inscope/proxy/config.yaml",
+      log: "/h/.config/inscope/proxy/proxy & log.log",
+    }),
+  ).toMatchSnapshot()
 })
