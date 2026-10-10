@@ -18,7 +18,7 @@ import { sandbox } from "./support/sandbox"
 // Anything that reads the base login runs in a sandbox HOME through the real CLI, so
 // no test ever reads or writes the real ~/.claude.
 
-const GW = routeTo(18317)
+const ROUTE = routeTo(18317)
 const HELPER = proxyKeyHelper(PROXY_KEYCHAIN)
 
 // --- unit -----------------------------------------------------------------------------
@@ -31,16 +31,16 @@ test("proxyKeyHelper reads the key by service, single-quoted, with no shell vari
 test("mergeRouting sets/clears only its own keys, preserving the rest", () => {
   const set = mergeRouting(
     { model: "opus", env: { FOO: "1" }, permissions: { defaultMode: "bypassPermissions" } },
-    GW,
+    ROUTE,
   )
   expect(set).toEqual({
     model: "opus",
-    env: { FOO: "1", ANTHROPIC_BASE_URL: GW.url },
+    env: { FOO: "1", ANTHROPIC_BASE_URL: ROUTE.url },
     permissions: { defaultMode: "bypassPermissions" },
     apiKeyHelper: HELPER,
   })
   // idempotent, and a moved port moves the URL
-  expect(mergeRouting(set, GW)).toEqual(set)
+  expect(mergeRouting(set, ROUTE)).toEqual(set)
   expect(mergeRouting(set, routeTo(9000)).env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9000")
   // clearing removes the pair and keeps unrelated env; an env it emptied is dropped
   expect(mergeRouting(set, undefined)).toEqual({
@@ -48,20 +48,20 @@ test("mergeRouting sets/clears only its own keys, preserving the rest", () => {
     env: { FOO: "1" },
     permissions: { defaultMode: "bypassPermissions" },
   })
-  expect(mergeRouting(mergeRouting({}, GW), undefined)).toEqual({})
+  expect(mergeRouting(mergeRouting({}, ROUTE), undefined)).toEqual({})
   // a hand-set helper (and its base URL) is left alone when clearing
   const hand = { apiKeyHelper: "~/bin/key.sh", env: { ANTHROPIC_BASE_URL: "https://mine" } }
   expect(mergeRouting(hand, undefined)).toEqual(hand)
   // composes with the bypass merge in either order
-  expect(mergeBypassSettings(mergeRouting({}, GW), true)).toEqual(
-    mergeRouting(mergeBypassSettings({}, true), GW),
+  expect(mergeBypassSettings(mergeRouting({}, ROUTE), true)).toEqual(
+    mergeRouting(mergeBypassSettings({}, true), ROUTE),
   )
 })
 
 test("foreignRouting flags a key helper or base URL that is not inscope's", () => {
   expect(foreignRouting({})).toBeNull()
   expect(foreignRouting({ model: "opus", env: { FOO: "1" } })).toBeNull()
-  expect(foreignRouting(mergeRouting({}, GW))).toBeNull()
+  expect(foreignRouting(mergeRouting({}, ROUTE))).toBeNull()
   expect(foreignRouting({ apiKeyHelper: "~/bin/key.sh" })).toBe("already sets its own apiKeyHelper")
   expect(foreignRouting({ env: { ANTHROPIC_BASE_URL: "https://gw.example" } })).toBe(
     "already sets its own env.ANTHROPIC_BASE_URL",
@@ -137,7 +137,7 @@ test("CLI: apply routes the shared login and every isolated one through the prox
   const { s, iso, plain, base, cfg, doctor } = setup()
   s.writeCfg(cfg(true))
   expect(s.cli(["apply"]).status).toBe(0)
-  const routed = { env: { ANTHROPIC_BASE_URL: GW.url }, apiKeyHelper: HELPER }
+  const routed = { env: { ANTHROPIC_BASE_URL: ROUTE.url }, apiKeyHelper: HELPER }
   expect(settings(base)).toEqual({ model: "opus", ...routed })
   expect(settings(path.join(iso, ".inscope"))).toEqual(routed)
   // a non-isolated workspace runs on the base login: no settings of its own

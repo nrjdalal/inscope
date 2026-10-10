@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util"
 
-import { logoutProxyAccount, proxyAccounts } from "@/proxy"
+import { signOut } from "@/accounts"
 import { requireConfig } from "~/bin/commands/_config"
 import { green } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
@@ -32,20 +32,11 @@ export const logout = (args: string[]) => {
     process.exit(1)
   }
   const cfg = requireConfig()
-  const accounts = cfg.proxy ? proxyAccounts() : []
-  if (!accounts.some((a) => a.email.toLowerCase() === email.toLowerCase())) {
-    console.error(
-      `No account ${email} in the proxy.${accounts.length ? ` It holds: ${accounts.map((a) => a.email).join(", ")}.` : ` Sign one in with \`${name} login\`.`}`,
-    )
+  if (!cfg.proxy) {
+    console.error(`No accounts yet. Sign one in with \`${name} login\`.`)
     process.exit(1)
   }
-  if (accounts.length === 1) {
-    console.error(
-      `${email} is the proxy's last account, and every Claude Code login goes through the proxy, so removing it would leave Claude Code with no account. Sign another in first (\`${name} login\`), or stop using the proxy with \`${name} proxy uninstall\`. Nothing was changed.`,
-    )
-    process.exit(1)
-  }
-  logoutProxyAccount(email)
+  signOut(email)
   console.log(green(`\n✓ removed ${email} from the proxy`))
   process.exit(0)
 }

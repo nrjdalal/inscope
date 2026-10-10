@@ -18,7 +18,7 @@ Status: planned, not started. First make the CLIProxyAPI version (`inscope proxy
 
 ## Keep
 
-- The workspace gateway (`ANTHROPIC_BASE_URL` + Keychain `apiKeyHelper`), so the
+- The routing every login gets (`ANTHROPIC_BASE_URL` + Keychain `apiKeyHelper`), so the
   switch is internal to inscope.
 - The command surface from `proxy-first.md`: one `inscope login`, with
   `inscope proxy status/start/stop/setup/uninstall` as low-level controls (no

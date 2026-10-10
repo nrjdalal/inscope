@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Fake launchctl for the proxy's launchd agent: records each call, and keeps whether
-// the agent is "loaded" in the sandbox, so `bootstrap`, `bootout`, and `print` behave
+// the agent is "loaded" in the sandbox (FAKE_BOOTSTRAP_FAIL makes loading fail), so `bootstrap`, `bootout`, and `print` behave
 // like launchd without ever touching the real user domain (the label is per user, not
 // per HOME, so a real launchctl here would replace the live proxy's agent).
 // Refuses to run outside a test sandbox, like the other fakes.
@@ -41,6 +41,14 @@ const args = process.argv.slice(2)
 fs.appendFileSync(path.join(state, "launchctl-calls.jsonl"), JSON.stringify(args) + "\n")
 const loaded = path.join(state, "launchctl-loaded")
 if (args[0] === "bootstrap") {
+  // FAKE_BOOTSTRAP_FAIL=once fails the first bootstrap only; any other value, every one.
+  const failed = path.join(state, "launchctl-bootstrap-failed")
+  const mode = process.env.FAKE_BOOTSTRAP_FAIL
+  if (mode && !(mode === "once" && fs.existsSync(failed))) {
+    fs.writeFileSync(failed, "")
+    console.error("Bootstrap failed: 5: Input/output error")
+    process.exit(5)
+  }
   fs.writeFileSync(loaded, args[2] ?? "")
   process.exit(0)
 }

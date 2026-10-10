@@ -536,6 +536,32 @@ test("CLI: a sign-in that fails or is the wrong account saves and routes nothing
   )
 }, 30_000)
 
+test("CLI: a first setup that fails leaves no agent behind, and the next login succeeds", async () => {
+  const { s, login } = proxySandbox()
+  const plist = path.join(s.sb, "Library", "LaunchAgents", "dev.inscope.proxy.plist")
+  const r = await login("a@x.dev", [], { FAKE_BOOTSTRAP_FAIL: "1" })
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain("launchctl bootstrap failed")
+  expect(fs.existsSync(plist)).toBe(false)
+  expect(s.readCfg()?.proxy).toBeUndefined()
+  expect((await login("a@x.dev")).status).toBe(0)
+  expect(fs.existsSync(plist)).toBe(true)
+}, 30_000)
+
+test("CLI: proxy setup --port that fails puts the proxy back where every login points", async () => {
+  const { s, port, login, settings, base } = proxySandbox()
+  expect((await login("a@x.dev")).status).toBe(0)
+  const yaml = path.join(s.sb, ".config", "inscope", "proxy", "config.yaml")
+  const r = await s.cliAsync(["proxy", "setup", "--port", "1999"], { FAKE_BOOTSTRAP_FAIL: "once" })
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain("launchctl bootstrap failed")
+  // the config, every login, and the running proxy all stay on the old port
+  expect(s.readCfg()?.proxy).toEqual({ port })
+  expect(settings(base).env.ANTHROPIC_BASE_URL).toBe(`http://127.0.0.1:${port}`)
+  expect(fs.readFileSync(yaml, "utf8")).toContain(`port: ${port}\n`)
+  expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded"))).toBe(true)
+}, 30_000)
+
 test("CLI: login refuses a login with its own key helper before setting anything up", async () => {
   const { s, login, base } = proxySandbox()
   fs.mkdirSync(base, { recursive: true })

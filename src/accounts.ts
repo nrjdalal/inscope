@@ -1,18 +1,16 @@
-import fs from "node:fs"
-
 import { applyAll, preflightApply } from "@/apply"
 import { type Config, configExists, defaultConfig, loadConfig, saveConfig } from "@/config"
 import type { BrowserMode } from "@/login"
 import {
   DEFAULT_PROXY_PORT,
-  launchAgentPath,
   loginProxyAccount,
   type ProxyAccount,
   proxyAccounts,
   proxyHealthy,
+  logoutProxyAccount,
   readProxyKey,
+  retireProxyAgent,
   setupProxy,
-  stopProxy,
   uninstallProxy,
 } from "@/proxy"
 import { defaultRunner, type Runner } from "@/secrets"
@@ -61,24 +59,21 @@ export const signIn = async (
     log(
       "\nThe proxy stores your Claude accounts' tokens locally and relays Claude Code's requests; Anthropic's terms forbid third parties doing that with Claude.ai credentials, so running it is your choice and your accounts' risk.",
     )
-  const key = readProxyKey(run)
-  if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
-    await setupProxy(port, { run, log: (l) => log(`\n${l}`) })
-
-  if (opts.mode === "chrome")
-    log(
-      "\nA new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize. This finishes on its own once you do.",
-    )
   let account: ProxyAccount
   try {
+    const key = readProxyKey(run)
+    if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
+      await setupProxy(port, { run, log: (l) => log(`\n${l}`) })
+    if (opts.mode === "chrome")
+      log(
+        "\nA new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize. This finishes on its own once you do.",
+      )
     account = await loginProxyAccount({ email: opts.email, mode: opts.mode, log })
   } catch (err) {
-    // Nothing routes to a first proxy yet: stop it, and drop the agent launchd would
-    // start at the next login. The binary and key stay for the next try.
-    if (!cfg.proxy) {
-      stopProxy(run)
-      fs.rmSync(launchAgentPath(), { force: true })
-    }
+    // Nothing routes to a first proxy yet, so a setup or sign-in that fails leaves none
+    // running (launchd would otherwise keep restarting it, and start it at every login).
+    // The binary and key stay for the next try.
+    if (!cfg.proxy) retireProxyAgent(run)
     throw err
   }
 
@@ -89,9 +84,40 @@ export const signIn = async (
   return { account, port, accounts: proxyAccounts().length }
 }
 
-// Reinstall the proxy and restart it, on `port`; every login's URL moves with it.
-export const moveProxy = (cfg: Config, port: number, run: Runner = defaultRunner) =>
-  reconfigure({ ...cfg, proxy: { port } }, () => setupProxy(port, { run }))
+// Reinstall the proxy and restart it, on `port`; every login's URL moves with it. When
+// it does not come up there, it is set up again where it was, so the logins (which still
+// point at the old port) keep working.
+export const moveProxy = async (cfg: Config, port: number, run: Runner = defaultRunner) => {
+  const from = cfg.proxy?.port
+  try {
+    await reconfigure({ ...cfg, proxy: { port } }, () => setupProxy(port, { run }))
+  } catch (err) {
+    if (from === undefined || from === port) throw err
+    try {
+      await setupProxy(from, { run })
+    } catch (again) {
+      throw new Error(
+        `${err instanceof Error ? err.message : err}\nPutting it back on port ${from} failed too: ${again instanceof Error ? again.message : again}`,
+      )
+    }
+    throw err
+  }
+}
+
+// Remove an account from the proxy. The last one is refused: every login goes through the
+// proxy, so it would leave Claude Code with no account (removeProxy stops using it).
+export const signOut = (email: string): void => {
+  const accounts = proxyAccounts()
+  if (!accounts.some((a) => a.email.toLowerCase() === email.toLowerCase()))
+    throw new Error(
+      `No account ${email} in the proxy.${accounts.length ? ` It holds: ${accounts.map((a) => a.email).join(", ")}.` : " Sign one in with `inscope login`."}`,
+    )
+  if (accounts.length === 1)
+    throw new Error(
+      `${email} is the proxy's last account, and every Claude Code login goes through the proxy, so removing it would leave Claude Code with no account. Sign another in first (\`inscope login\`), or stop using the proxy with \`inscope proxy uninstall\`. Nothing was changed.`,
+    )
+  logoutProxyAccount(email)
+}
 
 // Stop using the proxy: remove it (with `purge`, its accounts and key too), and send
 // every login straight to Anthropic again.

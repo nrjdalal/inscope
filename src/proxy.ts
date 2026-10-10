@@ -442,12 +442,18 @@ export const setupProxy = async (
     )
 }
 
+// Stop the proxy and remove its launchd agent, so launchd neither restarts it nor starts
+// it at the next login. The binary, config, and accounts stay.
+export const retireProxyAgent = (run: Runner = defaultRunner) => {
+  stopProxy(run)
+  fs.rmSync(launchAgentPath(), { force: true })
+}
+
 // Stop the proxy and remove its launchd agent and binary. `purge` also removes its
 // accounts, config, and logs, and the client key from the Keychain.
 export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => {
   const run = opts.run ?? defaultRunner
-  stopProxy(run)
-  fs.rmSync(launchAgentPath(), { force: true })
+  retireProxyAgent(run)
   fs.rmSync(path.join(proxyRoot(), "bin"), { recursive: true, force: true })
   if (opts.purge) {
     fs.rmSync(proxyRoot(), { recursive: true, force: true })
