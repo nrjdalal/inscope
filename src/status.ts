@@ -33,6 +33,16 @@ export type StatusSnapshot = {
   skills: string[]
 }
 
+// The host a gateway URL points at, or the URL itself if it does not parse (config
+// validation rejects that, but status should never throw on a hand-edited file).
+const gatewayHost = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
 export const resolveStatus = (
   cfg: Config,
   { cwd = process.cwd(), run = defaultRunner }: { cwd?: string; run?: Runner } = {},
@@ -52,7 +62,7 @@ export const resolveStatus = (
       email: auth.email,
       subscription: auth.subscriptionType,
       org: auth.orgName,
-      ...(ws?.gateway ? { gateway: new URL(ws.gateway.url).host } : {}),
+      ...(ws?.gateway ? { gateway: gatewayHost(ws.gateway.url) } : {}),
     },
     github: ws?.gh ? { account: ws.gh, token: Boolean(ghToken(ws.gh, run)) } : null,
     git: ws?.git?.email

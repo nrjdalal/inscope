@@ -36,6 +36,7 @@ import {
   gitEmailForFile,
   isMacOS,
   keychainHas,
+  keychainHasService,
   keychainSetCommand,
   type Runner,
 } from "@/secrets"
@@ -137,8 +138,7 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
 
 // A gateway on an isolated login: its client key is in the Keychain, the login's
 // settings match the config in both directions (configured but not applied, and
-// removed but still routed), and no exported variable outranks the gateway's key
-// (Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper).
+// removed but still routed).
 const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
   const label = `[${ws.name}] gateway`
   const out: Check[] = []
@@ -154,7 +154,7 @@ const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
   }
   const svc = ws.gateway.keychain
   out.push(
-    keychainHas(svc, run)
+    keychainHasService(svc, run)
       ? { status: "ok", label, detail: `${ws.gateway.url} · ${svc}` }
       : {
           status: "fail",
@@ -167,16 +167,6 @@ const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
       status: "warn",
       label,
       detail: "gateway configured but not applied to this login; run `inscope apply`",
-    })
-  const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
-  if (shadow.length)
-    out.push({
-      status: "warn",
-      label,
-      detail:
-        shadow.length > 1
-          ? `${shadow.join(" and ")} are set in this shell and outrank the gateway's key; unset them`
-          : `${shadow[0]} is set in this shell and outranks the gateway's key; unset it`,
     })
   return out
 }
@@ -487,6 +477,20 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
 
     checks.push(...skillChecks(ws, cfg))
   }
+
+  // Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper, so
+  // either one exported in this shell silently bypasses every gateway's key. One check,
+  // however many workspaces route through a gateway.
+  const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
+  if (shadow.length && cfg.workspaces.some((w) => w.isolate && w.gateway))
+    checks.push({
+      status: "warn",
+      label: "gateway",
+      detail:
+        shadow.length > 1
+          ? `${shadow.join(" and ")} are set in this shell and outrank the gateway's key; unset them`
+          : `${shadow[0]} is set in this shell and outranks the gateway's key; unset it`,
+    })
 
   return checks
 }

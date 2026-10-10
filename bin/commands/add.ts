@@ -367,11 +367,12 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
+  const gatewayChange = gatewayAfterLoginChange(existing, isolate)
   const ws: Workspace = {
     ...existing,
     isolate: isolate || undefined,
     account,
-    gateway: gatewayAfterLoginChange(existing, isolate).gateway,
+    gateway: gatewayChange.gateway,
     name: label,
     path: contractTilde(target),
     gh,
@@ -408,8 +409,7 @@ export const add = async (args: string[]) => {
       `\nNote: ${existing.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${existing.path}/.inscope`)}`)}`,
     )
-  const gatewayNote = gatewayAfterLoginChange(existing, isolate).note
-  if (gatewayNote) console.log(gatewayNote)
+  if (gatewayChange.note) console.log(gatewayChange.note)
   await finalizeSlack(ws, seedSlack)
   await finalizeNylas(ws, seedNylas)
   if (firstRun)

@@ -287,20 +287,20 @@ test("doctor warns when ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN would outrank 
     const checks = runDoctor({ version: 1, workspaces: [ws] }, run)
     expect(checks).toContainEqual({
       status: "warn",
-      label: "[acme] gateway",
+      label: "gateway",
       detail: "ANTHROPIC_API_KEY is set in this shell and outranks the gateway's key; unset it",
     })
     process.env.ANTHROPIC_AUTH_TOKEN = "tok"
     expect(runDoctor({ version: 1, workspaces: [ws] }, run)).toContainEqual({
       status: "warn",
-      label: "[acme] gateway",
+      label: "gateway",
       detail:
         "ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY are set in this shell and outrank the gateway's key; unset them",
     })
     delete process.env.ANTHROPIC_API_KEY
     expect(runDoctor({ version: 1, workspaces: [ws] }, run)).toContainEqual({
       status: "warn",
-      label: "[acme] gateway",
+      label: "gateway",
       detail: "ANTHROPIC_AUTH_TOKEN is set in this shell and outranks the gateway's key; unset it",
     })
     delete process.env.ANTHROPIC_AUTH_TOKEN
@@ -312,4 +312,29 @@ test("doctor warns when ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN would outrank 
     if (prevTok === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN
     else process.env.ANTHROPIC_AUTH_TOKEN = prevTok
   }
+})
+
+test("doctor checks the gateway key by service alone, like the helper, and warns about env vars once", () => {
+  const a: Workspace = { name: "a", path: tmpDir(), isolate: true, servers: {}, gateway: GW }
+  const b: Workspace = { name: "b", path: tmpDir(), isolate: true, servers: {}, gateway: GW }
+  const calls: string[][] = []
+  const run = (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args])
+    return cmd === "security"
+      ? { status: 0, stdout: "key\n", stderr: "" }
+      : { status: 1, stdout: "", stderr: "" }
+  }
+  const prev = process.env.ANTHROPIC_API_KEY
+  try {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-api03-x"
+    const checks = runDoctor({ version: 1, workspaces: [a, b] }, run)
+    expect(checks.filter((c) => c.detail?.includes("outranks"))).toHaveLength(1)
+  } finally {
+    if (prev === undefined) delete process.env.ANTHROPIC_API_KEY
+    else process.env.ANTHROPIC_API_KEY = prev
+  }
+  const lookups = calls.filter((c) => c[0] === "security" && c.includes(GW.keychain))
+  expect(lookups.length).toBeGreaterThan(0)
+  for (const c of lookups)
+    expect(c).toEqual(["security", "find-generic-password", "-s", GW.keychain, "-w"])
 })
