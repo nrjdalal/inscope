@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
@@ -6,7 +6,14 @@ import path from "node:path"
 import { type Config, type Gateway, gatewayAfterLoginChange, type Workspace } from "@/config"
 import { home, inscopeHome } from "@/env"
 import { writeFileAtomic } from "@/io"
-import { childEnv, closeWindow, openSignInWindow } from "@/login"
+import {
+  type BrowserMode,
+  childEnv,
+  closeWindow,
+  defaultBrowserMode,
+  openSignInWindow,
+  sleepSync,
+} from "@/login"
 import { defaultRunner, keychainSet, type Runner } from "@/secrets"
 
 // A local CLIProxyAPI (https://github.com/router-for-me/CLIProxyAPI) that holds several
@@ -230,7 +237,7 @@ export const ensureProxyKey = (run: Runner = defaultRunner): string => {
 const uid = () => (typeof process.getuid === "function" ? process.getuid() : 0)
 const service = () => `gui/${uid()}/${PROXY_LABEL}`
 
-// Write the config and launchd agent, then (re)start the agent so it picks them up.
+// Write the config and launchd agent (startProxy then loads them).
 export const writeProxyFiles = (port: number, key: string, bin: string) => {
   fs.mkdirSync(proxyRoot(), { recursive: true, mode: 0o700 })
   fs.chmodSync(proxyRoot(), 0o700)
@@ -244,8 +251,6 @@ export const writeProxyFiles = (port: number, key: string, bin: string) => {
     renderLaunchAgent({ bin, config: proxyConfigPath(), log: proxyLogPath() }),
   )
 }
-
-const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
 // launchd unloads a booted-out agent asynchronously, and bootstrapping it again before
 // that finishes fails ("Bootstrap failed: 5: Input/output error"), so wait it out.
@@ -328,37 +333,57 @@ export const proxyAccounts = (): ProxyAccount[] => {
 const LOGIN_WINDOW = "proxy"
 
 // Sign a Claude account in to the proxy through the proxy's own login (Anthropic's
-// sign-in page, completed by you in a fresh Chrome window). The proxy writes the
-// account's auth file and loads it without a restart. Afterwards the email that signed
-// in is read back and checked against `email`, and a mismatch is removed again.
+// sign-in page, completed by you). `mode` picks where that page opens, as for
+// `inscope login`: a new Chrome window on a fresh profile, your usual browser, or the
+// printed URL. Afterwards the email that signed in is read back and checked against
+// `email`, and a mismatch is removed again. `openUrl` replaces the opener (tests).
 export const loginProxyAccount = async (opts: {
   email?: string
+  mode?: BrowserMode
   openUrl?: (url: string) => void
   log?: (line: string) => void
   bin?: string
 }): Promise<ProxyAccount> => {
   const bin = opts.bin ?? proxyBinPath()
   const log = opts.log ?? ((l: string) => console.log(l))
-  const openUrl = opts.openUrl ?? ((url: string) => openSignInWindow(LOGIN_WINDOW, url))
+  const mode = opts.mode ?? defaultBrowserMode()
+  const openUrl =
+    opts.openUrl ??
+    ((url: string) => {
+      if (mode === "chrome") openSignInWindow(LOGIN_WINDOW, url)
+      else if (mode === "system") spawnSync("open", [url], { stdio: "ignore" })
+      else log(`Open this URL in the browser you want to sign in with:\n${url}`)
+    })
   const child = spawn(bin, ["-config", proxyConfigPath(), "-claude-login", "-no-browser"], {
     stdio: ["ignore", "pipe", "pipe"],
     env: childEnv(),
   })
   let opened = false
+  let failed: unknown
   let tail = ""
   const onData = (d: Buffer) => {
     tail = (tail + d.toString()).slice(-4000)
     const url = tail.match(/https:\/\/\S+/)?.[0]
     if (url && !opened && /\n/.test(tail.slice(tail.indexOf(url)))) {
       opened = true
-      log("Sign in to Claude in the new Chrome window; this continues when you are done.")
-      openUrl(url)
+      if (mode !== "none")
+        log(
+          `Sign in to Claude in ${mode === "chrome" ? "the new Chrome window" : "your browser"}; this continues when you are done.`,
+        )
+      // An opener that throws (no Chrome, say) must not leave the login running.
+      try {
+        openUrl(url)
+      } catch (e) {
+        failed = e
+        child.kill()
+      }
     }
   }
   child.stdout.on("data", onData)
   child.stderr.on("data", onData)
   const code: number = await new Promise((resolve) => child.on("close", (c) => resolve(c ?? 1)))
   closeWindow(LOGIN_WINDOW)
+  if (failed) throw failed
   if (!opened) throw new Error(`the proxy's login did not print a sign-in URL:\n${tail.trim()}`)
   // The file the proxy says it saved: the running proxy also rewrites other accounts'
   // files when it refreshes their tokens, so a recently changed file proves nothing.
@@ -379,6 +404,10 @@ export const loginProxyAccount = async (opts: {
       `signed in as ${account.email}, not ${opts.email}; removed it from the proxy. Sign in with ${opts.email}.`,
     )
   }
+  // Signing an account in again (to renew it, say) replaces its earlier file.
+  for (const a of proxyAccounts())
+    if (a.file !== account.file && a.email.toLowerCase() === account.email.toLowerCase())
+      fs.rmSync(a.file, { force: true })
   return account
 }
 

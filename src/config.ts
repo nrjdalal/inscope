@@ -438,13 +438,13 @@ const gatewayError = (ws: Workspace): string | null => {
   return kcErr ? `keychain "${keychain}" is invalid: ${kcErr}` : null
 }
 
-// The gateway a workspace keeps after its login changes: it lives in the isolated
-// login's settings, so it goes away with isolation (turning isolation off, or moving
-// the workspace to an account). Returns the note to print when one was dropped.
 // A port the proxy may listen on: unprivileged, so no root is needed.
 export const isProxyPort = (port: unknown): port is number =>
   typeof port === "number" && Number.isInteger(port) && port >= 1024 && port <= 65535
 
+// The gateway a workspace keeps after its login changes: it lives in the isolated
+// login's settings, so it goes away with isolation (turning isolation off, or moving
+// the workspace to an account). Returns the note to print when one was dropped.
 export const gatewayAfterLoginChange = (
   prior: Workspace | undefined,
   isolate: boolean,

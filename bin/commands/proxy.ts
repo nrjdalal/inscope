@@ -1,10 +1,9 @@
-import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import { parseArgs } from "node:util"
 
 import { configExists, defaultConfig, isProxyPort, loadConfig, saveConfig } from "@/config"
 import { contractTilde } from "@/env"
-import { BROWSER_MODES } from "@/login"
+import { BROWSER_MODES, type BrowserMode, defaultBrowserMode } from "@/login"
 import {
   DEFAULT_PROXY_PORT,
   ensureProxyKey,
@@ -15,8 +14,10 @@ import {
   PROXY_VERSION,
   proxyAccounts,
   proxyBinPath,
+  proxyConfigPath,
   proxyHealthy,
   proxyLoaded,
+  proxyLogPath,
   proxyRoot,
   proxyUrl,
   proxyUsers,
@@ -103,14 +104,14 @@ export const proxy = async (args: string[]) => {
     startProxy(run)
     if (!(await proxyHealthy(port, key, { waitMs: 15_000 }))) {
       console.error(
-        `The proxy did not come up on ${proxyUrl(port)}; see ${contractTilde(`${proxyRoot()}/proxy.log`)}. Is the port in use? Try --port.`,
+        `The proxy did not come up on ${proxyUrl(port)}; see ${contractTilde(proxyLogPath())}. Is the port in use? Try --port.`,
       )
       process.exit(1)
     }
     saveConfig({ ...cfg, proxy: { port } })
     console.log(green(`✓ proxy running on ${proxyUrl(port)} (local only), started at login`))
     console.log(
-      `  client key in the Keychain (${PROXY_KEYCHAIN}); config ${contractTilde(`${proxyRoot()}/config.yaml`)}`,
+      `  client key in the Keychain (${PROXY_KEYCHAIN}); config ${contractTilde(proxyConfigPath())}`,
     )
     console.log(
       `\nNext: \`${name} proxy login\` for each account, then \`${name} add <path> --proxy\`.`,
@@ -120,20 +121,12 @@ export const proxy = async (args: string[]) => {
 
   if (sub === "login") {
     requireProxy()
-    const mode = values.browser ?? "chrome"
+    const mode = (values.browser ?? defaultBrowserMode()) as BrowserMode
     if (!(BROWSER_MODES as readonly string[]).includes(mode)) {
       console.error(`Invalid --browser "${values.browser}": use ${BROWSER_MODES.join(", ")}`)
       process.exit(1)
     }
-    const account = await loginProxyAccount({
-      email: values.email,
-      openUrl:
-        mode === "chrome"
-          ? undefined
-          : mode === "system"
-            ? (url) => spawnSync("open", [url], { stdio: "ignore" })
-            : (url) => console.log(`Open this URL to sign in:\n${url}`),
-    })
+    const account = await loginProxyAccount({ email: values.email, mode })
     console.log(green(`\n✓ ${account.email} signed in to the proxy`))
     const n = proxyAccounts().length
     console.log(`  the proxy now holds ${n} account${n === 1 ? "" : "s"}`)

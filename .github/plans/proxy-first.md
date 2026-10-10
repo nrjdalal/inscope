@@ -1,6 +1,7 @@
 # Plan: the proxy is the product (one login, always behind the proxy)
 
-Status: direction agreed with the user (2026-10-10); design to settle before building.
+Status: direction agreed (2026-10-10). It lands after #56 and #61, which merge as
+they are; this redesign is the next PR.
 
 ## Direction
 
@@ -35,7 +36,12 @@ come from that one place.
 - The shared login (`~/.claude`): inscope never writes it today. Routing it through
   the proxy needs either that write or the hook exporting the base URL and key.
 
+## Decided
+
+- The shared login goes through the proxy too: everything does. inscope has to route
+  `~/.claude` as well (through the shell hook or its settings), and that session also
+  loses claude.ai connectors and Remote Control.
+
 ## Open questions
 
-- The shared login: route it through the proxy, or leave it direct?
 - Keep CLIProxyAPI for now, or go straight to a built-in proxy (`native-proxy.md`)?

@@ -7,6 +7,7 @@ import path from "node:path"
 
 import { type Config, validateConfig } from "@/config"
 import { runDoctor } from "@/doctor"
+import { closeWindow, loginProfileDir } from "@/login"
 import {
   ensureProxyKey,
   installProxy,
@@ -331,12 +332,77 @@ test("loginProxyAccount opens the printed URL, waits for the sign-in, and verifi
       await expect(loginProxyAccount({ bin, openUrl: () => {}, log: () => {} })).rejects.toThrow(
         "the sign-in did not complete",
       )
+
+      // --browser none: the URL is printed for you to open, with no Chrome wording
+      const lines: string[] = []
+      const printed = await loginProxyAccount({
+        bin,
+        mode: "none",
+        log: (l) => {
+          lines.push(l)
+          if (l.includes("https://")) as("n@x.dev")("")
+        },
+      })
+      expect(printed.email).toBe("n@x.dev")
+
+      // signing an account in again replaces its earlier file instead of adding a second
+      writeAuth(path.join(proxyAuthDir(), "claude-old-a.json"), {
+        type: "claude",
+        email: "A@x.dev",
+      })
+      await loginProxyAccount({ bin, openUrl: as("a@x.dev"), log: () => {} })
+      expect(proxyAccounts().map((a) => path.basename(a.file))).toEqual([
+        "claude-a@x.dev.json",
+        "claude-n@x.dev.json",
+        "claude-other.json",
+      ])
+      expect(lines.join("\n")).toContain(
+        "Open this URL in the browser you want to sign in with:\nhttps://claude.ai/oauth/authorize",
+      )
+      expect(lines.join("\n")).not.toContain("Chrome")
+
+      // an opener that fails (no Chrome, say) ends the login instead of leaving it running
+      const started = Date.now()
+      await expect(
+        loginProxyAccount({
+          bin,
+          log: () => {},
+          openUrl: () => {
+            throw new Error("no Chrome-family browser found")
+          },
+        }),
+      ).rejects.toThrow("no Chrome-family browser found")
+      expect(Date.now() - started).toBeLessThan(4000)
     } finally {
       delete process.env.FAKE_SIGNED_IN
       delete process.env.FAKE_AUTH_DIR
     }
   })
 }, 20_000)
+
+test("closeWindow waits for the browser to exit before removing its profile, and never throws", async () => {
+  await inSandbox(async () => {
+    const profile = loginProfileDir("proxy")
+    fs.mkdirSync(profile, { recursive: true })
+    // a "browser" that keeps writing into its profile for a moment after SIGTERM
+    const browser = spawn(
+      "sh",
+      [
+        "-c",
+        `trap 'i=0; while [ $i -lt 300 ]; do mkdir -p "$0/late$i" && echo x > "$0/late$i/f"; i=$((i+1)); done; exit 0' TERM; while :; do sleep 0.05; done`,
+        profile,
+      ],
+      { stdio: "ignore" },
+    )
+    await new Promise((r) => setTimeout(r, 200))
+    fs.writeFileSync(`${profile}.pid`, String(browser.pid))
+    expect(() => closeWindow("proxy")).not.toThrow()
+    // still gone once the browser has had time to write anything else
+    await new Promise((r) => setTimeout(r, 500))
+    expect(fs.existsSync(profile)).toBe(false)
+    expect(fs.existsSync(`${profile}.pid`)).toBe(false)
+  })
+})
 
 // --- doctor ----------------------------------------------------------------------------
 
