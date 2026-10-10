@@ -17,11 +17,14 @@ import {
   proxyAuthDir,
   proxyBinPath,
   proxyConfigPath,
+  onProxy,
+  proxyAfterLoginChange,
   proxyGateway,
   proxyHealthy,
   proxyUsers,
   renderProxyConfig,
   startProxy,
+  uninstallProxy,
 } from "@/proxy"
 import type { Runner } from "@/secrets"
 
@@ -94,6 +97,53 @@ test("proxyGateway and proxyUsers tie workspaces to the proxy by its URL", () =>
   }
   expect(proxyUsers(cfg)).toEqual(["a"])
   expect(proxyUsers({ ...cfg, proxy: undefined })).toEqual([])
+  expect(onProxy(cfg, cfg.workspaces[0])).toBe(true)
+  expect(onProxy(cfg, cfg.workspaces[1])).toBe(false)
+
+  // add --proxy / --no-proxy, and otherwise the gateway follows the isolated login
+  const [a, b, c] = cfg.workspaces
+  expect(proxyAfterLoginChange(cfg, c, true, true)).toEqual({ gateway: gw })
+  expect(proxyAfterLoginChange(cfg, a, true, false)).toEqual({
+    gateway: undefined,
+    note: "Note: this workspace no longer goes through the proxy.",
+  })
+  expect(proxyAfterLoginChange(cfg, b, true, false)).toEqual({ gateway: b.gateway })
+  expect(proxyAfterLoginChange(cfg, a, true, undefined)).toEqual({ gateway: gw })
+  expect(proxyAfterLoginChange(cfg, a, false, undefined).gateway).toBeUndefined()
+})
+
+test("uninstallProxy removes the agent and binary, and with purge the accounts and key", async () => {
+  await inSandbox(async (dir) => {
+    const prevHome = process.env.HOME
+    process.env.HOME = dir
+    try {
+      const calls: string[][] = []
+      const run = runner((cmd, args) => {
+        calls.push([cmd, ...args])
+        return { status: cmd === "launchctl" && args[0] === "print" ? 113 : 0 }
+      })
+      const agent = path.join(dir, "Library", "LaunchAgents", "dev.inscope.proxy.plist")
+      const seed = () => {
+        for (const f of [proxyBinPath(), agent, path.join(proxyAuthDir(), "claude-a.json")]) {
+          fs.mkdirSync(path.dirname(f), { recursive: true })
+          fs.writeFileSync(f, "")
+        }
+      }
+      seed()
+      uninstallProxy({ run })
+      expect(fs.existsSync(agent)).toBe(false)
+      expect(fs.existsSync(proxyBinPath())).toBe(false)
+      expect(fs.existsSync(path.join(proxyAuthDir(), "claude-a.json"))).toBe(true)
+      expect(calls.some((c) => c[1] === "delete-generic-password")).toBe(false)
+
+      seed()
+      uninstallProxy({ run, purge: true })
+      expect(fs.existsSync(proxyAuthDir())).toBe(false)
+      expect(calls).toContainEqual(["security", "delete-generic-password", "-s", PROXY_KEYCHAIN])
+    } finally {
+      process.env.HOME = prevHome
+    }
+  })
 })
 
 // --- install --------------------------------------------------------------------------
@@ -127,6 +177,15 @@ test("installProxy verifies the pinned checksum before unpacking, and refuses a 
     expect(urls.at(-1)).toMatch(
       /^https:\/\/github\.com\/router-for-me\/CLIProxyAPI\/releases\/download\/v[\d.]+\/x\.tar\.gz$/,
     )
+    // a failed unpack leaves nothing behind for the next run to trust
+    fs.rmSync(path.dirname(bin), { recursive: true })
+    const failTar = runner(() => ({ status: 1 }))
+    await expect(
+      installProxy({ fetchBytes, run: failTar, asset: { file: "x.tar.gz", sha256 } }),
+    ).rejects.toThrow("unpacking x.tar.gz failed")
+    expect(fs.readdirSync(path.dirname(path.dirname(bin)))).toEqual([])
+    await installProxy({ fetchBytes, asset: { file: "x.tar.gz", sha256 } })
+    expect(fs.existsSync(bin)).toBe(true)
     // installed: a second call does not download again
     await installProxy({ fetchBytes: async () => ({ status: 500, bytes: new Uint8Array() }) })
     await expect(
@@ -225,7 +284,11 @@ i=0
 while [ ! -f "$FAKE_SIGNED_IN" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
 [ -f "$FAKE_SIGNED_IN" ] || exit 1
 email=$(cat "$FAKE_SIGNED_IN")
+# the running proxy refreshing another account's token meanwhile rewrites its file
+[ -f "$FAKE_AUTH_DIR/claude-other.json" ] && touch "$FAKE_AUTH_DIR/claude-other.json"
 printf '{"type":"claude","email":"%s","access_token":"tok","expired":"2099-01-01T00:00:00Z"}' "$email" > "$FAKE_AUTH_DIR/claude-$email.json"
+echo "Authentication saved to $FAKE_AUTH_DIR/claude-$email.json"
+echo "Claude authentication successful!"
 `,
     { mode: 0o755 },
   )
@@ -241,10 +304,18 @@ test("loginProxyAccount opens the printed URL, waits for the sign-in, and verifi
     fs.mkdirSync(proxyAuthDir(), { recursive: true })
     try {
       const opened: string[] = []
+      // atomically: the fake polls for the flag and must not read it half-written
       const as = (email: string) => (url: string) => {
         opened.push(url)
-        fs.writeFileSync(flag, email)
+        fs.writeFileSync(`${flag}.tmp`, email)
+        fs.renameSync(`${flag}.tmp`, flag)
       }
+      // an account already in the proxy, whose file sorts after the new ones and is
+      // rewritten during each sign-in: it must never be mistaken for the new account
+      writeAuth(path.join(proxyAuthDir(), "claude-other.json"), {
+        type: "claude",
+        email: "other@x.dev",
+      })
       const acc = await loginProxyAccount({ bin, openUrl: as("a@x.dev"), log: () => {} })
       expect(acc.email).toBe("a@x.dev")
       expect(fs.statSync(acc.file).mode & 0o777).toBe(0o600)
@@ -254,7 +325,7 @@ test("loginProxyAccount opens the printed URL, waits for the sign-in, and verifi
       await expect(
         loginProxyAccount({ bin, email: "b@x.dev", openUrl: as("z@x.dev"), log: () => {} }),
       ).rejects.toThrow("signed in as z@x.dev, not b@x.dev; removed it from the proxy")
-      expect(proxyAccounts().map((a) => a.email)).toEqual(["a@x.dev"])
+      expect(proxyAccounts().map((a) => a.email)).toEqual(["a@x.dev", "other@x.dev"])
 
       fs.rmSync(flag)
       await expect(loginProxyAccount({ bin, openUrl: () => {}, log: () => {} })).rejects.toThrow(

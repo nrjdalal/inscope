@@ -40,7 +40,7 @@ export const defaultBrowserMode = (): BrowserMode => (findChrome() ? "chrome" : 
 // Credential variables are dropped for every claude this runs, so the sign-in is always
 // the claude.ai OAuth flow, its new token is never sent through a gateway, and the
 // read-back sees the account's own login rather than an inherited token.
-const childEnv = (extra: Record<string, string>): NodeJS.ProcessEnv => {
+export const childEnv = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra }
   for (const k of CREDENTIAL_ENV_VARS) delete env[k]
   return env

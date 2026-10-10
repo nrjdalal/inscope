@@ -75,7 +75,7 @@ export const knownLogins = (cfg: Config): LoginRef[] => {
         ccd: inscopeDirPath(ws),
         usedBy: [ws.name],
       })
-  // The proxy's accounts (\`inscope proxy login\`): the proxy keeps their tokens fresh
+  // The proxy's accounts (`inscope proxy login`): the proxy keeps their tokens fresh
   // itself, so their usage reads even when no session has used them for a while.
   if (cfg.proxy)
     for (const acc of proxyAccounts())

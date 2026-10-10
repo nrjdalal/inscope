@@ -2,13 +2,13 @@ import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import { parseArgs } from "node:util"
 
-import { configExists, defaultConfig, loadConfig, saveConfig } from "@/config"
+import { configExists, defaultConfig, isProxyPort, loadConfig, saveConfig } from "@/config"
 import { contractTilde } from "@/env"
+import { BROWSER_MODES } from "@/login"
 import {
   DEFAULT_PROXY_PORT,
   ensureProxyKey,
   installProxy,
-  launchAgentPath,
   loginProxyAccount,
   logoutProxyAccount,
   PROXY_KEYCHAIN,
@@ -20,8 +20,10 @@ import {
   proxyRoot,
   proxyUrl,
   proxyUsers,
+  readProxyKey,
   startProxy,
   stopProxy,
+  uninstallProxy,
   writeProxyFiles,
 } from "@/proxy"
 import { defaultRunner } from "@/secrets"
@@ -39,13 +41,19 @@ Usage:
 Commands:
   setup [--port <n>]   Install CLIProxyAPI ${PROXY_VERSION} (checksum-verified), write a
                        hardened local-only config, and run it at login (launchd)
-  login [--email <e>]  Sign a Claude account in to the proxy (you sign in, in a new
-                       Chrome window on a fresh profile)
+  login                Sign a Claude account in to the proxy. You sign in, in a new
+    [--email <e>]      Chrome window on a fresh profile (--browser chrome, the
+    [--browser <b>]    default), your usual browser (system: not a fresh profile),
+                       or at the printed URL (none); --email checks who signed in
   logout <email>       Remove an account from the proxy
   status [--json]      Show whether it is running, its accounts, and who uses it
   start | stop         Start or stop the proxy
-  uninstall [--purge]  Stop it and remove the agent and binary; --purge also removes
-                       its accounts and client key
+  uninstall            Stop it and remove the agent and binary; --purge also removes
+    [--purge]          its accounts and client key; --force goes ahead even while
+    [--force]          workspaces still use it
+
+The proxy moves a request to the next account when the current one answers that it
+hit its limit, so a conversation switches accounts at the limit itself, not before.
 
 Anthropic's terms forbid third parties that store or intermediate Claude.ai
 credentials, which is what a proxy like this does: running it is your choice and
@@ -84,7 +92,7 @@ export const proxy = async (args: string[]) => {
   if (sub === "setup") {
     const cfg = configExists() ? loadConfig() : defaultConfig()
     const port = values.port ? Number(values.port) : (cfg.proxy?.port ?? DEFAULT_PROXY_PORT)
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    if (!isProxyPort(port)) {
       console.error(`Invalid --port "${values.port}": use 1024-65535`)
       process.exit(1)
     }
@@ -113,8 +121,8 @@ export const proxy = async (args: string[]) => {
   if (sub === "login") {
     requireProxy()
     const mode = values.browser ?? "chrome"
-    if (!["chrome", "system", "none"].includes(mode)) {
-      console.error(`Invalid --browser "${values.browser}": use chrome, system, none`)
+    if (!(BROWSER_MODES as readonly string[]).includes(mode)) {
+      console.error(`Invalid --browser "${values.browser}": use ${BROWSER_MODES.join(", ")}`)
       process.exit(1)
     }
     const account = await loginProxyAccount({
@@ -149,8 +157,7 @@ export const proxy = async (args: string[]) => {
 
   if (sub === "status") {
     const { cfg, port } = requireProxy()
-    const key =
-      run("security", ["find-generic-password", "-s", PROXY_KEYCHAIN, "-w"]).stdout.trim() || ""
+    const key = readProxyKey(run)
     const snap = {
       version: PROXY_VERSION,
       installed: fs.existsSync(proxyBinPath()),
@@ -197,13 +204,7 @@ export const proxy = async (args: string[]) => {
       )
       process.exit(1)
     }
-    stopProxy(run)
-    fs.rmSync(launchAgentPath(), { force: true })
-    fs.rmSync(`${proxyRoot()}/bin`, { recursive: true, force: true })
-    if (values.purge) {
-      fs.rmSync(proxyRoot(), { recursive: true, force: true })
-      run("security", ["delete-generic-password", "-s", PROXY_KEYCHAIN])
-    }
+    uninstallProxy({ purge: values.purge, run })
     const { proxy: _gone, ...rest } = cfg
     saveConfig(rest)
     console.log(
@@ -212,6 +213,12 @@ export const proxy = async (args: string[]) => {
           ? ""
           : `\n  its accounts and config are kept in ${contractTilde(proxyRoot())}; --purge removes them`),
     )
+    if (users.length)
+      console.log(
+        yellow(
+          `  ${users.join(", ")} still point${users.length === 1 ? "s" : ""} at it; run \`${name} add <path> --no-proxy\` for each`,
+        ),
+      )
     process.exit(0)
   }
 

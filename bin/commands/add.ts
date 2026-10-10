@@ -4,7 +4,6 @@ import { parseArgs } from "node:util"
 
 import {
   configExists,
-  gatewayAfterLoginChange,
   DEFAULT_SLACK_PACKAGE,
   hookValueError,
   labelFromPath,
@@ -18,7 +17,7 @@ import {
 } from "@/config"
 import { contractTilde, resolveAbsolute, sameDir } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
-import { proxyGateway } from "@/proxy"
+import { onProxy, proxyAfterLoginChange } from "@/proxy"
 import { ghAccounts, gitGlobal, keychainHas, shQuotePath } from "@/secrets"
 import {
   isInteractive,
@@ -66,8 +65,9 @@ Options:
                         there when you run it from this subtree (--no-isolate
                         turns it off when updating a workspace)
   --proxy               route this workspace through the local multi-account proxy
-                        (\`${name} proxy setup\`): its own login, with requests sent
-                        through the proxy (--no-proxy turns it off)
+                        (\`${name} proxy setup\`): its own login dir, with requests
+                        sent through the proxy, so earlier conversations from the
+                        shared login are not resumable there (--no-proxy turns it off)
   --account <name>      run this workspace on a named account login
                         (\`${name} login <name>\`) instead; "none" clears it
   --email <email>       git commit email (omit to inherit your global identity)
@@ -385,13 +385,7 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
-  const proxyGw = cfg?.proxy ? proxyGateway(cfg.proxy.port) : undefined
-  const onProxy = (w?: Workspace) => Boolean(proxyGw && w?.gateway?.url === proxyGw.url)
-  const gatewayChange = values.proxy
-    ? { gateway: proxyGw }
-    : values.proxy === false && onProxy(existing)
-      ? { gateway: undefined, note: "Note: this workspace no longer goes through the proxy." }
-      : gatewayAfterLoginChange(existing, isolate)
+  const gatewayChange = proxyAfterLoginChange(cfg, existing, isolate, values.proxy)
   const ws: Workspace = {
     ...existing,
     isolate: isolate || undefined,
@@ -444,7 +438,7 @@ export const add = async (args: string[]) => {
     ws.account
       ? `\nLaunch \`claude\` from ${ws.path}; it runs on account ${ws.account}.`
       : ws.gateway
-        ? `\nLaunch \`claude\` from ${ws.path}; its requests go through the ${ws.gateway.url === proxyGw?.url ? "proxy" : "gateway"}, so there is nothing to sign in to.`
+        ? `\nLaunch \`claude\` from ${ws.path}; its requests go through the ${onProxy(cfg, ws) ? "proxy" : "gateway"}, so there is nothing to sign in to.`
         : ws.isolate
           ? hadLogin
             ? `\nLaunch \`claude\` from ${ws.path}; this workspace keeps its own login in .inscope.`

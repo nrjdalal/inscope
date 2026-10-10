@@ -441,6 +441,10 @@ const gatewayError = (ws: Workspace): string | null => {
 // The gateway a workspace keeps after its login changes: it lives in the isolated
 // login's settings, so it goes away with isolation (turning isolation off, or moving
 // the workspace to an account). Returns the note to print when one was dropped.
+// A port the proxy may listen on: unprivileged, so no root is needed.
+export const isProxyPort = (port: unknown): port is number =>
+  typeof port === "number" && Number.isInteger(port) && port >= 1024 && port <= 65535
+
 export const gatewayAfterLoginChange = (
   prior: Workspace | undefined,
   isolate: boolean,
@@ -460,11 +464,8 @@ export const validateConfig = (cfg: Config) => {
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   if (cfg.bypass !== undefined && typeof cfg.bypass !== "boolean")
     throw new Error("config bypass must be a boolean")
-  if (cfg.proxy !== undefined) {
-    const port = (cfg.proxy as { port?: unknown })?.port
-    if (typeof port !== "number" || !Number.isInteger(port) || port < 1024 || port > 65535)
-      throw new Error("config proxy.port must be an integer between 1024 and 65535")
-  }
+  if (cfg.proxy !== undefined && !isProxyPort((cfg.proxy as { port?: unknown })?.port))
+    throw new Error("config proxy.port must be an integer between 1024 and 65535")
   const accountNames = new Set<string>()
   if (cfg.accounts !== undefined) {
     if (!Array.isArray(cfg.accounts)) throw new Error("config.accounts must be an array")

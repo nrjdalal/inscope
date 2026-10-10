@@ -3,11 +3,10 @@ import { createHash, randomBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
-import { CREDENTIAL_ENV_VARS } from "@/accounts"
-import type { Config, Gateway } from "@/config"
+import { type Config, type Gateway, gatewayAfterLoginChange, type Workspace } from "@/config"
 import { home, inscopeHome } from "@/env"
 import { writeFileAtomic } from "@/io"
-import { closeWindow, openSignInWindow } from "@/login"
+import { childEnv, closeWindow, openSignInWindow } from "@/login"
 import { defaultRunner, keychainSet, type Runner } from "@/secrets"
 
 // A local CLIProxyAPI (https://github.com/router-for-me/CLIProxyAPI) that holds several
@@ -70,18 +69,6 @@ export const proxyGateway = (port: number): Gateway => ({
   keychain: PROXY_KEYCHAIN,
 })
 
-// The proxy's config. Hardened: bound to 127.0.0.1 only, a random client key (the one
-// in the Keychain), the management API and its web panel off (the panel would
-// otherwise download and run JavaScript from GitHub), request logs and usage stats
-// off, and no plugins. Routing keeps one conversation on one account (session affinity,
-// which also keeps its prompt cache) and fills one account before starting the next;
-// when an account answers 429 the same request moves to the next account at once
-// (no waiting on cooldowns), which is what lets a conversation carry on. Claude Code's
-// own requests are passed through as Claude Code sent them (CLIProxyAPI cloaks only
-// other clients). The proxy lists dated ids for older models, so the undated aliases
-// Anthropic's API also accepts (\`claude-haiku-4-5\`) are mapped onto them. CLIProxyAPI
-// still keeps its last 10 failed requests (credentials masked) under the auth dir's
-// logs/, which is owner-only. Pure, so it is golden-pinned.
 // [the dated id the proxy lists, the undated alias Anthropic's API also accepts]
 const MODEL_ALIASES: [string, string][] = [
   ["claude-haiku-4-5-20251001", "claude-haiku-4-5"],
@@ -92,6 +79,18 @@ const MODEL_ALIASES: [string, string][] = [
   ["claude-opus-4-20250514", "claude-opus-4-0"],
 ]
 
+// The proxy's config. Hardened: bound to 127.0.0.1 only, a random client key (the one
+// in the Keychain), the management API and its web panel off (the panel would
+// otherwise download and run JavaScript from GitHub), request logs and usage stats
+// off, and no plugins. Routing keeps one conversation on one account (session affinity,
+// which also keeps its prompt cache) and fills one account before starting the next;
+// when an account answers 429 the same request moves to the next account at once
+// (no waiting on cooldowns), which is what lets a conversation carry on. Claude Code's
+// own requests are passed through as Claude Code sent them (CLIProxyAPI cloaks only
+// other clients). The proxy lists dated ids for older models, so the undated aliases
+// Anthropic's API also accepts (`claude-haiku-4-5`) are mapped onto them. CLIProxyAPI
+// still keeps its last 10 failed requests (credentials masked) under the auth dir's
+// logs/, which is owner-only. Pure, so it is golden-pinned.
 export const renderProxyConfig = (opts: { port: number; key: string; authDir: string }) =>
   `# Managed by inscope (\`inscope proxy setup\`). Do not edit by hand: re-run setup instead.
 config-version: 8
@@ -189,22 +188,30 @@ export const installProxy = async (
     throw new Error(
       `${asset.file} does not match its pinned checksum (got ${sha}); refusing to install it`,
     )
+  // Unpack into a staging dir and rename it into place, so an interrupted install
+  // never leaves a binary behind that the existsSync check above would then trust.
   const dir = path.dirname(bin)
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const tarball = path.join(dir, asset.file)
-  fs.writeFileSync(tarball, bytes, { mode: 0o600 })
+  fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 })
+  const stage = fs.mkdtempSync(`${dir}.partial-`)
   try {
-    const r = (opts.run ?? defaultRunner)("tar", ["-xzf", tarball, "-C", dir, "cli-proxy-api"])
-    if (r.status !== 0 || !fs.existsSync(bin))
+    const tarball = path.join(stage, asset.file)
+    fs.writeFileSync(tarball, bytes, { mode: 0o600 })
+    const r = (opts.run ?? defaultRunner)("tar", ["-xzf", tarball, "-C", stage, "cli-proxy-api"])
+    const staged = path.join(stage, path.basename(bin))
+    if (r.status !== 0 || !fs.existsSync(staged))
       throw new Error(`unpacking ${asset.file} failed: ${r.stderr.trim() || "no binary"}`)
+    fs.rmSync(tarball)
+    fs.chmodSync(staged, 0o755)
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.renameSync(stage, dir)
   } finally {
-    fs.rmSync(tarball, { force: true })
+    fs.rmSync(stage, { recursive: true, force: true })
   }
-  fs.chmodSync(bin, 0o755)
   return bin
 }
 
-const readKey = (run: Runner) => {
+// The proxy's client key from the Keychain, or "" when there is none.
+export const readProxyKey = (run: Runner = defaultRunner) => {
   const r = run("security", ["find-generic-password", "-s", PROXY_KEYCHAIN, "-w"])
   return r.status === 0 ? r.stdout.trim() : ""
 }
@@ -213,7 +220,7 @@ const readKey = (run: Runner) => {
 // there. The config file needs it in plain text (the proxy reads it from there), so that
 // file is written 0600 inside a 0700 dir.
 export const ensureProxyKey = (run: Runner = defaultRunner): string => {
-  const existing = readKey(run)
+  const existing = readProxyKey(run)
   if (existing) return existing
   const key = `inscope-${randomBytes(24).toString("hex")}`
   keychainSet(PROXY_KEYCHAIN, key, run)
@@ -333,12 +340,9 @@ export const loginProxyAccount = async (opts: {
   const bin = opts.bin ?? proxyBinPath()
   const log = opts.log ?? ((l: string) => console.log(l))
   const openUrl = opts.openUrl ?? ((url: string) => openSignInWindow(LOGIN_WINDOW, url))
-  const started = Date.now()
-  const env: NodeJS.ProcessEnv = { ...process.env }
-  for (const k of CREDENTIAL_ENV_VARS) delete env[k]
   const child = spawn(bin, ["-config", proxyConfigPath(), "-claude-login", "-no-browser"], {
     stdio: ["ignore", "pipe", "pipe"],
-    env,
+    env: childEnv(),
   })
   let opened = false
   let tail = ""
@@ -356,12 +360,16 @@ export const loginProxyAccount = async (opts: {
   const code: number = await new Promise((resolve) => child.on("close", (c) => resolve(c ?? 1)))
   closeWindow(LOGIN_WINDOW)
   if (!opened) throw new Error(`the proxy's login did not print a sign-in URL:\n${tail.trim()}`)
-  const fresh = proxyAccounts().filter((a) => fs.statSync(a.file).mtimeMs >= started - 1000)
-  if (code !== 0 || !fresh.length)
+  // The file the proxy says it saved: the running proxy also rewrites other accounts'
+  // files when it refreshes their tokens, so a recently changed file proves nothing.
+  const saved = tail.match(/Authentication saved to (.+)/)?.[1]?.trim()
+  const account = saved
+    ? proxyAccounts().find((a) => a.file === path.resolve(proxyAuthDir(), saved))
+    : undefined
+  if (code !== 0 || !account)
     throw new Error(
       `the sign-in did not complete (the proxy's login exited ${code}); nothing was saved`,
     )
-  const account = fresh[fresh.length - 1]
   // The proxy writes auth files 0644; they hold the account's tokens, so keep them
   // owner-only (the auth dir is 0700 as well).
   fs.chmodSync(account.file, 0o600)
@@ -381,8 +389,38 @@ export const logoutProxyAccount = (email: string): boolean => {
   return hits.length > 0
 }
 
-// The workspaces whose gateway points at the proxy.
+// Stop the proxy and remove its launchd agent and binary. `purge` also removes its
+// accounts, config, and logs, and the client key from the Keychain.
+export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => {
+  const run = opts.run ?? defaultRunner
+  stopProxy(run)
+  fs.rmSync(launchAgentPath(), { force: true })
+  fs.rmSync(path.join(proxyRoot(), "bin"), { recursive: true, force: true })
+  if (opts.purge) {
+    fs.rmSync(proxyRoot(), { recursive: true, force: true })
+    run("security", ["delete-generic-password", "-s", PROXY_KEYCHAIN])
+  }
+}
+
+// Whether a workspace's gateway is the proxy.
+export const onProxy = (cfg: Config | null | undefined, ws: Workspace | undefined): boolean =>
+  Boolean(cfg?.proxy && ws?.gateway?.url === proxyUrl(cfg.proxy.port))
+
+// The workspaces whose gateway is the proxy.
 export const proxyUsers = (cfg: Config): string[] =>
-  cfg.proxy
-    ? cfg.workspaces.filter((w) => w.gateway?.url === proxyUrl(cfg.proxy!.port)).map((w) => w.name)
-    : []
+  cfg.workspaces.filter((w) => onProxy(cfg, w)).map((w) => w.name)
+
+// The gateway a workspace ends up with when `add` changes its login: `--proxy` (want
+// true) points it at the proxy, `--no-proxy` (want false) takes it off the proxy, and
+// otherwise the gateway follows the isolated login (gatewayAfterLoginChange).
+export const proxyAfterLoginChange = (
+  cfg: Config | null | undefined,
+  prior: Workspace | undefined,
+  isolate: boolean,
+  want: boolean | undefined,
+): { gateway: Gateway | undefined; note?: string } => {
+  if (want && cfg?.proxy) return { gateway: proxyGateway(cfg.proxy.port) }
+  if (want === false && onProxy(cfg, prior))
+    return { gateway: undefined, note: "Note: this workspace no longer goes through the proxy." }
+  return gatewayAfterLoginChange(prior, isolate)
+}

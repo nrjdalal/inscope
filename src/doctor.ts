@@ -181,7 +181,7 @@ const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
   return out
 }
 
-// The local proxy (\`inscope proxy setup\`): installed at the pinned version, its client
+// The local proxy (`inscope proxy setup`): installed at the pinned version, its client
 // key in the Keychain, its config private, its launchd agent loaded and listening on
 // the port, and at least one account signed in.
 const proxyChecks = (cfg: Config, run: Runner): Check[] => {
