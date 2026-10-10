@@ -9,6 +9,7 @@ import {
   poolNameError,
   saveConfig,
 } from "@/config"
+import { contractTilde } from "@/env"
 import type { BrowserMode } from "@/login"
 import {
   configPools,
@@ -24,6 +25,7 @@ import {
   type ProxyAccount,
   proxyAccounts,
   proxyHealthy,
+  proxyUrl,
   readProxyKey,
   retireProxyAgent,
   setupProxy,
@@ -68,6 +70,8 @@ const withPool = (cfg: Config, pool: string, port: number): Config =>
 
 // Remove a named pool's proxy entirely: its agent and its dir (config, auth, log).
 const dropPool = (pool: string, run: Runner) => {
+  // The default pool's dir is the proxy root (the binary and every pool): never this way.
+  if (pool === DEFAULT_POOL) throw new Error("the default pool is removed by proxy uninstall")
   retireProxyAgent(run, pool)
   fs.rmSync(poolDir(pool), { recursive: true, force: true })
 }
@@ -106,6 +110,13 @@ export const signIn = async (
   const port =
     existing ?? opts.port ?? (pool === DEFAULT_POOL ? DEFAULT_PROXY_PORT : await nextPoolPort(cfg))
   const fresh = existing === undefined
+  // A new named pool starts empty: files left by an earlier pool of that name (a proxy
+  // uninstall that kept its files, or an interrupted sign-in) would hand it accounts the
+  // config does not know, maybe ones another pool holds.
+  if (fresh && pool !== DEFAULT_POOL && fs.existsSync(poolDir(pool))) {
+    log(`\nRemoving files an earlier pool ${pool} left in ${contractTilde(poolDir(pool))}.`)
+    dropPool(pool, run)
+  }
   // Routing every login through its pool must be possible before anyone signs in: a
   // settings.json with a key helper of its own stops here, not after the sign-in.
   preflightApply(withPool(cfg, pool, port))
@@ -115,12 +126,16 @@ export const signIn = async (
       "\nThe proxy stores your Claude accounts' tokens locally and relays Claude Code's requests; Anthropic's terms forbid third parties doing that with Claude.ai credentials, so running it is your choice and your accounts' risk.",
     )
   let account: ProxyAccount
+  let latest: Config = cfg
   try {
     const key = readProxyKey(run)
     if (fresh || !key || !(await proxyHealthy(port, key)))
       await setupProxy(port, { run, pool, log: (l) => log(`\n${l}`) })
     account = await loginProxyAccount({ email: opts.email, mode: opts.mode, pool, log })
-    const elsewhere = poolAccounts(cfg).find(
+    // Re-read: the sign-in can take minutes, and another inscope command may have saved
+    // the config (a pool, an account) meanwhile.
+    latest = configExists() ? loadConfig() : cfg
+    const elsewhere = poolAccounts(latest).find(
       (a) => a.pool !== pool && a.account.email.toLowerCase() === account.email.toLowerCase(),
     )
     if (elsewhere) {
@@ -140,10 +155,15 @@ export const signIn = async (
     throw err
   }
 
-  // Re-read: the sign-in can take minutes, and another inscope command may have saved
-  // the config meanwhile.
-  const latest = configExists() ? loadConfig() : cfg
-  await reconfigure(withPool(latest, pool, port), () => {})
+  try {
+    await reconfigure(withPool(latest, pool, port), () => {})
+  } catch (err) {
+    // The account is in, but the config changed under the sign-in so that this pool no
+    // longer fits it (the proxy was uninstalled meanwhile, say).
+    throw new Error(
+      `${account.email} signed in to pool ${pool}, but the config could not record it: ${err instanceof Error ? err.message : err}\nIts proxy runs on ${proxyUrl(port)} with files in ${contractTilde(poolDir(pool))}; sign in again once the config is fixed.`,
+    )
+  }
   return { account, pool, port, accounts: proxyAccounts(pool).length }
 }
 

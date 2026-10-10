@@ -34,9 +34,9 @@ Commands:
   status [--json]      Show each pool's proxy: whether it runs, and its accounts
   start | stop         Start or stop every pool's proxy (while stopped, Claude Code
                        cannot reach Anthropic)
-  setup                Reinstall CLIProxyAPI ${PROXY_VERSION} (checksum-verified), rewrite
-    [--pool <name>]    the pool's config, and restart it, optionally on another port
-    [--port <n>]       (default: the default pool)
+  setup                Reinstall CLIProxyAPI ${PROXY_VERSION} (checksum-verified), rewrite a
+    [--pool <name>]    pool's config (default: the default pool), and restart it;
+    [--port <n>]       --port moves it to another port
   uninstall [--purge]  Stop using the proxy: stop every pool, remove their agents and
                        the binary, and send every login straight to Anthropic again
                        (each uses its own Claude Code sign-in); --purge also removes
@@ -136,9 +136,19 @@ export const proxy = async (args: string[]) => {
 
   if (sub === "start" || sub === "stop") {
     const cfg = requireProxy()
+    // Each pool on its own: one that fails to start must not leave the others stopped.
+    const failed: string[] = []
     for (const p of configPools(cfg)) {
-      if (sub === "start") startProxy(run, { pool: p.name })
-      else stopProxy(run, { pool: p.name })
+      try {
+        if (sub === "start") startProxy(run, { pool: p.name })
+        else stopProxy(run, { pool: p.name })
+      } catch (err) {
+        failed.push(`${p.name}: ${err instanceof Error ? err.message : err}`)
+      }
+    }
+    if (failed.length) {
+      console.error(`Could not ${sub} every pool:\n  ${failed.join("\n  ")}`)
+      process.exit(1)
     }
     console.log(green(`✓ proxy ${sub === "start" ? "started" : "stopped"}`))
     if (sub === "stop")

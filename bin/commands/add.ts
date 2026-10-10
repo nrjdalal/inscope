@@ -361,7 +361,17 @@ export const add = async (args: string[]) => {
       process.exit(1)
     }
   }
-  const poolChange = poolAfterChange(cfg, existing, isolate, wantPool)
+  // Once named pools exist, an isolated workspace picks the pool its requests use.
+  let poolPick = wantPool
+  if (poolPick === undefined && isolate && interactive && cfg?.pools?.length) {
+    const names = ["default", ...cfg.pools.map((p) => p.name)]
+    poolPick = await selectOne(
+      "\nPool of Claude accounts for this workspace",
+      names.map((n) => ({ label: n, value: n })),
+      Math.max(0, names.indexOf(existing?.pool ?? "default")),
+    )
+  }
+  const poolChange = poolAfterChange(cfg, existing, isolate, poolPick)
   const ws: Workspace = {
     ...existing,
     isolate: isolate || undefined,

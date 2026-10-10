@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import fs from "node:fs"
+import net from "node:net"
 import path from "node:path"
 
 import { type Config, validateConfig } from "@/config"
-import { poolAfterChange, PROXY_VERSION, routeFor } from "@/proxy"
+import { nextPoolPort, poolAfterChange, PROXY_VERSION, routeFor } from "@/proxy"
 
 import { startMessagesEmulator } from "./support/anthropic-messages-emulator"
 import { sandbox } from "./support/sandbox"
@@ -97,6 +98,33 @@ test("poolAfterChange: --pool sets it, default clears it, and losing isolation d
   )
 })
 
+// A port nothing listens on, from the OS.
+const freePort = () =>
+  new Promise<number>((resolve) => {
+    const srv = net.createServer()
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as net.AddressInfo).port
+      srv.close(() => resolve(port))
+    })
+  })
+
+test("nextPoolPort skips ports the config uses and ports something listens on", async () => {
+  const base = await freePort()
+  const busy = net.createServer()
+  await new Promise<void>((r) => busy.listen(base + 2, "127.0.0.1", () => r()))
+  try {
+    const cfg: Config = {
+      version: 1,
+      proxy: { port: base },
+      pools: [{ name: "a", port: base + 1 }],
+      workspaces: [],
+    }
+    expect(await nextPoolPort(cfg)).toBe(base + 3)
+  } finally {
+    busy.close()
+  }
+})
+
 // --- the real CLI, in a sandbox HOME --------------------------------------------------------
 
 // A stand-in proxy binary "installed" in the sandbox, fake launchctl and security on PATH,
@@ -104,13 +132,16 @@ test("poolAfterChange: --pool sets it, default clears it, and losing isolation d
 const FAKE_PROXY = path.join(import.meta.dir, "support", "fake-proxy", "cli-proxy-api")
 let one: Awaited<ReturnType<typeof startMessagesEmulator>>
 let two: Awaited<ReturnType<typeof startMessagesEmulator>>
+let three: Awaited<ReturnType<typeof startMessagesEmulator>>
 beforeAll(async () => {
   one = await startMessagesEmulator({})
   two = await startMessagesEmulator({})
+  three = await startMessagesEmulator({})
 })
 afterAll(() => {
   one?.close()
   two?.close()
+  three?.close()
 })
 
 const poolSandbox = () => {
@@ -121,6 +152,7 @@ const poolSandbox = () => {
   fs.chmodSync(bin, 0o755)
   const p1 = Number(new URL(one.url).port)
   const p2 = Number(new URL(two.url).port)
+  const p3 = Number(new URL(three.url).port)
   const work = path.join(s.sb, "work")
   const iso = path.join(s.sb, "iso")
   fs.mkdirSync(work)
@@ -148,6 +180,7 @@ const poolSandbox = () => {
     s,
     p1,
     p2,
+    p3,
     work,
     iso,
     login,
@@ -319,6 +352,97 @@ test("CLI: proxy stop, start, and uninstall act on every pool", async () => {
   expect(url(path.join(work, ".inscope"))).toBeUndefined()
 }, 60_000)
 
+test("CLI: renewing an account keeps it in its pool, a refused account leaves an existing pool running, and a bad name is refused", async () => {
+  const { s, p1, p2, login, poolDir, loaded } = poolSandbox()
+  expect((await login("me@x.dev", ["--port", String(p1)])).status).toBe(0)
+  expect((await login("w1@x.dev", ["--pool", "work", "--port", String(p2)])).status).toBe(0)
+  // renewing w1 in its own pool replaces its file, no duplicate, no refusal
+  const renew = await login("w1@x.dev", ["--pool", "work"])
+  expect(renew.status).toBe(0)
+  expect(fs.readdirSync(path.join(poolDir, "auth")).filter((f) => f.endsWith(".json"))).toEqual([
+    "claude-w1@x.dev.json",
+  ])
+  // an account the default pool holds is refused by the (existing) work pool, which keeps running
+  const dup = await login("me@x.dev", ["--pool", "work"])
+  expect(dup.status).toBe(1)
+  expect(dup.stderr).toContain("me@x.dev is already in pool default")
+  expect(loaded("dev.inscope.proxy.work")).toBe(true)
+  expect(s.readCfg()?.pools).toEqual([{ name: "work", port: p2 }])
+  expect(fs.readdirSync(path.join(poolDir, "auth")).filter((f) => f.endsWith(".json"))).toEqual([
+    "claude-w1@x.dev.json",
+  ])
+  const bad = await login("x@x.dev", ["--pool", "Work"])
+  expect(bad.status).toBe(1)
+  expect(bad.stderr).toContain('Invalid pool "Work"')
+}, 60_000)
+
+test("CLI: a new pool replaces files an earlier pool of that name left behind", async () => {
+  const { s, p1, p2, login, poolDir } = poolSandbox()
+  expect((await login("me@x.dev", ["--port", String(p1)])).status).toBe(0)
+  // leftovers: an auth file for an account the default pool holds
+  fs.mkdirSync(path.join(poolDir, "auth"), { recursive: true })
+  fs.writeFileSync(
+    path.join(poolDir, "auth", "claude-me@x.dev.json"),
+    JSON.stringify({ type: "claude", email: "me@x.dev", access_token: "old" }),
+  )
+  const r = await login("w1@x.dev", ["--pool", "work", "--port", String(p2)])
+  expect(r.status).toBe(0)
+  expect(r.stdout).toContain("Removing files an earlier pool work left in")
+  expect(fs.readdirSync(path.join(poolDir, "auth")).filter((f) => f.endsWith(".json"))).toEqual([
+    "claude-w1@x.dev.json",
+  ])
+  expect(JSON.parse(s.cli(["pool", "list", "--json"]).stdout)[1].accounts).toEqual(["w1@x.dev"])
+}, 60_000)
+
+test("CLI: proxy setup --pool moves a pool's port, and puts it back when the new one fails", async () => {
+  const { s, p1, p2, p3, work, login, url, poolDir } = poolSandbox()
+  expect((await login("me@x.dev", ["--port", String(p1)])).status).toBe(0)
+  expect((await login("w1@x.dev", ["--pool", "work", "--port", String(p2)])).status).toBe(0)
+  expect(s.cli(["add", work, "--pool", "work", "-y"]).status).toBe(0)
+  const clash = await s.cliAsync(["proxy", "setup", "--pool", "work", "--port", String(p1)])
+  expect(clash.status).toBe(1)
+  expect(clash.stderr).toContain(`Port ${p1} is already used by another pool`)
+
+  const moved = await s.cliAsync(["proxy", "setup", "--pool", "work", "--port", String(p3)])
+  expect(moved.status).toBe(0)
+  expect(s.readCfg()?.pools).toEqual([{ name: "work", port: p3 }])
+  expect(url(path.join(work, ".inscope"))).toBe(`http://127.0.0.1:${p3}`)
+  expect(fs.readFileSync(path.join(poolDir, "config.yaml"), "utf8")).toContain(`port: ${p3}\n`)
+
+  const back = await s.cliAsync(["proxy", "setup", "--pool", "work", "--port", String(p2)], {
+    FAKE_BOOTSTRAP_FAIL: "once",
+  })
+  expect(back.status).toBe(1)
+  expect(s.readCfg()?.pools).toEqual([{ name: "work", port: p3 }])
+  expect(fs.readFileSync(path.join(poolDir, "config.yaml"), "utf8")).toContain(`port: ${p3}\n`)
+  expect(url(path.join(work, ".inscope"))).toBe(`http://127.0.0.1:${p3}`)
+}, 60_000)
+
+test("CLI: doctor flags an account in two pools and a pool the config no longer names", async () => {
+  const { s, p1, p2, login, poolDir } = poolSandbox()
+  expect((await login("me@x.dev", ["--port", String(p1)])).status).toBe(0)
+  expect((await login("w1@x.dev", ["--pool", "work", "--port", String(p2)])).status).toBe(0)
+  // the same account copied into a second pool by hand
+  fs.copyFileSync(
+    path.join(s.sb, ".config", "inscope", "proxy", "auth", "claude-me@x.dev.json"),
+    path.join(poolDir, "auth", "claude-me@x.dev.json"),
+  )
+  // a pool left installed but dropped from the config, plus a stray .DS_Store
+  const stray = path.join(s.sb, ".config", "inscope", "proxy", "pools", "old")
+  fs.mkdirSync(stray, { recursive: true })
+  fs.writeFileSync(path.join(s.sb, ".config", "inscope", "proxy", "pools", ".DS_Store"), "")
+  fs.writeFileSync(path.join(s.sb, "Library", "LaunchAgents", "dev.inscope.proxy.gone.plist"), "")
+  const checks = JSON.parse(s.cli(["doctor", "--json"]).stdout).checks
+  expect(checks).toContainEqual({
+    status: "fail",
+    label: "proxy work",
+    detail: "me@x.dev is also in pool default; sign it out of one (`inscope logout`)",
+  })
+  const strays = checks.filter((c: any) => c.detail?.includes("is not in the config"))
+  expect(strays.map((c: any) => c.label).sort()).toEqual(["proxy gone", "proxy old"])
+  expect(strays[0].detail).toContain("launchctl bootout gui/$(id -u)/dev.inscope.proxy.")
+}, 60_000)
+
 // --- the real CLIProxyAPI: two pools side by side ------------------------------------------
 
 // Two pinned, checksum-verified instances, each with its own config, auth dir, and port,
@@ -345,14 +469,14 @@ test.skipIf(process.platform !== "darwin")(
     try {
       const bin = await installProxy()
       const key = "test-client-key"
-      const start = (name: string, keys: string[]) => {
-        const port = 20000 + Math.floor(Math.random() * 20000)
-        const home = path.join(dir, name)
-        fs.mkdirSync(path.join(home, "auth"), { recursive: true })
-        const cfgFile = path.join(home, "config.yaml")
+      const start = async (name: string, keys: string[]) => {
+        const port = await freePort()
+        const own = path.join(dir, name)
+        fs.mkdirSync(path.join(own, "auth"), { recursive: true })
+        const cfgFile = path.join(own, "config.yaml")
         fs.writeFileSync(
           cfgFile,
-          renderProxyConfig({ port, key, authDir: path.join(home, "auth") }) +
+          renderProxyConfig({ port, key, authDir: path.join(own, "auth") }) +
             `api-keys:
   claude:
     - name: ${name}
@@ -367,13 +491,14 @@ ${keys.map((k) => `        - api-key: "${k}"`).join("\n")}
         procs.push(
           spawn(bin, ["-config", cfgFile], {
             stdio: "ignore",
-            env: { ...process.env, HOME: home },
+            // one HOME for both, as both launchd agents share the user's in production
+            env: { ...process.env, HOME: dir },
           }),
         )
         return port
       }
-      const personal = start("personal", ["key-me"])
-      const work = start("work", ["key-w1", "key-w2"])
+      const personal = await start("personal", ["key-me"])
+      const work = await start("work", ["key-w1", "key-w2"])
       expect(await proxyHealthy(personal, key, { waitMs: 15_000 })).toBe(true)
       expect(await proxyHealthy(work, key, { waitMs: 15_000 })).toBe(true)
 

@@ -35,8 +35,11 @@ import {
   proxyAuthDir,
   proxyBinPath,
   proxyConfigPath,
+  proxyLabel,
   proxyLoaded,
   proxyRoot,
+  launchAgentPath,
+  poolDir,
   configPools,
   DEFAULT_POOL,
   routeFor,
@@ -154,7 +157,7 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
 const routingDrift = (dir: string, cfg: Config, ws?: Workspace): string | null => {
   const route = routeFor(cfg, ws)
   if (route && !routedAt(dir, route))
-    return "does not go through the proxy yet; run `inscope apply`"
+    return `does not go through ${ws?.pool ? `pool ${ws.pool}` : "the proxy"} yet; run \`inscope apply\``
   if (!route && staleRoutingAt(dir))
     return "still points at the proxy, which is no longer set up; run `inscope apply`"
   return null
@@ -180,21 +183,33 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
       label: "proxy",
       detail: `${PROXY_KEYCHAIN} not in keychain; ${fix}`,
     })
-  // A pool dir the config no longer names (a hand-edited config): its proxy may still
-  // run, holding accounts no login reaches.
+  // A pool the config no longer names (a hand-edited config, or a sign-in cut short):
+  // its launchd agent may still keep a proxy running, holding accounts no login reaches.
+  const known = new Set(pools.map((p) => p.name))
+  const strays = new Set<string>()
   try {
-    const known = new Set(pools.map((p) => p.name))
-    for (const stray of fs.readdirSync(path.join(proxyRoot(), "pools")))
-      if (!known.has(stray))
-        out.push({
-          status: "warn",
-          label: `proxy ${stray}`,
-          detail: `pool ${stray} is not in the config but its proxy files remain in ${contractTilde(path.join(proxyRoot(), "pools", stray))}; sign its accounts out or delete it`,
-        })
+    for (const d of fs.readdirSync(path.join(proxyRoot(), "pools"), { withFileTypes: true }))
+      if (d.isDirectory() && !known.has(d.name)) strays.add(d.name)
   } catch {}
+  try {
+    const prefix = `${proxyLabel(DEFAULT_POOL)}.`
+    for (const f of fs.readdirSync(path.dirname(launchAgentPath())))
+      if (f.startsWith(prefix) && f.endsWith(".plist")) {
+        // the default pool's own dev.inscope.proxy.plist also matches the prefix
+        const name = f.slice(prefix.length, -".plist".length)
+        if (name && !known.has(name)) strays.add(name)
+      }
+  } catch {}
+  for (const name of strays)
+    out.push({
+      status: "warn",
+      label: `proxy ${name}`,
+      detail: `pool ${name} is not in the config but its proxy is still installed; remove it with \`launchctl bootout gui/$(id -u)/${proxyLabel(name)}; rm -f ${contractTilde(launchAgentPath(name))}; rm -rf ${contractTilde(poolDir(name))}\``,
+    })
   const seen = new Map<string, string>()
   for (const { name, port } of pools) {
     const label = name === DEFAULT_POOL ? "proxy" : `proxy ${name}`
+    const fix = `run \`inscope proxy setup${name === DEFAULT_POOL ? "" : ` --pool ${name}`}\``
     const mine: Check[] = []
     try {
       if ((fs.statSync(proxyConfigPath(name)).mode & 0o077) !== 0)
