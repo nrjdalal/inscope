@@ -100,7 +100,7 @@ Every command takes `-h`.
 - At an account's limit, the proxy moves the conversation to the next account.
 - `--pool <name>` makes a separate pool, e.g. for the two accounts your work gave you.
 - `inscope usage` shows each account's 5-hour and weekly limits.
-- Behind the proxy, Claude's claude.ai connectors and Remote Control are off.
+- Behind the proxy, claude.ai connectors and Remote Control are off.
 
 > Anthropic's terms forbid third parties that store or relay Claude.ai credentials, which is what a proxy like this does. Running it is your choice and your accounts' risk.
 
