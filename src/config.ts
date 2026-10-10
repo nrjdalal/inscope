@@ -153,6 +153,9 @@ export type Config = {
   // Named Claude logins kept by inscope (`inscope login <name>`), each its own config
   // dir under ~/.config/inscope/accounts/<name>. A workspace opts in with `account`.
   accounts?: Account[]
+  // The local CLIProxyAPI `inscope proxy setup` runs, by the port it listens on
+  // (127.0.0.1 only). A workspace reaches it through its gateway (`add --proxy`).
+  proxy?: { port: number }
   workspaces: Workspace[]
 }
 
@@ -457,6 +460,11 @@ export const validateConfig = (cfg: Config) => {
   if (!Array.isArray(cfg.workspaces)) throw new Error("config.workspaces must be an array")
   if (cfg.bypass !== undefined && typeof cfg.bypass !== "boolean")
     throw new Error("config bypass must be a boolean")
+  if (cfg.proxy !== undefined) {
+    const port = (cfg.proxy as { port?: unknown })?.port
+    if (typeof port !== "number" || !Number.isInteger(port) || port < 1024 || port > 65535)
+      throw new Error("config proxy.port must be an integer between 1024 and 65535")
+  }
   const accountNames = new Set<string>()
   if (cfg.accounts !== undefined) {
     if (!Array.isArray(cfg.accounts)) throw new Error("config.accounts must be an array")

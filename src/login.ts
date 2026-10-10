@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -80,8 +80,33 @@ exit 0
   return file
 }
 
+// Open `url` in a new Chrome window on a fresh, throwaway profile for `name`, for a
+// sign-in that does not go through $BROWSER (the proxy's own login prints its URL).
+// Same profile and pid file as the $BROWSER shim, so closeWindow cleans up either.
+export const openSignInWindow = (name: string, url: string): void => {
+  const chrome = findChrome()
+  if (!chrome)
+    throw new Error("no Chrome-family browser found for the sign-in (set INSCOPE_CHROME)")
+  closeWindow(name)
+  const profile = loginProfileDir(name)
+  fs.mkdirSync(profile, { recursive: true, mode: 0o700 })
+  const child = spawn(
+    chrome,
+    [
+      `--user-data-dir=${profile}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--new-window",
+      url,
+    ],
+    { detached: true, stdio: "ignore" },
+  )
+  child.unref()
+  if (child.pid) writeFileAtomic(`${profile}.pid`, String(child.pid))
+}
+
 // Close the login window and delete its profile (and the claude.ai session in it).
-const closeWindow = (name: string) => {
+export const closeWindow = (name: string) => {
   const profile = loginProfileDir(name)
   const pidFile = `${profile}.pid`
   try {
