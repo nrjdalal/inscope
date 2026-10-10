@@ -859,3 +859,14 @@ exports[`golden: usage table 1`] = `
   signed out (gone): sign in with \`inscope login <name>\` (or \`claude\` there)
   unavailable (client): usage endpoint returned 500"
 `;
+
+exports[`golden: status card, isolated login behind a gateway 1`] = `
+"  acme  ~/acme
+
+  Claude  isolated · gateway 127.0.0.1:8317
+          ~/acme/.inscope
+  MCP     github
+  GitHub  neeraj-acme-org · token ok
+  Git     neeraj@acme.org (workspace)
+  Skills  inscope"
+`;

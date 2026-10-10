@@ -14,7 +14,13 @@ import {
 import { renderHook } from "@/generators/hook"
 import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
-import { hasBypassAcceptance, hasBypassSetting, loginDefaultMode } from "@/generators/settings"
+import {
+  hasBypassAcceptance,
+  hasBypassSetting,
+  hasGatewaySetting,
+  hasStaleGatewaySetting,
+  loginDefaultMode,
+} from "@/generators/settings"
 import {
   desiredSkillLinks,
   foreignSkillAt,
@@ -30,6 +36,7 @@ import {
   gitEmailForFile,
   isMacOS,
   keychainHas,
+  keychainHasService,
   keychainSetCommand,
   type Runner,
 } from "@/secrets"
@@ -125,6 +132,41 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
       status: "warn",
       label: tag,
       detail: "bypass applied without the dialog acceptance seeded; run `inscope apply`",
+    })
+  return out
+}
+
+// A gateway on an isolated login: its client key is in the Keychain, the login's
+// settings match the config in both directions (configured but not applied, and
+// removed but still routed).
+const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
+  const label = `[${ws.name}] gateway`
+  const out: Check[] = []
+  if (!ws.gateway) {
+    if (hasStaleGatewaySetting(ws))
+      out.push({
+        status: "warn",
+        label,
+        detail:
+          "gateway removed from config but this login still routes through it; run `inscope apply`",
+      })
+    return out
+  }
+  const svc = ws.gateway.keychain
+  out.push(
+    keychainHasService(svc, run)
+      ? { status: "ok", label, detail: `${ws.gateway.url} · ${svc}` }
+      : {
+          status: "fail",
+          label,
+          detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "<gateway key>")}\``,
+        },
+  )
+  if (!hasGatewaySetting(ws))
+    out.push({
+      status: "warn",
+      label,
+      detail: "gateway configured but not applied to this login; run `inscope apply`",
     })
   return out
 }
@@ -369,6 +411,8 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       )
     }
 
+    if (ws.isolate) checks.push(...gatewayChecks(ws, run))
+
     if (hasGitIdentity(ws)) {
       const file = perWorkspaceGitconfigPath(ws.name)
       if (!fs.existsSync(file)) {
@@ -433,6 +477,20 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
 
     checks.push(...skillChecks(ws, cfg))
   }
+
+  // Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper, so
+  // either one exported in this shell silently bypasses every gateway's key. One check,
+  // however many workspaces route through a gateway.
+  const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
+  if (shadow.length && cfg.workspaces.some((w) => w.isolate && w.gateway))
+    checks.push({
+      status: "warn",
+      label: "gateway",
+      detail:
+        shadow.length > 1
+          ? `${shadow.join(" and ")} are set in this shell and outrank the gateway's key; unset them`
+          : `${shadow[0]} is set in this shell and outranks the gateway's key; unset it`,
+    })
 
   return checks
 }

@@ -2,9 +2,10 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { accountDir } from "@/accounts"
-import type { Config, Workspace } from "@/config"
+import type { Config, Gateway, Workspace } from "@/config"
 import { hasOwnLogin, inscopeDirPath, loginDir } from "@/generators/isolate"
 import { writeFileAtomic } from "@/io"
+import { shSingleQuote } from "@/secrets"
 
 // A login's own Claude user-scope settings live at the root of its config dir (an
 // isolated workspace's `.inscope`, or an account's dir), so `permissions.defaultMode`
@@ -55,6 +56,48 @@ export const mergeBypassSettings = (
   return next
 }
 
+// The apiKeyHelper Claude runs (via the shell) at session start to fetch the
+// gateway's client key; it prints the bare key, which Claude sends as both
+// `Authorization: Bearer` and `x-api-key`. Looking up by service alone (no
+// `-a "$USER"`) keeps it free of shell variables. A missing key makes `security`
+// exit nonzero, so Claude reports the failing helper instead of falling back to
+// the login's OAuth token. The service is validated and single-quoted. The prefix
+// and suffix are the one definition of the format, used both to build inscope's
+// helper and to recognize it when clearing.
+const HELPER_PREFIX = "security find-generic-password -s "
+const HELPER_SUFFIX = " -w"
+
+export const gatewayKeyHelper = (service: string) =>
+  `${HELPER_PREFIX}${shSingleQuote(service)}${HELPER_SUFFIX}`
+
+const isInscopeKeyHelper = (v: unknown) =>
+  typeof v === "string" && v.startsWith(`${HELPER_PREFIX}'`) && v.endsWith(`'${HELPER_SUFFIX}`)
+
+// Set or clear inscope's gateway keys, `env.ANTHROPIC_BASE_URL` and
+// `apiKeyHelper`, preserving everything else. Clearing removes the pair only when
+// the helper is inscope's own (a hand-set helper and its base URL are left
+// alone), and drops an `env` object it emptied. Pure, like mergeBypassSettings.
+export const mergeGatewaySettings = (
+  doc: Record<string, any>,
+  gw: Gateway | undefined,
+): Record<string, any> => {
+  const next = { ...doc }
+  const cur = next.env
+  const env: Record<string, any> = {
+    ...(cur && typeof cur === "object" && !Array.isArray(cur) ? cur : {}),
+  }
+  if (gw) {
+    env.ANTHROPIC_BASE_URL = gw.url
+    next.apiKeyHelper = gatewayKeyHelper(gw.keychain)
+  } else if (isInscopeKeyHelper(next.apiKeyHelper)) {
+    delete next.apiKeyHelper
+    delete env.ANTHROPIC_BASE_URL
+  }
+  if (Object.keys(env).length) next.env = env
+  else delete next.env
+  return next
+}
+
 const readSettings = (file: string): Record<string, any> => {
   if (!fs.existsSync(file)) return {}
   try {
@@ -68,11 +111,12 @@ const readSettings = (file: string): Record<string, any> => {
   }
 }
 
-// Reconcile one login dir's settings.json to the desired bypass state.
-const applyBypassAt = (dir: string, bypass: boolean) => {
+// Reconcile one login dir's settings.json through a pure merge, preserving everything
+// the login wrote itself.
+const reconcileAt = (dir: string, merge: (doc: Record<string, any>) => Record<string, any>) => {
   const file = path.join(dir, "settings.json")
   const existed = fs.existsSync(file)
-  const next = mergeBypassSettings(readSettings(file), bypass)
+  const next = merge(readSettings(file))
   // Nothing left to declare (a bypass-only file just turned off, or there was
   // nothing to write): remove an existing file rather than leave `{}` behind, and
   // never create an empty one.
@@ -82,6 +126,9 @@ const applyBypassAt = (dir: string, bypass: boolean) => {
   }
   writeFileAtomic(file, JSON.stringify(next, null, 2) + "\n")
 }
+
+const applyBypassAt = (dir: string, bypass: boolean) =>
+  reconcileAt(dir, (doc) => mergeBypassSettings(doc, bypass))
 
 // Reconcile a workspace's own login settings (its `.inscope`, or its account's dir) to
 // the desired bypass state. A no-op for a non-isolated workspace (it runs on the shared
@@ -101,16 +148,43 @@ export const applyAccountsBypass = (cfg: Config) => {
   }
 }
 
-// The `permissions.defaultMode` an isolated login's settings.json declares, if any.
-export const loginDefaultMode = (ws: Workspace): string | undefined => {
+// Reconcile an isolated workspace's login to its configured gateway, or clear
+// inscope's gateway keys when it has none. Only isolated logins carry a gateway.
+export const applyGateway = (ws: Workspace) => {
+  if (!ws.isolate) return
+  reconcileAt(inscopeDirPath(ws), (doc) => mergeGatewaySettings(doc, ws.gateway))
+}
+
+const loginSettings = (ws: Workspace): Record<string, any> | undefined => {
   try {
     const doc = JSON.parse(fs.readFileSync(inscopeSettingsPath(ws), "utf8"))
-    const mode = doc?.permissions?.defaultMode
-    return typeof mode === "string" ? mode : undefined
+    return doc && typeof doc === "object" && !Array.isArray(doc) ? doc : undefined
   } catch {
     return undefined
   }
 }
+
+// The `permissions.defaultMode` an isolated login's settings.json declares, if any.
+export const loginDefaultMode = (ws: Workspace): string | undefined => {
+  const mode = loginSettings(ws)?.permissions?.defaultMode
+  return typeof mode === "string" ? mode : undefined
+}
+
+// Whether an isolated login already routes through the workspace's configured
+// gateway (URL and helper both as apply writes them); doctor flags drift.
+export const hasGatewaySetting = (ws: Workspace): boolean => {
+  const doc = loginSettings(ws)
+  return Boolean(
+    ws.gateway &&
+    doc?.env?.ANTHROPIC_BASE_URL === ws.gateway.url &&
+    doc?.apiKeyHelper === gatewayKeyHelper(ws.gateway.keychain),
+  )
+}
+
+// Whether an isolated login still carries inscope's gateway helper after the
+// gateway was removed from config (apply clears it).
+export const hasStaleGatewaySetting = (ws: Workspace): boolean =>
+  !ws.gateway && isInscopeKeyHelper(loginSettings(ws)?.apiKeyHelper)
 
 // Whether an isolated workspace's settings.json already declares inscope's bypass
 // mode; used by doctor to flag drift (bypass configured but not yet applied).

@@ -5,6 +5,7 @@ import { parseArgs } from "node:util"
 import {
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
+  gatewayAfterLoginChange,
   hookValueError,
   type NylasServer,
   type SlackPackage,
@@ -212,10 +213,12 @@ export const edit = async (args: string[]) => {
 
   // Start from the stored workspace so fields this prompt flow does not manage
   // (skills, selfSkill) survive the edit; upsert replaces the whole entry.
+  const gatewayChange = gatewayAfterLoginChange(ws, isolate)
   const next: Workspace = {
     ...ws,
     isolate: isolate || undefined,
     account,
+    gateway: gatewayChange.gateway,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
     // persist stores; also normalizes a legacy config whose path was saved
@@ -248,6 +251,7 @@ export const edit = async (args: string[]) => {
       `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
+  if (gatewayChange.note) console.log(gatewayChange.note)
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)
   if (next.account !== ws.account && next.account) console.log(`✓ runs on account ${next.account}`)

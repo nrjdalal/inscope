@@ -104,7 +104,17 @@ export type Workspace = {
   // linked into every workspace by default. Set false to opt this workspace out;
   // `inscope skill rm inscope` writes that, `inscope skill add inscope` clears it.
   selfSkill?: boolean
+  // Route this workspace's Claude Code through an LLM gateway (an Anthropic-
+  // compatible proxy you run). Requires `isolate`: apply writes the gateway URL
+  // as `env.ANTHROPIC_BASE_URL` and an `apiKeyHelper` that reads the gateway's
+  // client key from the macOS keychain into `<path>/.inscope/settings.json`, so
+  // the key never lands on disk and the login's own OAuth token is never sent.
+  gateway?: Gateway
 }
+
+// An LLM gateway: its base URL and the keychain service holding the client key
+// the gateway expects (sent as both `Authorization: Bearer` and `x-api-key`).
+export type Gateway = { url: string; keychain: string }
 
 // A skill declared on a workspace. Either a string shorthand `"<source>#<subdir>"`
 // (e.g. `"owner/repo#skills/readme-audit"`) or the object form. See normalizeSkill
@@ -401,6 +411,45 @@ export const currentWorkspace = (
   return best
 }
 
+// A gateway is written into the isolated login's own settings.json, so it needs
+// `isolate` (inscope never writes the shared ~/.claude, and an account's dir is shared
+// by every workspace on it). The URL becomes ANTHROPIC_BASE_URL, so it must be an
+// absolute http(s) URL; the keychain service is interpolated into the apiKeyHelper
+// shell command, so it gets the same metacharacter guard as the other keychain values.
+const gatewayError = (ws: Workspace): string | null => {
+  const gw = ws.gateway as unknown
+  if (gw === undefined) return null
+  if (!gw || typeof gw !== "object" || Array.isArray(gw)) return "must be an object"
+  const { url, keychain } = gw as Record<string, unknown>
+  if (!ws.isolate) return "requires isolate: true (it lives in the workspace's own login)"
+  if (typeof url !== "string" || !url) return "is missing a url"
+  let proto: string
+  try {
+    proto = new URL(url).protocol
+  } catch {
+    return `url "${url}" is not a valid URL`
+  }
+  if (proto !== "http:" && proto !== "https:") return `url "${url}" must be http or https`
+  if (typeof keychain !== "string" || !keychain) return "is missing a keychain service"
+  const kcErr = hookValueError(keychain)
+  return kcErr ? `keychain "${keychain}" is invalid: ${kcErr}` : null
+}
+
+// The gateway a workspace keeps after its login changes: it lives in the isolated
+// login's settings, so it goes away with isolation (turning isolation off, or moving
+// the workspace to an account). Returns the note to print when one was dropped.
+export const gatewayAfterLoginChange = (
+  prior: Workspace | undefined,
+  isolate: boolean,
+): { gateway: Gateway | undefined; note?: string } => {
+  if (!prior?.gateway) return { gateway: undefined }
+  if (isolate) return { gateway: prior.gateway }
+  return {
+    gateway: undefined,
+    note: `Note: removed the gateway (${prior.gateway.url}); it requires an isolated login.`,
+  }
+}
+
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)
@@ -510,6 +559,8 @@ export const validateConfig = (cfg: Config) => {
           `workspace "${ws.name}" Nylas region "${nylas.region}" is invalid: use one of ${NYLAS_REGIONS.join(", ")}`,
         )
     }
+    const gwErr = gatewayError(ws)
+    if (gwErr) throw new Error(`workspace "${ws.name}" gateway ${gwErr}`)
     if (ws.skills !== undefined) {
       if (!Array.isArray(ws.skills))
         throw new Error(`workspace "${ws.name}" skills must be an array`)
