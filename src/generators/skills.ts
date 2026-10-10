@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
-import { accountDir } from "@/accounts"
 import {
   type Config,
   type NormalizedSkill,
@@ -19,10 +18,9 @@ import { defaultRunner, type Runner } from "@/secrets"
 // The personal skills dir Claude reads for a workspace. A skill materialized here
 // is personal scope: Claude lists it in the `/` menu and loads it in every project
 // of that login, with no `--add-dir` and no per-repo linking (so it works under any
-// launcher, cmux included). An isolated workspace has its own login, so its skills
-// stay private in `<ws>/.inscope/skills`; a workspace on an account shares that
-// account's `skills` dir with every other workspace on it, and a non-isolated one
-// shares the base login's with every other non-isolated workspace: they share one
+// launcher, cmux included). An isolated workspace has its own config dir, so its
+// skills stay private in `<ws>/.inscope/skills`; a non-isolated one shares the base
+// login's with every other non-isolated workspace: they share one
 // config dir and therefore cannot be scoped apart.
 export const skillsDir = (ws: Workspace): string => path.join(loginDir(ws), "skills")
 
@@ -588,12 +586,6 @@ export const applySkills = (
   // skills were all removed still gets its now-orphaned owned links pruned below.
   const byDir = new Map<string, DesiredLink[]>()
   for (const ws of cfg.workspaces) if (!byDir.has(skillsDir(ws))) byDir.set(skillsDir(ws), [])
-  // Every account's dir is seeded too, so an account whose last workspace was removed or
-  // moved away still has its now-orphaned links pruned (nothing else revisits it).
-  for (const acc of cfg.accounts ?? []) {
-    const dir = path.join(accountDir(acc.name), "skills")
-    if (!byDir.has(dir)) byDir.set(dir, [])
-  }
   const push = (dir: string, l: DesiredLink) => byDir.get(dir)?.push(l)
   for (const ws of cfg.workspaces) {
     const dir = skillsDir(ws)

@@ -1,50 +1,56 @@
 import { parseArgs } from "node:util"
 
-import { accountDir } from "@/accounts"
+import { applyAll, preflightApply } from "@/apply"
+import { configExists, defaultConfig, isProxyPort, loadConfig, saveConfig } from "@/config"
+import { BROWSER_MODES, type BrowserMode, defaultBrowserMode } from "@/login"
 import {
-  accountNameError,
-  configExists,
-  defaultConfig,
-  findAccount,
-  loadConfig,
-  saveConfig,
-  upsertAccount,
-} from "@/config"
-import { contractTilde } from "@/env"
-import { applyAccountsBypass } from "@/generators/settings"
-import { BROWSER_MODES, type BrowserMode, defaultBrowserMode, loginAccount } from "@/login"
-import { green, isInteractive, promptText } from "~/bin/commands/_prompt"
+  DEFAULT_PROXY_PORT,
+  loginProxyAccount,
+  proxyAccounts,
+  proxyHealthy,
+  proxyUrl,
+  readProxyKey,
+  setupProxy,
+} from "@/proxy"
+import { defaultRunner } from "@/secrets"
+import { dim, green } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
-const helpMessage = `Sign a Claude account in as a named account inscope keeps for you.
-Runs Claude Code's own \`claude auth login\` with the account's own config dir
-(~/.config/inscope/accounts/<name>), so Claude stores the login in its own Keychain
-slot; inscope never stores or refreshes it. Assign the account to a workspace with
-\`${name} add <path> --account <name>\` (or \`${name} edit\`). Re-running login on an
-existing name signs that account in again.
+const helpMessage = `Sign a Claude account in to inscope. Every account lives in a local proxy
+(CLIProxyAPI, 127.0.0.1 only), and every Claude Code login, the shared ~/.claude and
+each isolated workspace's, sends its requests through it: when the account serving a
+conversation hits its limit, the proxy carries the conversation on with the next one.
+The first sign-in sets the proxy up (installs it, checksum-verified, and runs it at
+login). Run it once per account; signing an account in again renews it.
 
 Usage:
-  $ ${name} login <name> [options]
+  $ ${name} login [options]
 
 Options:
   --email <email>     the Claude account you expect to sign in; nothing is
                       pre-filled (you type it on the page), but if a different
-                      account signs in, it is signed back out and nothing is saved
+                      account signs in, it is removed again
   --browser <mode>    chrome (default when Chrome is installed): a new Chrome window
                       on a fresh profile, opened on the sign-in page; you finish the
                       sign-in there, and the profile is deleted afterwards
-                      system: your default browser
+                      system: your default browser (not a fresh profile)
                       none: print the sign-in URL to open yourself
-  -h, --help          Display help message`
+  --port <n>          the port for a new proxy (default ${DEFAULT_PROXY_PORT})
+  -h, --help          Display help message
+
+Anthropic's terms forbid third parties that store or intermediate Claude.ai
+credentials, which is what a proxy like this does: running it is your choice and
+your accounts' risk.`
 
 export const login = (args: string[]) =>
   (async () => {
-    const { positionals, values } = parseArgs({
-      allowPositionals: true,
+    const { values } = parseArgs({
+      allowPositionals: false,
       options: {
         help: { type: "boolean", short: "h" },
         email: { type: "string" },
         browser: { type: "string" },
+        port: { type: "string" },
       },
       args,
     })
@@ -52,19 +58,6 @@ export const login = (args: string[]) =>
       console.log(helpMessage)
       process.exit(0)
     }
-
-    let accountName = positionals[0]
-    if (!accountName && isInteractive()) accountName = await promptText("Account name")
-    if (!accountName) {
-      console.error(helpMessage)
-      process.exit(1)
-    }
-    const nameErr = accountNameError(accountName)
-    if (nameErr) {
-      console.error(`Invalid account name "${accountName}": ${nameErr}`)
-      process.exit(1)
-    }
-
     const mode = (values.browser ?? defaultBrowserMode()) as BrowserMode
     if (!(BROWSER_MODES as readonly string[]).includes(mode)) {
       console.error(`Invalid --browser "${values.browser}": use ${BROWSER_MODES.join(", ")}`)
@@ -72,38 +65,50 @@ export const login = (args: string[]) =>
     }
 
     const cfg = configExists() ? loadConfig() : defaultConfig()
-    const prior = findAccount(cfg, accountName)
-    const email = values.email ?? prior?.email
-    console.log(
-      `\n${prior ? "Signing account" : "Adding account"} "${accountName}" in ${contractTilde(accountDir(accountName))}`,
-    )
+    const port = cfg.proxy?.port ?? (values.port ? Number(values.port) : DEFAULT_PROXY_PORT)
+    if (!isProxyPort(port)) {
+      console.error(`Invalid --port "${values.port}": use 1024-65535`)
+      process.exit(1)
+    }
+    if (cfg.proxy && values.port && Number(values.port) !== cfg.proxy.port) {
+      console.error(
+        `The proxy already runs on port ${cfg.proxy.port}; change it with \`${name} proxy setup --port ${values.port}\`.`,
+      )
+      process.exit(1)
+    }
+    // Routing every login through the proxy must be possible before anyone signs in:
+    // a settings.json with a key helper of its own stops here, not after the sign-in.
+    const routed = { ...cfg, proxy: { port } }
+    preflightApply(routed)
+
+    if (!cfg.proxy)
+      console.log(
+        dim(
+          "\nThe proxy stores your Claude accounts' tokens locally and relays Claude Code's requests; Anthropic's terms forbid third parties doing that with Claude.ai credentials, so running it is your choice and your accounts' risk.",
+        ),
+      )
+    const key = readProxyKey(defaultRunner)
+    if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
+      await setupProxy(port, { log: (l) => console.log(`\n${l}`) })
+
     if (mode === "chrome")
       console.log(
-        "A new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize Claude Code. This finishes on its own once you do.",
+        "\nA new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize. This finishes on its own once you do.",
       )
-    else if (mode === "none")
-      console.log("Open the sign-in URL below in the browser you want to sign in with.")
-    console.log()
+    const account = await loginProxyAccount({ email: values.email, mode })
 
-    const result = loginAccount({
-      name: accountName,
-      email,
-      mode,
-      existing: Boolean(prior),
-      currentAccounts: () => (configExists() ? loadConfig() : cfg).accounts ?? [],
-    })
-
-    // Re-read: the login can take minutes, and another inscope command may have saved
-    // the config meanwhile.
+    // Re-read: the sign-in can take minutes, and another inscope command may have saved
+    // the config meanwhile. Record the proxy only now that it has an account to route to.
     const latest = configExists() ? loadConfig() : cfg
-    const next = upsertAccount(latest, { name: accountName, email: result.email })
+    const next = { ...latest, proxy: { port } }
     saveConfig(next)
-    applyAccountsBypass(next)
+    applyAll(next)
 
+    const n = proxyAccounts().length
     console.log(
-      green(`\n✓ account "${accountName}" -> ${result.email}`) +
-        `\nAssign it to a workspace: ${name} add <path> --account ${accountName}` +
-        `\nSee its limits: ${name} usage`,
+      green(`\n✓ ${account.email} signed in`) +
+        `\n  the proxy (${proxyUrl(port)}) holds ${n} account${n === 1 ? "" : "s"}; every Claude Code login goes through it` +
+        `\n  Claude Code sessions started from now on use it. See the limits: ${name} usage`,
     )
     process.exit(0)
   })()

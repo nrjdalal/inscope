@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+// Stand-in for the CLIProxyAPI binary, copied to the sandbox's install path so
+// `inscope login` finds it installed (no download). `-claude-login` plays the proxy's
+// sign-in as the real one reports it: the sign-in URL, then the person signing in as
+// FAKE_LOGIN_EMAIL, an auth file written into the config's auth-dir, and the
+// "Authentication saved to <path>" line inscope reads. FAKE_LOGIN_FAIL fails it.
+// Refuses to run outside a test sandbox, like the other fakes.
+{
+  const fs = require("node:fs")
+  const os = require("node:os")
+  const path = require("node:path")
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p)
+    } catch {
+      return null
+    }
+  }
+  const sb = process.env.FAKE_SANDBOX && real(process.env.FAKE_SANDBOX)
+  const tmp = real(os.tmpdir())
+  const inside = (p) => {
+    const r = typeof p === "string" ? real(p) ?? path.resolve(p) : null
+    return Boolean(sb && r && (r === sb || r.startsWith(sb + path.sep)))
+  }
+  const ok =
+    sb &&
+    tmp &&
+    path.dirname(sb) === tmp &&
+    path.basename(sb).startsWith("inscope-acct-") &&
+    inside(process.env.HOME) &&
+    inside(process.env.FAKE_STATE) &&
+    (process.env.CLAUDE_CONFIG_DIR === undefined || inside(process.env.CLAUDE_CONFIG_DIR))
+  if (!ok) {
+    console.error("fake: refusing to run outside a FAKE_SANDBOX temp dir")
+    process.exit(3)
+  }
+}
+const fs = require("node:fs")
+const path = require("node:path")
+const args = process.argv.slice(2)
+const cfgFile = args[args.indexOf("-config") + 1]
+if (!args.includes("-claude-login")) process.exit(2)
+console.log("Visit the following URL to continue authentication:")
+console.log("https://claude.ai/oauth/authorize?code=true&state=fake")
+console.log("Waiting for Claude authentication callback...")
+if (process.env.FAKE_LOGIN_FAIL) {
+  console.error("authentication failed")
+  process.exit(1)
+}
+const authDir = JSON.parse(fs.readFileSync(cfgFile, "utf8").match(/auth-dir: (".*")/)[1])
+const email = process.env.FAKE_LOGIN_EMAIL
+const file = path.join(authDir, `claude-${email}.json`)
+fs.mkdirSync(authDir, { recursive: true })
+fs.writeFileSync(
+  file,
+  JSON.stringify({
+    type: "claude",
+    email,
+    access_token: `tok-${email}`,
+    refresh_token: `refresh-${email}`,
+    expired: "2099-01-01T00:00:00Z",
+  }),
+  { mode: 0o644 },
+)
+console.log(`Authentication saved to ${file}`)
+console.log("Claude authentication successful!")

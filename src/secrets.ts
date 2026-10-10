@@ -71,7 +71,7 @@ export const keychainHas = (service: string, run: Runner = defaultRunner) => {
 }
 
 // Whether any Keychain item has this service, whatever its account: the lookup
-// inscope's gateway apiKeyHelper makes, so doctor checks exactly what Claude will find.
+// inscope's proxy apiKeyHelper makes, so doctor checks exactly what Claude will find.
 export const keychainHasService = (service: string, run: Runner = defaultRunner) => {
   const r = run("security", ["find-generic-password", "-s", service, "-w"])
   return r.status === 0 && r.stdout.trim().length > 0

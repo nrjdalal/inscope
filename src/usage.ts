@@ -1,103 +1,131 @@
-import os from "node:os"
-import path from "node:path"
-
-import {
-  accountDir,
-  CREDENTIAL_ENV_VARS,
-  type FetchLike,
-  fetchUsage,
-  planLabel,
-  readOAuth,
-  type UsageWindow,
-} from "@/accounts"
-import { isAccountDir } from "@/accounts"
 import type { Config } from "@/config"
-import { contractTilde, home } from "@/env"
-import {
-  baseClaudeDir,
-  hasOwnLogin,
-  INSCOPE_DIR,
-  inscopeDirPath,
-  inscopeSignedIn,
-} from "@/generators/isolate"
-import { type ProxyAccount, proxyAccounts, proxyUsers } from "@/proxy"
-import { claudeAuthStatus, defaultRunner, type Runner } from "@/secrets"
+import { contractTilde } from "@/env"
+import { proxyAccounts } from "@/proxy"
 
-// Every Claude login inscope knows about: the shared base, each named account, and each
-// isolated workspace that has been signed in. `usedBy` is the workspaces that run on it.
-export type LoginRef = {
-  label: string
-  kind: "base" | "account" | "isolated" | "proxy"
-  dir: string
-  // The CLAUDE_CONFIG_DIR value Claude runs this login with; undefined means unset, which
-  // is Claude's bare default Keychain slot (a different login from `~/.claude` spelled out).
-  ccd: string | undefined
-  usedBy: string[]
-  // A proxy account's token comes from the proxy's own auth file, not the Keychain.
-  proxyAccount?: ProxyAccount
+// Your Claude accounts' subscription limits: each account in the proxy (`inscope
+// login`), its plan, and its 5-hour and weekly usage. Read with the account's own token
+// from the proxy's auth file, which the proxy keeps fresh; inscope never refreshes it.
+
+// Anthropic's subscription usage endpoint. Undocumented (it backs Claude Code's own
+// /usage view), so every field is read defensively and any surprise degrades to an
+// error row instead of a crash. INSCOPE_ANTHROPIC_API_URL points it at a local
+// emulator in tests, and is honored only for a loopback host: every login's bearer
+// token goes to this URL, so a stray override must never send them off the machine.
+const ANTHROPIC_API = "https://api.anthropic.com"
+
+export const anthropicApiBase = () => {
+  const raw = process.env.INSCOPE_ANTHROPIC_API_URL?.trim()
+  if (!raw) return ANTHROPIC_API
+  try {
+    const u = new URL(raw)
+    const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname)
+    if (loopback && (u.protocol === "http:" || u.protocol === "https:"))
+      return raw.replace(/\/+$/, "")
+  } catch {}
+  return ANTHROPIC_API
 }
 
-// The CLAUDE_CONFIG_DIR the base login actually runs with, matching the hook: once any
-// workspace has its own login the hook exports the base explicitly (your own value, else
-// $HOME/.claude); with none, it leaves CLAUDE_CONFIG_DIR as you set it, or unset.
-export const baseCcd = (cfg: Config): string | undefined => {
-  if (cfg.workspaces.some(hasOwnLogin)) return baseClaudeDir()
-  const env = process.env.CLAUDE_CONFIG_DIR?.trim()
-  return env && path.basename(env) !== INSCOPE_DIR && !isAccountDir(env) ? env : undefined
+export type UsageWindow = { percent: number | null; resetsAt: string | null }
+
+export type UsageFetch =
+  | { ok: true; fiveHour: UsageWindow | null; week: UsageWindow | null }
+  | { ok: false; reason: "expired" | "rate-limited" | "error"; detail: string }
+
+const toWindow = (w: unknown): UsageWindow | null => {
+  if (!w || typeof w !== "object") return null
+  const o = w as Record<string, unknown>
+  const pct =
+    typeof o.utilization === "number" && Number.isFinite(o.utilization) ? o.utilization : null
+  const at = typeof o.resets_at === "string" && o.resets_at ? o.resets_at : null
+  return pct === null && at === null ? null : { percent: pct, resetsAt: at }
 }
 
-export const knownLogins = (cfg: Config): LoginRef[] => {
-  const out: LoginRef[] = [
-    {
-      label: "base",
-      kind: "base",
-      dir: baseCcd(cfg) ?? path.join(home(), ".claude"),
-      ccd: baseCcd(cfg),
-      usedBy: cfg.workspaces.filter((w) => !hasOwnLogin(w)).map((w) => w.name),
-    },
-  ]
-  for (const acc of cfg.accounts ?? [])
-    out.push({
-      label: acc.name,
-      kind: "account",
-      dir: accountDir(acc.name),
-      ccd: accountDir(acc.name),
-      usedBy: cfg.workspaces.filter((w) => w.account === acc.name).map((w) => w.name),
+export type FetchLike = (
+  url: string,
+  init: { headers: Record<string, string>; signal?: AbortSignal },
+) => Promise<{
+  status: number
+  json: () => Promise<unknown>
+}>
+
+export const fetchUsage = async (
+  token: string,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<UsageFetch> => {
+  let res: Awaited<ReturnType<FetchLike>>
+  try {
+    res = await fetchImpl(`${anthropicApiBase()}/api/oauth/usage`, {
+      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
+      signal: AbortSignal.timeout(10_000),
     })
-  // A workspace behind a gateway has no login of its own: its requests carry the
-  // gateway's key, and the gateway's accounts are listed below (when it is the proxy).
-  for (const ws of cfg.workspaces)
-    if (ws.isolate && !ws.gateway && inscopeSignedIn(inscopeDirPath(ws)))
-      out.push({
-        label: ws.name,
-        kind: "isolated",
-        dir: inscopeDirPath(ws),
-        ccd: inscopeDirPath(ws),
-        usedBy: [ws.name],
-      })
-  // The proxy's accounts (`inscope proxy login`): the proxy keeps their tokens fresh
-  // itself, so their usage reads even when no session has used them for a while.
-  if (cfg.proxy)
-    for (const acc of proxyAccounts())
-      out.push({
-        label: "proxy",
-        kind: "proxy",
-        dir: acc.file,
-        ccd: undefined,
-        usedBy: proxyUsers(cfg),
-        proxyAccount: acc,
-      })
-  return out
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "error",
+      detail: `request failed: ${err instanceof Error ? err.message : err}`,
+    }
+  }
+  if (res.status === 401) return { ok: false, reason: "expired", detail: "token rejected (401)" }
+  if (res.status === 429)
+    return { ok: false, reason: "rate-limited", detail: "usage endpoint rate limited (429)" }
+  if (res.status !== 200)
+    return { ok: false, reason: "error", detail: `usage endpoint returned ${res.status}` }
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    return { ok: false, reason: "error", detail: "usage endpoint returned invalid JSON" }
+  }
+  if (!body || typeof body !== "object")
+    return { ok: false, reason: "error", detail: "usage endpoint returned an unexpected shape" }
+  const b = body as Record<string, unknown>
+  const fiveHour = toWindow(b.five_hour)
+  const week = toWindow(b.seven_day)
+  if (!fiveHour && !week)
+    return { ok: false, reason: "error", detail: "usage endpoint returned no 5h or weekly window" }
+  return { ok: true, fiveHour, week }
+}
+
+// A readable plan from the account's profile: the rate-limit tier carries the Max
+// multiplier (`default_claude_max_20x` -> "max 20x"); otherwise the organization type
+// without its prefix (`claude_pro` -> "pro").
+export const planLabel = (p: { rateLimitTier?: string; organizationType?: string } | null) => {
+  const tier = p?.rateLimitTier?.match(/max_(\d+x)/)
+  if (tier) return `max ${tier[1]}`
+  return p?.organizationType?.replace(/^claude_/, "") || undefined
+}
+
+// The account's plan, from the profile endpoint behind Claude Code's own account view
+// (undocumented, read defensively like the usage endpoint). Undefined when it cannot
+// be read: the plan is a label, never a reason to fail the row.
+export const fetchPlan = async (
+  token: string,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+): Promise<string | undefined> => {
+  try {
+    const res = await fetchImpl(`${anthropicApiBase()}/api/oauth/profile`, {
+      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (res.status !== 200) return undefined
+    const org = ((await res.json()) as Record<string, any> | null)?.organization
+    return planLabel({
+      rateLimitTier: typeof org?.rate_limit_tier === "string" ? org.rate_limit_tier : undefined,
+      organizationType:
+        typeof org?.organization_type === "string" ? org.organization_type : undefined,
+    })
+  } catch {
+    return undefined
+  }
 }
 
 export type UsageState = "ok" | "expired" | "signed-out" | "rate-limited" | "error"
 
 export type UsageRow = {
-  label: string
-  kind: LoginRef["kind"]
-  dir: string
-  usedBy: string[]
-  email?: string
+  email: string
+  // The account's auth file in the proxy.
+  file: string
+  disabled: boolean
   plan?: string
   state: UsageState
   fiveHour?: UsageWindow
@@ -105,103 +133,34 @@ export type UsageRow = {
   detail?: string
 }
 
-export type ResolveUsageOptions = {
-  run?: Runner
-  fetchImpl?: FetchLike
-  now?: number
-  // Let Claude Code revive an expired (or rejected) login by running a one-word Haiku
-  // prompt on it, then read it again. inscope never refreshes a token itself: Claude
-  // Code owns that single-use refresh token, and a second refresher would break the
-  // login. The base login is never refreshed this way (it would add a session to your
-  // own ~/.claude history); using it once does the same.
-  refresh?: boolean
-  onRefresh?: (label: string) => void
-}
-
-const REFRESH_PROMPT = "Reply with the single word: ok"
-
-// Run Claude Code once on a login, with no credential overrides and from a neutral
-// directory, so no project's CLAUDE.md, hooks, or MCP servers run alongside it.
-export const refreshLogin = (ccd: string, run: Runner = defaultRunner): boolean =>
-  run("claude", ["-p", REFRESH_PROMPT, "--model", "haiku"], {
-    env: { CLAUDE_CONFIG_DIR: ccd },
-    unset: CREDENTIAL_ENV_VARS,
-    cwd: os.tmpdir(),
-    timeoutMs: 120_000,
-  }).status === 0
-
-type Pending = {
-  row: Omit<UsageRow, "state">
-  login: LoginRef
-  token: string
-  refreshed: boolean
-}
-
-// The Keychain reads, `claude auth status`, and refreshes are blocking subprocesses, so
-// they all run first; only then do the usage requests go out together, so no request's
-// timeout ever runs while the event loop is blocked on a subprocess.
+// One row per account in the proxy; none until the proxy is set up. The usage and
+// profile requests all go out together.
 export const resolveUsage = async (
   cfg: Config,
-  opts: ResolveUsageOptions = {},
+  opts: { fetchImpl?: FetchLike; now?: number } = {},
 ): Promise<UsageRow[]> => {
-  const run = opts.run ?? defaultRunner
+  if (!cfg.proxy) return []
   const now = opts.now ?? Date.now()
-  const canRefresh = (l: LoginRef) =>
-    Boolean(opts.refresh) && l.kind !== "base" && l.ccd !== undefined
-  const refresh = (l: LoginRef) => {
-    opts.onRefresh?.(l.label)
-    refreshLogin(l.ccd!, run)
-    return readOAuth(l.ccd, run)
-  }
-
-  const rows: (UsageRow | Pending)[] = knownLogins(cfg).map((login) => {
-    const base = { label: login.label, kind: login.kind, dir: login.dir, usedBy: login.usedBy }
-    const pa = login.proxyAccount
-    let tok = pa
-      ? pa.accessToken
-        ? { accessToken: pa.accessToken, expiresAt: pa.expiresAt }
-        : null
-      : readOAuth(login.ccd, run)
-    if (!tok)
-      return { ...base, ...(pa ? { email: pa.email } : {}), state: "signed-out" } as UsageRow
-    const email = pa ? pa.email : claudeAuthStatus(login.ccd, run).email
-    const row = { ...base, email, plan: planLabel(tok) }
-    const expired = (t: typeof tok) => t?.expiresAt !== undefined && t.expiresAt <= now
-    let refreshed = false
-    if (expired(tok) && canRefresh(login)) {
-      tok = refresh(login) ?? tok
-      refreshed = true
-    }
-    if (expired(tok)) return { ...row, state: "expired" } as UsageRow
-    return { row, login, token: tok.accessToken, refreshed } satisfies Pending
-  })
-
-  const fetchAll = (pending: Pending[]) =>
-    Promise.all(pending.map((p) => fetchUsage(p.token, opts.fetchImpl)))
-  const toRow = (p: Pending, res: Awaited<ReturnType<typeof fetchUsage>>): UsageRow =>
-    res.ok
-      ? { ...p.row, state: "ok", fiveHour: res.fiveHour ?? undefined, week: res.week ?? undefined }
-      : { ...p.row, state: res.reason, detail: res.detail }
-
-  const pending = rows.filter((r): r is Pending => "token" in r)
-  const results = await fetchAll(pending)
-  const out = new Map<Pending, UsageRow>(pending.map((p, i) => [p, toRow(p, results[i])]))
-
-  // A token rejected before its expiry (revoked, or refreshed elsewhere): with --refresh,
-  // let Claude Code refresh it once and ask again.
-  const retry: Pending[] = []
-  for (const p of pending) {
-    if (out.get(p)!.state !== "expired" || p.refreshed || !canRefresh(p.login)) continue
-    const tok = refresh(p.login)
-    if (tok) retry.push({ ...p, token: tok.accessToken, refreshed: true })
-  }
-  const again = await fetchAll(retry)
-  retry.forEach((p, i) => {
-    const orig = pending.find((x) => x.login === p.login)!
-    out.set(orig, toRow(p, again[i]))
-  })
-
-  return rows.map((r) => ("token" in r ? out.get(r)! : r))
+  return Promise.all(
+    proxyAccounts().map(async (acc): Promise<UsageRow> => {
+      const base = { email: acc.email, file: acc.file, disabled: acc.disabled }
+      if (!acc.accessToken) return { ...base, state: "signed-out" }
+      if (acc.expiresAt !== undefined && acc.expiresAt <= now) return { ...base, state: "expired" }
+      const [usage, plan] = await Promise.all([
+        fetchUsage(acc.accessToken, opts.fetchImpl),
+        fetchPlan(acc.accessToken, opts.fetchImpl),
+      ])
+      const row = { ...base, plan }
+      return usage.ok
+        ? {
+            ...row,
+            state: "ok",
+            fiveHour: usage.fiveHour ?? undefined,
+            week: usage.week ?? undefined,
+          }
+        : { ...row, state: usage.reason, detail: usage.detail }
+    }),
+  )
 }
 
 // "2h 05m", "3d 4h", "now", or "" when unknown. Pure (takes `now`) for the golden.
@@ -247,19 +206,19 @@ const STATE_LABEL: Record<Exclude<UsageState, "ok">, string> = {
   error: "unavailable",
 }
 
-// Notes printed under the table, one per state present, naming the logins it covers.
+// Notes printed under the table, one per state present, naming the accounts it covers.
 const stateNote = (state: Exclude<UsageState, "ok">, rows: UsageRow[]): string => {
-  const names = rows.map((r) => r.label).join(", ")
+  const names = rows.map((r) => r.email).join(", ")
   switch (state) {
     case "expired":
-      return `expired (${names}): run \`inscope usage --refresh\`, or use that login once`
+      return `expired (${names}): the proxy renews tokens on its own; if this stays, sign in again with \`inscope login\``
     case "signed-out":
-      return `signed out (${names}): sign in with \`inscope login <name>\` (or \`claude\` there)`
+      return `signed out (${names}): sign in again with \`inscope login\``
     case "rate-limited":
       return `rate limited (${names}): the usage endpoint asked to slow down; try again shortly`
     case "error":
       return rows
-        .map((r) => `unavailable (${r.label}): ${r.detail ?? "unknown error"}`)
+        .map((r) => `unavailable (${r.email}): ${r.detail ?? "unknown error"}`)
         .join("\n  ")
   }
 }
@@ -268,23 +227,23 @@ const stateNote = (state: Exclude<UsageState, "ok">, rows: UsageRow[]): string =
 // command passes real colors, which no-op when stdout is piped. Widths are measured on
 // the plain text so color codes never skew the columns.
 export const renderUsage = (rows: UsageRow[], now: number, c: UsagePainters = PLAIN): string => {
-  const head = ["LOGIN", "EMAIL", "PLAN", "5-HOUR", "WEEKLY", "USED BY"]
+  const head = ["ACCOUNT", "PLAN", "5-HOUR", "WEEKLY"]
   const same = (s: string) => s
   const level = (l: number) => (l >= 90 ? c.bad : l >= 70 ? c.warn : c.ok)
   const cells = rows.map((r) => {
-    const used = r.usedBy.length ? r.usedBy.join(", ") : "-"
+    const who = r.disabled ? `${r.email} (disabled)` : r.email
     if (r.state !== "ok") {
       const tone = r.state === "signed-out" ? c.dim : c.warn
       return {
-        plain: [r.label, r.email ?? "-", r.plan ?? "-", STATE_LABEL[r.state], "-", used],
-        paint: [c.head, same, same, tone, c.dim, c.dim],
+        plain: [who, r.plan ?? "-", STATE_LABEL[r.state], "-"],
+        paint: [c.head, same, tone, c.dim],
       }
     }
     const five = pct(r.fiveHour, now)
     const week = pct(r.week, now)
     return {
-      plain: [r.label, r.email ?? "-", r.plan ?? "-", five.text, week.text, used],
-      paint: [c.head, same, same, level(five.level), level(week.level), c.dim],
+      plain: [who, r.plan ?? "-", five.text, week.text],
+      paint: [c.head, same, level(five.level), level(week.level)],
     }
   })
   const widths = head.map((h, i) => Math.max(h.length, ...cells.map((x) => x.plain[i].length)))
@@ -308,14 +267,12 @@ export const renderUsage = (rows: UsageRow[], now: number, c: UsagePainters = PL
 
 export const usageJson = (rows: UsageRow[]) =>
   rows.map((r) => ({
-    login: r.label,
-    kind: r.kind,
-    dir: contractTilde(r.dir),
-    email: r.email ?? null,
+    email: r.email,
+    file: contractTilde(r.file),
+    disabled: r.disabled,
     plan: r.plan ?? null,
     state: r.state,
     fiveHour: r.fiveHour ?? null,
     weekly: r.week ?? null,
-    usedBy: r.usedBy,
     ...(r.detail ? { detail: r.detail } : {}),
   }))

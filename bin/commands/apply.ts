@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util"
 
 import { applyAll } from "@/apply"
+import { hadRetiredFields, saveConfig } from "@/config"
 import { requireConfig } from "~/bin/commands/_config"
 import { name } from "~/package.json"
 
@@ -28,6 +29,8 @@ export const apply = (args: string[]) => {
 
   const cfg = requireConfig()
   const res = applyAll(cfg)
+  // Persist the cleanup of fields a newer inscope retired, so their notes stop.
+  if (hadRetiredFields(cfg)) saveConfig(cfg)
 
   console.log(`\n✓ hook       ${res.hook}`)
   if (res.gitconfig) console.log(`✓ gitconfig  ~/.gitconfig (includeIf block)`)

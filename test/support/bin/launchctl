@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+// Fake launchctl for the proxy's launchd agent: records each call, and keeps whether
+// the agent is "loaded" in the sandbox, so `bootstrap`, `bootout`, and `print` behave
+// like launchd without ever touching the real user domain (the label is per user, not
+// per HOME, so a real launchctl here would replace the live proxy's agent).
+// Refuses to run outside a test sandbox, like the other fakes.
+{
+  const fs = require("node:fs")
+  const os = require("node:os")
+  const path = require("node:path")
+  const real = (p) => {
+    try {
+      return fs.realpathSync(p)
+    } catch {
+      return null
+    }
+  }
+  const sb = process.env.FAKE_SANDBOX && real(process.env.FAKE_SANDBOX)
+  const tmp = real(os.tmpdir())
+  const inside = (p) => {
+    const r = typeof p === "string" ? real(p) ?? path.resolve(p) : null
+    return Boolean(sb && r && (r === sb || r.startsWith(sb + path.sep)))
+  }
+  const ok =
+    sb &&
+    tmp &&
+    path.dirname(sb) === tmp &&
+    path.basename(sb).startsWith("inscope-acct-") &&
+    inside(process.env.HOME) &&
+    inside(process.env.FAKE_STATE) &&
+    (process.env.CLAUDE_CONFIG_DIR === undefined || inside(process.env.CLAUDE_CONFIG_DIR))
+  if (!ok) {
+    console.error("fake: refusing to run outside a FAKE_SANDBOX temp dir")
+    process.exit(3)
+  }
+}
+const fs = require("node:fs")
+const path = require("node:path")
+const state = process.env.FAKE_STATE
+const args = process.argv.slice(2)
+fs.appendFileSync(path.join(state, "launchctl-calls.jsonl"), JSON.stringify(args) + "\n")
+const loaded = path.join(state, "launchctl-loaded")
+if (args[0] === "bootstrap") {
+  fs.writeFileSync(loaded, args[2] ?? "")
+  process.exit(0)
+}
+if (args[0] === "bootout") {
+  fs.rmSync(loaded, { force: true })
+  process.exit(0)
+}
+if (args[0] === "print") process.exit(fs.existsSync(loaded) ? 0 : 113)
+process.exit(2)

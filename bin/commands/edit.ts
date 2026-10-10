@@ -5,7 +5,6 @@ import { parseArgs } from "node:util"
 import {
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
-  gatewayAfterLoginChange,
   hookValueError,
   type NylasServer,
   type SlackPackage,
@@ -30,7 +29,6 @@ import {
   finalizeNylas,
   finalizeSlack,
   ghChoices,
-  loginChoices,
   NYLAS_REGION_CHOICES,
   nylasKeychainFor,
   persist,
@@ -199,26 +197,17 @@ export const edit = async (args: string[]) => {
       process.exit(1)
     }
   }
-  // --- Claude login: the shared base, its own .inscope, or a named account ---
-  const accounts = cfg.accounts ?? []
-  let isolate = Boolean(ws.isolate)
-  let account = ws.account
-  if (accounts.length) {
-    const { choices, initial } = loginChoices(accounts, { isolate, account })
-    ;({ isolate, account } = await selectOne("Claude login for this workspace", choices, initial))
-  } else {
-    isolate = await promptConfirm("Dedicated Claude login for this workspace?", isolate)
-    account = undefined
-  }
+  // --- Claude config: the shared base, or its own .inscope ---
+  const isolate = await promptConfirm(
+    "Separate Claude config for this workspace (its own history, settings, and skills)?",
+    Boolean(ws.isolate),
+  )
 
   // Start from the stored workspace so fields this prompt flow does not manage
   // (skills, selfSkill) survive the edit; upsert replaces the whole entry.
-  const gatewayChange = gatewayAfterLoginChange(ws, isolate)
   const next: Workspace = {
     ...ws,
     isolate: isolate || undefined,
-    account,
-    gateway: gatewayChange.gateway,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
     // persist stores; also normalizes a legacy config whose path was saved
@@ -240,7 +229,7 @@ export const edit = async (args: string[]) => {
   console.log(`\n✓ updated "${next.name}" -> ${next.path}`)
   if (next.isolate && !ws.isolate)
     console.log(
-      `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude login`,
+      `✓ scaffolded ${next.path}/.inscope (gitignored) for this workspace's own Claude config`,
     )
   else if (
     ws.isolate &&
@@ -248,13 +237,11 @@ export const edit = async (args: string[]) => {
     fs.existsSync(path.join(resolveAbsolute(next.path), ".inscope"))
   )
     console.log(
-      `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
+      `\nNote: ${next.path}/.inscope still holds this workspace's Claude config (its history, and any login); it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
-  if (gatewayChange.note) console.log(gatewayChange.note)
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)
-  if (next.account !== ws.account && next.account) console.log(`✓ runs on account ${next.account}`)
   console.log(`\nRelaunch \`claude\` from ${next.path} to pick up the changes.`)
   process.exit(0)
 }

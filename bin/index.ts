@@ -17,23 +17,24 @@ import { author, name, version } from "~/package.json"
 const helpMessage = `Version:
   ${name}@${version}
 
-Per-workspace identity for Claude Code: each directory auto-resolves its own
-login/subscription, MCP servers, GitHub account, and skills.
+Per-workspace identity for Claude Code: each directory auto-resolves its own Claude
+config, MCP servers, GitHub account, and skills, and every Claude account you sign in
+is pooled behind one local proxy, so a conversation carries on past an account's limit.
 
 Usage:
   $ ${name} <command> [options]
 
 Commands:
-  add [path]     Map a workspace (Claude login, MCP servers, GitHub account, git email, skills); sets up inscope on first run
+  add [path]     Map a workspace (Claude config, MCP servers, GitHub account, git email, skills); sets up inscope on first run
   status         Show the identity resolved for the current directory (alias: whoami)
   list           List configured workspaces (alias: ls)
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
   skill          Manage a workspace's Claude skills (add, list, rename, rm, update)
-  login <name>   Sign a Claude account in as a named account (assign it with add/edit --account)
-  logout <name>  Sign a named account out and forget it
-  usage          Show each login's 5-hour and weekly limits and when they reset
-  proxy          Run a local multi-account proxy so conversations survive an account's limit
+  login          Sign a Claude account in (into the local proxy every login goes through)
+  logout <email> Remove a Claude account from the proxy
+  usage          Show each account's plan, 5-hour and weekly limits, and when they reset
+  proxy          The proxy's low-level controls (status, start, stop, setup, uninstall)
   doctor         Verify tokens, identities, the hook, and skill links resolve correctly
   diff           Preview what apply would change; --adopt pulls on-disk extras back
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)

@@ -18,19 +18,18 @@ import {
   proxyAuthDir,
   proxyBinPath,
   proxyConfigPath,
-  onProxy,
-  proxyAfterLoginChange,
+  PROXY_VERSION,
   proxyGateway,
   proxyHealthy,
-  proxyUsers,
+  proxyRoute,
   renderProxyConfig,
   startProxy,
   uninstallProxy,
 } from "@/proxy"
 import type { Runner } from "@/secrets"
 
-import { startAnthropicEmulator } from "./support/anthropic-emulator"
 import { startMessagesEmulator } from "./support/anthropic-messages-emulator"
+import { sandbox } from "./support/sandbox"
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "inscope-proxy-")))
 
@@ -78,39 +77,13 @@ test("the rendered config is loopback only, keyed, management off, and fails ove
   expect(yaml).toContain('- name: "claude-haiku-4-5-20251001"\n        alias: "claude-haiku-4-5"')
 })
 
-test("proxyGateway and proxyUsers tie workspaces to the proxy by its URL", () => {
-  const gw = proxyGateway(9000)
-  expect(gw).toEqual({ url: "http://127.0.0.1:9000", keychain: PROXY_KEYCHAIN })
-  const cfg: Config = {
-    version: 1,
-    proxy: { port: 9000 },
-    workspaces: [
-      { name: "a", path: "/a", isolate: true, servers: {}, gateway: gw },
-      {
-        name: "b",
-        path: "/b",
-        isolate: true,
-        servers: {},
-        gateway: { url: "http://x", keychain: "K" },
-      },
-      { name: "c", path: "/c", servers: {} },
-    ],
-  }
-  expect(proxyUsers(cfg)).toEqual(["a"])
-  expect(proxyUsers({ ...cfg, proxy: undefined })).toEqual([])
-  expect(onProxy(cfg, cfg.workspaces[0])).toBe(true)
-  expect(onProxy(cfg, cfg.workspaces[1])).toBe(false)
-
-  // add --proxy / --no-proxy, and otherwise the gateway follows the isolated login
-  const [a, b, c] = cfg.workspaces
-  expect(proxyAfterLoginChange(cfg, c, true, true)).toEqual({ gateway: gw })
-  expect(proxyAfterLoginChange(cfg, a, true, false)).toEqual({
-    gateway: undefined,
-    note: "Note: this workspace no longer goes through the proxy.",
-  })
-  expect(proxyAfterLoginChange(cfg, b, true, false)).toEqual({ gateway: b.gateway })
-  expect(proxyAfterLoginChange(cfg, a, true, undefined)).toEqual({ gateway: gw })
-  expect(proxyAfterLoginChange(cfg, a, false, undefined).gateway).toBeUndefined()
+test("proxyRoute sends every login to the proxy, once one is configured", () => {
+  expect(proxyGateway(9000)).toEqual({ url: "http://127.0.0.1:9000", keychain: PROXY_KEYCHAIN })
+  expect(proxyRoute({ version: 1, proxy: { port: 9000 }, workspaces: [] })).toEqual(
+    proxyGateway(9000),
+  )
+  expect(proxyRoute({ version: 1, workspaces: [] })).toBeUndefined()
+  expect(proxyRoute(null)).toBeUndefined()
 })
 
 test("uninstallProxy removes the agent and binary, and with purge the accounts and key", async () => {
@@ -447,138 +420,147 @@ test("doctor checks the proxy's install, key, config privacy, process, and accou
 
 // --- the CLI ---------------------------------------------------------------------------
 
-const ENTRY = path.join(import.meta.dir, "..", "bin", "index.ts")
+// The real CLI in a sandbox HOME, with a stand-in proxy binary already "installed" (so
+// nothing downloads), fake `launchctl` and `security` on PATH (so the live proxy's agent
+// and Keychain item are never touched), and the Messages emulator answering the health
+// check on the proxy's port.
+const FAKE_PROXY = path.join(import.meta.dir, "support", "fake-proxy", "cli-proxy-api")
+let health: Awaited<ReturnType<typeof startMessagesEmulator>>
+beforeAll(async () => {
+  health = await startMessagesEmulator({})
+})
+afterAll(() => health?.close())
 
-const cliSandbox = () => {
-  const sb = tmp()
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    HOME: sb,
-    XDG_CONFIG_HOME: path.join(sb, ".config"),
-    GH_CONFIG_DIR: path.join(sb, ".gh"),
+const proxySandbox = () => {
+  const s = sandbox()
+  const bin = path.join(s.sb, ".config", "inscope", "proxy", "bin", PROXY_VERSION, "cli-proxy-api")
+  fs.mkdirSync(path.dirname(bin), { recursive: true })
+  fs.copyFileSync(FAKE_PROXY, bin)
+  fs.chmodSync(bin, 0o755)
+  const port = Number(new URL(health.url).port)
+  const iso = path.join(s.sb, "iso")
+  fs.mkdirSync(iso)
+  s.writeCfg({ version: 1, workspaces: [{ isolate: true, name: "iso", path: iso, servers: {} }] })
+  const login = (email: string, args: string[] = [], extra: Record<string, string> = {}) =>
+    s.cliAsync(["login", "--browser", "none", "--port", String(port), ...args], {
+      FAKE_LOGIN_EMAIL: email,
+      ...extra,
+    })
+  const settings = (dir: string) => {
+    const f = path.join(dir, "settings.json")
+    return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : undefined
   }
-  for (const k of [
-    "CLAUDE_CONFIG_DIR",
-    "INSCOPE_CCD",
-    "INSCOPE_BASE_CCD",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-  ])
-    delete env[k]
-  const cfgFile = path.join(sb, ".config", "inscope", "inscope.json")
-  const cli = (args: string[]) =>
-    spawnSync("bun", [ENTRY, ...args], { encoding: "utf8", env: env as NodeJS.ProcessEnv })
-  const writeCfg = (cfg: Config) => {
-    fs.mkdirSync(path.dirname(cfgFile), { recursive: true })
-    fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + "\n")
+  const authDir = path.join(s.sb, ".config", "inscope", "proxy", "auth")
+  const routed = {
+    env: { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` },
+    apiKeyHelper: "security find-generic-password -s 'INSCOPE_PROXY_KEY' -w",
   }
-  const ws = () => (JSON.parse(fs.readFileSync(cfgFile, "utf8")) as Config).workspaces[0]
-  return { sb, cli, writeCfg, ws }
+  return { s, port, iso, login, settings, authDir, routed, base: path.join(s.sb, ".claude") }
 }
 
-test("CLI: add --proxy routes a workspace through the proxy, and --no-proxy takes it off", () => {
-  const s = cliSandbox()
-  const dir = path.join(s.sb, "acme")
-  fs.mkdirSync(dir)
-  const noProxy = s.cli(["add", dir, "--proxy", "-y"])
-  expect(noProxy.status).toBe(1)
-  expect(noProxy.stderr).toContain("The proxy is not set up. Run `inscope proxy setup` first.")
-
-  s.writeCfg({ version: 1, proxy: { port: 9000 }, accounts: [{ name: "work" }], workspaces: [] })
-  const on = s.cli(["add", dir, "--proxy", "-y"])
-  expect(on.status).toBe(0)
-  expect(on.stdout).toContain(
-    "its requests go through the proxy, so there is nothing to sign in to",
+test("CLI: the first login sets the proxy up, signs the account in, and routes every login", async () => {
+  const { s, port, iso, login, settings, authDir, routed, base } = proxySandbox()
+  const first = await login("a@x.dev")
+  expect(first.stderr).toBe("")
+  expect(first.status).toBe(0)
+  expect(first.stdout).toContain(
+    "Open this URL in the browser you want to sign in with:\nhttps://claude.ai/oauth/authorize",
   )
-  expect(s.ws()).toMatchObject({ isolate: true, gateway: proxyGateway(9000) })
-  const settings = JSON.parse(fs.readFileSync(path.join(dir, ".inscope", "settings.json"), "utf8"))
-  expect(settings.env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9000")
+  expect(first.stdout).toContain("✓ a@x.dev signed in")
+  expect(first.stdout).toContain("holds 1 account; every Claude Code login goes through it")
+  // set up: the port recorded, a random client key, a private config, the agent loaded
+  expect(s.readCfg()?.proxy).toEqual({ port })
+  expect(s.keychain().INSCOPE_PROXY_KEY).toMatch(/^inscope-[0-9a-f]{48}$/)
+  const yaml = path.join(s.sb, ".config", "inscope", "proxy", "config.yaml")
+  expect(fs.statSync(yaml).mode & 0o777).toBe(0o600)
+  const plist = path.join(s.sb, "Library", "LaunchAgents", "dev.inscope.proxy.plist")
+  expect(s.calls("launchctl")).toContainEqual(["bootstrap", `gui/${process.getuid!()}`, plist])
+  // the account's tokens, owner-only
+  const auth = path.join(authDir, "claude-a@x.dev.json")
+  expect(fs.statSync(auth).mode & 0o777).toBe(0o600)
+  // every login now goes through it: the shared base and the isolated workspace
+  expect(settings(base)).toEqual(routed)
+  expect(settings(path.join(iso, ".inscope"))).toEqual(routed)
 
-  const both = s.cli(["add", dir, "--proxy", "--account", "work", "-y"])
-  expect(both.status).toBe(1)
-  expect(both.stderr).toContain("--proxy and --account each pick the login")
+  // a second account: the proxy is already up, so it is not set up again
+  const boots = s.calls("launchctl").filter((c) => c[0] === "bootstrap").length
+  const second = await login("b@x.dev")
+  expect(second.status).toBe(0)
+  expect(second.stdout).toContain("holds 2 accounts")
+  expect(s.calls("launchctl").filter((c) => c[0] === "bootstrap").length).toBe(boots)
 
-  const off = s.cli(["add", dir, "--no-proxy", "-y"])
-  expect(off.status).toBe(0)
-  expect(off.stdout).toContain("this workspace no longer goes through the proxy")
-  expect(s.ws().gateway).toBeUndefined()
-  expect(s.ws().isolate).toBe(true)
-})
+  // a different port once it runs is refused, pointing at proxy setup
+  const moved = await s.cliAsync(["login", "--browser", "none", "--port", "1234"], {
+    FAKE_LOGIN_EMAIL: "c@x.dev",
+  })
+  expect(moved.status).toBe(1)
+  expect(moved.stderr).toContain("change it with `inscope proxy setup --port 1234`")
+}, 30_000)
 
-test("CLI: proxy commands refuse before setup", () => {
-  const s = cliSandbox()
+test("CLI: a sign-in that fails or is the wrong account saves and routes nothing", async () => {
+  const { s, login, settings, authDir, base } = proxySandbox()
+  const failed = await login("a@x.dev", [], { FAKE_LOGIN_FAIL: "1" })
+  expect(failed.status).toBe(1)
+  expect(failed.stderr).toContain("the sign-in did not complete")
+  const wrong = await login("z@x.dev", ["--email", "a@x.dev"])
+  expect(wrong.status).toBe(1)
+  expect(wrong.stderr).toContain("signed in as z@x.dev, not a@x.dev; removed it from the proxy")
+  expect(fs.readdirSync(authDir).filter((f) => f.endsWith(".json"))).toEqual([])
+  // no account yet, so the proxy is not recorded and no login is pointed at it
+  expect(s.readCfg()?.proxy).toBeUndefined()
+  expect(settings(base)).toBeUndefined()
+}, 30_000)
+
+test("CLI: logout removes an account, but never the proxy's last one", async () => {
+  const { s, login, authDir } = proxySandbox()
+  expect((await login("a@x.dev")).status).toBe(0)
+  expect((await login("b@x.dev")).status).toBe(0)
+  const unknown = s.cli(["logout", "z@x.dev"])
+  expect(unknown.status).toBe(1)
+  expect(unknown.stderr).toContain("No account z@x.dev in the proxy. It holds: a@x.dev, b@x.dev.")
+  const out = s.cli(["logout", "A@x.dev"])
+  expect(out.status).toBe(0)
+  expect(out.stdout).toContain("✓ removed A@x.dev from the proxy")
+  const last = s.cli(["logout", "b@x.dev"])
+  expect(last.status).toBe(1)
+  expect(last.stderr).toContain("b@x.dev is the proxy's last account")
+  expect(fs.readdirSync(authDir).filter((f) => f.endsWith(".json"))).toEqual([
+    "claude-b@x.dev.json",
+  ])
+}, 30_000)
+
+test("CLI: stop warns that Claude Code is cut off; uninstall sends every login straight to Anthropic", async () => {
+  const { s, iso, login, settings, base } = proxySandbox()
+  expect((await login("a@x.dev")).status).toBe(0)
+  const stop = s.cli(["proxy", "stop"])
+  expect(stop.status).toBe(0)
+  expect(stop.stdout).toContain("none can reach Anthropic until `inscope proxy start`")
+  expect(s.cli(["proxy", "start"]).status).toBe(0)
+
+  const gone = s.cli(["proxy", "uninstall"])
+  expect(gone.status).toBe(0)
+  expect(gone.stdout).toContain("every login goes straight to Anthropic again")
+  expect(s.readCfg()?.proxy).toBeUndefined()
+  expect(fs.existsSync(path.join(s.sb, "Library", "LaunchAgents", "dev.inscope.proxy.plist"))).toBe(
+    false,
+  )
+  expect(s.calls("launchctl").at(-2)?.[0]).toBe("bootout")
+  // no login is left pointing at a proxy that is gone
+  expect(settings(base)).toBeUndefined()
+  expect(settings(path.join(iso, ".inscope"))).toBeUndefined()
+  // the accounts are kept unless --purge
+  expect(fs.existsSync(path.join(s.sb, ".config", "inscope", "proxy", "auth"))).toBe(true)
+}, 30_000)
+
+test("CLI: proxy commands refuse before the first login", () => {
+  const s = sandbox()
   s.writeCfg({ version: 1, workspaces: [] })
-  for (const sub of ["login", "status", "start", "stop", "uninstall"]) {
+  for (const sub of ["status", "start", "stop", "setup", "uninstall"]) {
     const r = s.cli(["proxy", sub])
     expect(r.status).toBe(1)
-    expect(r.stderr).toContain("The proxy is not set up")
+    expect(r.stderr).toContain("The proxy is not set up. Sign an account in with `inscope login`.")
   }
 })
-
-// --- usage: the proxy's accounts, read from its auth files ------------------------------
-
-let usageEmu: Awaited<ReturnType<typeof startAnthropicEmulator>>
-beforeAll(async () => {
-  usageEmu = await startAnthropicEmulator({
-    "tok-pa": {
-      kind: "ok",
-      fiveHour: 12,
-      week: 40,
-      fiveHourResets: "2099-01-01T00:00:00Z",
-      weekResets: "2099-01-01T00:00:00Z",
-    },
-  })
-})
-afterAll(() => usageEmu?.close())
-
-test("CLI: usage lists the proxy's accounts with their limits", async () => {
-  const s = cliSandbox()
-  s.writeCfg({
-    version: 1,
-    proxy: { port: 9000 },
-    workspaces: [
-      {
-        name: "acme",
-        path: path.join(s.sb, "acme"),
-        isolate: true,
-        servers: {},
-        gateway: proxyGateway(9000),
-      },
-    ],
-  })
-  // Claude Code has run in the workspace (its .inscope is no longer empty), but the
-  // workspace has no login of its own to list: its requests go through the proxy.
-  writeAuth(path.join(s.sb, "acme", ".inscope", ".claude.json"), {})
-  const auth = path.join(s.sb, ".config", "inscope", "proxy", "auth")
-  writeAuth(path.join(auth, "claude-pa.json"), {
-    type: "claude",
-    email: "pa@x.dev",
-    access_token: "tok-pa",
-    expired: "2099-01-01T00:00:00Z",
-  })
-  const r = await new Promise<string>((resolve) => {
-    const env = {
-      ...process.env,
-      HOME: s.sb,
-      XDG_CONFIG_HOME: path.join(s.sb, ".config"),
-      INSCOPE_ANTHROPIC_API_URL: usageEmu.url,
-    } as NodeJS.ProcessEnv
-    delete env.CLAUDE_CONFIG_DIR
-    const child = spawn("bun", [ENTRY, "usage", "--json"], { env })
-    let out = ""
-    child.stdout.on("data", (d) => (out += d))
-    child.on("close", () => resolve(out))
-  })
-  const rows = JSON.parse(r)
-  expect(rows.find((x: any) => x.kind === "proxy")).toMatchObject({
-    login: "proxy",
-    email: "pa@x.dev",
-    state: "ok",
-    weekly: { percent: 40 },
-    usedBy: ["acme"],
-  })
-  expect(rows.filter((x: any) => x.kind === "isolated")).toEqual([])
-}, 30_000)
 
 // --- the real CLIProxyAPI, failing over between accounts ---------------------------------
 

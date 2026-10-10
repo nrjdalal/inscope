@@ -1,7 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { accountDir, keychainServiceFor } from "@/accounts"
 import { zshrcSourcesHook } from "@/apply"
 import { type Config, normalizeSkill, type Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
@@ -12,14 +11,14 @@ import {
   perWorkspaceGitconfigPath,
 } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
-import { INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
+import { baseClaudeDir, INSCOPE_DIR, inscopeDirPath, inscopeSignedIn } from "@/generators/isolate"
 import { managedKeys, mcpFilePath, readMcp, slackPackageSpec } from "@/generators/mcp"
 import {
   hasBypassAcceptance,
   hasBypassSetting,
-  hasGatewaySetting,
-  hasStaleGatewaySetting,
   loginDefaultMode,
+  routedAt,
+  staleRoutingAt,
 } from "@/generators/settings"
 import {
   desiredSkillLinks,
@@ -37,10 +36,10 @@ import {
   proxyBinPath,
   proxyConfigPath,
   proxyLoaded,
+  proxyRoute,
   proxyUrl,
 } from "@/proxy"
 import {
-  claudeAuthStatus,
   defaultRunner,
   ghToken,
   gitEmailForFile,
@@ -108,7 +107,7 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
   }
 }
 
-// Bypass drift on a login inscope owns (an isolated `.inscope` or an account dir),
+// Bypass drift on a login inscope owns (an isolated `.inscope`),
 // both directions: configured but not applied, and the dangerous reverse, turned off
 // in config but the login still auto-approves on disk. A login written by an older
 // inscope has the mode without the dialog acceptance, so Claude still shows the
@@ -146,42 +145,19 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
   return out
 }
 
-// A gateway on an isolated login: its client key is in the Keychain, the login's
-// settings match the config in both directions (configured but not applied, and
-// removed but still routed).
-const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
-  const label = `[${ws.name}] gateway`
-  const out: Check[] = []
-  if (!ws.gateway) {
-    if (hasStaleGatewaySetting(ws))
-      out.push({
-        status: "warn",
-        label,
-        detail:
-          "gateway removed from config but this login still routes through it; run `inscope apply`",
-      })
-    return out
-  }
-  const svc = ws.gateway.keychain
-  out.push(
-    keychainHasService(svc, run)
-      ? { status: "ok", label, detail: `${ws.gateway.url} · ${svc}` }
-      : {
-          status: "fail",
-          label,
-          detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "<gateway key>")}\``,
-        },
-  )
-  if (!hasGatewaySetting(ws))
-    out.push({
-      status: "warn",
-      label,
-      detail: "gateway configured but not applied to this login; run `inscope apply`",
-    })
-  return out
+// A login's routing matches the config, both directions: the proxy is configured but
+// this login does not go through it yet, or the proxy was removed and the login still
+// points at it (where nothing answers). Null when it matches.
+const routingDrift = (dir: string, cfg: Config): string | null => {
+  const route = proxyRoute(cfg)
+  if (route && !routedAt(dir, route))
+    return "does not go through the proxy yet; run `inscope apply`"
+  if (!route && staleRoutingAt(dir))
+    return "still points at the proxy, which is no longer set up; run `inscope apply`"
+  return null
 }
 
-// The local proxy (`inscope proxy setup`): installed at the pinned version, its client
+// The local proxy (`inscope login`): installed at the pinned version, its client
 // key in the Keychain, its config private, its launchd agent loaded and listening on
 // the port, and at least one account signed in.
 const proxyChecks = (cfg: Config, run: Runner): Check[] => {
@@ -224,7 +200,7 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
     })
   const accounts = proxyAccounts()
   if (!accounts.length)
-    out.push({ status: "warn", label, detail: "no accounts signed in; run `inscope proxy login`" })
+    out.push({ status: "warn", label, detail: "no accounts signed in; run `inscope login`" })
   if (!out.some((c) => c.status === "fail"))
     out.unshift({
       status: "ok",
@@ -234,26 +210,34 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
   return out
 }
 
-// An isolated workspace runs Claude from a workspace-local `.inscope`. Two things
-// can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
-// which Claude fills on first login), and the dir, which holds that login, could
-// be committed. Warn on both; neither is a hard failure.
-const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => {
+// An isolated workspace runs Claude from a workspace-local `.inscope`. What can go
+// wrong: it is not routed the way the config says, it is not signed in yet (only
+// without the proxy; apply scaffolds an empty dir, which Claude fills on first login),
+// and the dir, which holds its history and maybe a login, could be committed. Warnings
+// only; none is a hard failure.
+const isolateChecks = (ws: Workspace, cfg: Config, run: Runner): Check[] => {
   const tag = `[${ws.name}] claude`
   const dir = inscopeDirPath(ws)
   const out: Check[] = []
+  const drift = routingDrift(dir, cfg)
   out.push(
-    ws.gateway
-      ? { status: "ok", label: tag, detail: `isolated, signed in through the gateway` }
-      : inscopeSignedIn(dir)
-        ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
-        : {
-            status: "warn",
+    drift
+      ? { status: "warn", label: tag, detail: `this isolated login ${drift}` }
+      : proxyRoute(cfg)
+        ? {
+            status: "ok",
             label: tag,
-            detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in`,
-          },
+            detail: `isolated in ${contractTilde(dir)}, through the proxy`,
+          }
+        : inscopeSignedIn(dir)
+          ? { status: "ok", label: tag, detail: `isolated login in ${contractTilde(dir)}` }
+          : {
+              status: "warn",
+              label: tag,
+              detail: `${contractTilde(dir)} is empty; launch \`claude\` there once to sign in, or sign accounts in to the proxy with \`inscope login\``,
+            },
   )
-  out.push(...bypassChecks(tag, ws, bypass))
+  out.push(...bypassChecks(tag, ws, cfg.bypass ?? false))
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
   const tracked = run("git", [
@@ -267,53 +251,8 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
     out.push({
       status: "warn",
       label: tag,
-      detail: `${INSCOPE_DIR} holds a login and is tracked by git; run \`git rm -r --cached ${INSCOPE_DIR}\``,
+      detail: `${INSCOPE_DIR} holds this workspace's Claude config and is tracked by git; run \`git rm -r --cached ${INSCOPE_DIR}\``,
     })
-  return out
-}
-
-// An account login is signed in through `inscope login`, which records the email it
-// saw. Doctor confirms the login is still live under that exact dir, is the account
-// it was recorded as, and that Claude Code's Keychain slot for that literal path
-// exists (the hook exports the same string, so a missing slot means Claude would start
-// signed out there). Bypass drift is checked once per account, not per workspace.
-const accountChecks = (cfg: Config, run: Runner): Check[] => {
-  const out: Check[] = []
-  for (const acc of cfg.accounts ?? []) {
-    const tag = `[account ${acc.name}]`
-    const dir = accountDir(acc.name)
-    const auth = claudeAuthStatus(dir, run)
-    const slot = isMacOS()
-      ? run("security", ["find-generic-password", "-s", keychainServiceFor(dir)]).status === 0
-      : true
-    const users = cfg.workspaces.filter((w) => w.account === acc.name).map((w) => w.name)
-    const usedBy = users.length ? `used by ${users.join(", ")}` : "not used by any workspace"
-    if (!auth.signedIn || !slot)
-      out.push({
-        status: "fail",
-        label: tag,
-        detail: `not signed in at ${contractTilde(dir)}; run \`inscope login ${acc.name}\``,
-      })
-    else if (acc.email && auth.email && auth.email !== acc.email)
-      out.push({
-        status: "fail",
-        label: tag,
-        detail: `signed in as ${auth.email}, recorded as ${acc.email}; run \`inscope login ${acc.name}\``,
-      })
-    else
-      out.push({
-        status: "ok",
-        label: tag,
-        detail: `${auth.email ?? acc.email ?? "signed in"}${auth.subscriptionType ? ` · ${auth.subscriptionType}` : ""} · ${usedBy}`,
-      })
-    out.push(
-      ...bypassChecks(
-        tag,
-        { name: acc.name, path: dir, servers: {}, account: acc.name },
-        cfg.bypass ?? false,
-      ),
-    )
-  }
   return out
 }
 
@@ -429,8 +368,17 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
     )
   }
 
-  checks.push(...accountChecks(cfg, run))
   checks.push(...proxyChecks(cfg, run))
+  // The shared base login, which every non-isolated directory runs on.
+  const baseDrift = routingDrift(baseClaudeDir(), cfg)
+  if (baseDrift)
+    checks.push({ status: "warn", label: "claude", detail: `the shared login ${baseDrift}` })
+  else if (proxyRoute(cfg))
+    checks.push({
+      status: "ok",
+      label: "claude",
+      detail: `the shared login (${contractTilde(baseClaudeDir())}) goes through the proxy`,
+    })
 
   for (const ws of cfg.workspaces) {
     const tag = `[${ws.name}]`
@@ -447,9 +395,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       )
     }
 
-    if (ws.isolate) checks.push(...isolateChecks(ws, run, cfg.bypass ?? false))
-    if (ws.account)
-      checks.push({ status: "ok", label: `${tag} claude`, detail: `account ${ws.account}` })
+    if (ws.isolate) checks.push(...isolateChecks(ws, cfg, run))
 
     if (ws.servers.slack) {
       const svc = ws.servers.slack.keychain
@@ -476,8 +422,6 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
             },
       )
     }
-
-    if (ws.isolate) checks.push(...gatewayChecks(ws, run))
 
     if (hasGitIdentity(ws)) {
       const file = perWorkspaceGitconfigPath(ws.name)
@@ -545,17 +489,16 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
   }
 
   // Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper, so
-  // either one exported in this shell silently bypasses every gateway's key. One check,
-  // however many workspaces route through a gateway.
+  // either one exported in this shell silently bypasses the proxy's key. One check.
   const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
-  if (shadow.length && cfg.workspaces.some((w) => w.isolate && w.gateway))
+  if (shadow.length && proxyRoute(cfg))
     checks.push({
       status: "warn",
-      label: "gateway",
+      label: "proxy",
       detail:
         shadow.length > 1
-          ? `${shadow.join(" and ")} are set in this shell and outrank the gateway's key; unset them`
-          : `${shadow[0]} is set in this shell and outranks the gateway's key; unset it`,
+          ? `${shadow.join(" and ")} are set in this shell and outrank the proxy's key; unset them`
+          : `${shadow[0]} is set in this shell and outranks the proxy's key; unset it`,
     })
 
   return checks
