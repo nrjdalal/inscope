@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { zshrcSourcesHook } from "@/apply"
-import { type Config, normalizeSkill, type Workspace } from "@/config"
+import { type Config, normalizeSkill, POOL_NAME_RE, type Workspace } from "@/config"
 import { mcpError, mcpTarget } from "@/drift"
 import { contractTilde, gitconfigPath, hookPath, resolveAbsolute } from "@/env"
 import {
@@ -35,8 +35,10 @@ import {
   proxyAuthDir,
   proxyBinPath,
   proxyConfigPath,
+  poolHasKey,
   proxyLabel,
   proxyLoaded,
+  readProxyKey,
   proxyRoot,
   launchAgentPath,
   poolDir,
@@ -201,28 +203,38 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
       }
   } catch {}
   for (const name of strays)
-    out.push({
-      status: "warn",
-      label: `proxy ${name}`,
-      detail: `pool ${name} is not in the config but its proxy is still installed; remove it with \`launchctl bootout gui/$(id -u)/${proxyLabel(name)}; rm -f ${contractTilde(launchAgentPath(name))}; rm -rf ${contractTilde(poolDir(name))}\``,
-    })
+    out.push(
+      // a name inscope could not have made: say so, never paste it into a command
+      !POOL_NAME_RE.test(name)
+        ? {
+            status: "warn",
+            label: "proxy",
+            detail: `unexpected entry "${name}" in ${contractTilde(path.join(proxyRoot(), "pools"))} or ~/Library/LaunchAgents; remove it by hand`,
+          }
+        : {
+            status: "warn",
+            label: `proxy ${name}`,
+            detail: `pool ${name} is not in the config but its proxy is still installed; remove it with \`launchctl bootout gui/$(id -u)/${proxyLabel(name)}; rm -f ${contractTilde(launchAgentPath(name))}; rm -rf ${contractTilde(poolDir(name))}\``,
+          },
+    )
+  const key = readProxyKey(run)
   const seen = new Map<string, string>()
   for (const { name, port } of pools) {
     const label = name === DEFAULT_POOL ? "proxy" : `proxy ${name}`
-    const fix = `run \`inscope proxy setup${name === DEFAULT_POOL ? "" : ` --pool ${name}`}\``
+    const poolFix = `run \`inscope proxy setup${name === DEFAULT_POOL ? "" : ` --pool ${name}`}\``
     const mine: Check[] = []
     try {
       if ((fs.statSync(proxyConfigPath(name)).mode & 0o077) !== 0)
         mine.push({
           status: "warn",
           label,
-          detail: `${contractTilde(proxyConfigPath(name))} is readable by others (it holds the client key); ${fix}`,
+          detail: `${contractTilde(proxyConfigPath(name))} is readable by others (it holds the client key); ${poolFix}`,
         })
     } catch {
       mine.push({
         status: "fail",
         label,
-        detail: `no ${contractTilde(proxyConfigPath(name))}; ${fix}`,
+        detail: `no ${contractTilde(proxyConfigPath(name))}; ${poolFix}`,
       })
     }
     try {
@@ -233,6 +245,13 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
           detail: `${contractTilde(proxyAuthDir(name))} is readable by others (it holds account tokens); run \`chmod 700 ${contractTilde(proxyAuthDir(name))}\``,
         })
     } catch {}
+    // A pool left on an older client key rejects every login's requests while running.
+    if (key && fs.existsSync(proxyConfigPath(name)) && !poolHasKey(name, key))
+      mine.push({
+        status: "fail",
+        label,
+        detail: `its config has a different client key than the Keychain; ${poolFix}`,
+      })
     const listening = run("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]).status === 0
     if (!proxyLoaded(run, name) || !listening)
       mine.push({

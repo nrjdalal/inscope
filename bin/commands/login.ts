@@ -3,7 +3,7 @@ import { parseArgs } from "node:util"
 import { signIn } from "@/accounts"
 import { isProxyPort } from "@/config"
 import { BROWSER_MODES, type BrowserMode, defaultBrowserMode } from "@/login"
-import { DEFAULT_PROXY_PORT, proxyUrl } from "@/proxy"
+import { DEFAULT_POOL, DEFAULT_PROXY_PORT, proxyUrl } from "@/proxy"
 import { green } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
@@ -67,7 +67,7 @@ export const login = (args: string[]) =>
     }
     const res = await signIn({ email: values.email, mode, pool: values.pool, port })
     const where =
-      res.pool === "default"
+      res.pool === DEFAULT_POOL
         ? `the proxy (${proxyUrl(res.port)}) holds ${res.accounts} account${res.accounts === 1 ? "" : "s"}; every Claude Code login goes through it`
         : `pool ${res.pool} (${proxyUrl(res.port)}) holds ${res.accounts} account${res.accounts === 1 ? "" : "s"}; point a workspace at it with \`${name} add <path> --pool ${res.pool}\``
     console.log(

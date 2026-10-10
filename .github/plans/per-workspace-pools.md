@@ -31,12 +31,12 @@ That way personal and work accounts never serve each other's conversations.
   - A named pool uses `proxy/pools/<name>/{config.yaml,auth,proxy.log}` and `dev.inscope.proxy.<name>`.
   - All pools share `proxy/bin` and `INSCOPE_PROXY_KEY`.
 - **CLI:**
-  - `inscope login [--pool <name>]` signs an account in to a pool. The first sign-in to a new pool creates it on the next free port (8318 and up) and starts it. The default pool is unchanged.
+  - `inscope login [--pool <name>]` signs an account in to a pool. The first sign-in to a new pool creates it on the next free port (from the default pool's port + 1, so 8318 and up by default) and starts it. The default pool is unchanged.
   - `inscope logout <email>` finds the account in whichever pool holds it. It refuses a pool's last account while a login still uses that pool; removing the last account of an unused named pool removes the pool.
   - `inscope pool list` shows each pool, its port, its accounts, and the logins that use it.
   - No `pool move` in v1: the proxy rewrites an auth file in place on refresh, so moving it while the pool runs can race (the account resurrects in the old pool with the newer token). Moving an account is `logout` plus `login --pool`, a fresh sign-in.
-  - `inscope add <path> --pool <name>` implies `--isolate`; `--pool default` clears it. `edit` keeps the field.
-  - `inscope proxy status|start|stop|setup|uninstall` act on every pool.
+  - `inscope add <path> --pool <name>` implies `--isolate`; `--pool default` clears it. `edit` keeps the field, and once named pools exist, `add` and `edit` ask for the pool interactively.
+  - `inscope proxy status|start|stop|uninstall` act on every pool (one failing to start does not stop the others); `proxy setup [--pool <name>] [--port <n>]` reinstalls or moves one pool. When the client key has to be minted again (its Keychain item was lost), every installed pool gets the new key; doctor flags a pool whose config has another key.
 - **Routing:** apply routes each login to its pool's port: the base and unpooled isolated logins to the default pool, and a pooled workspace to its pool.
 - **Ports:** a new pool takes the first port from 8318 up that no pool uses and nothing is listening on; config validation rejects a port two pools share.
 - **usage:** a POOL column, rows grouped by pool.

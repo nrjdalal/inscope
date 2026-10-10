@@ -6,7 +6,7 @@ import path from "node:path"
 
 import type { Config, Workspace } from "@/config"
 import { home, inscopeHome } from "@/env"
-import { writeFileAtomic } from "@/io"
+import { readFileOrNull, writeFileAtomic } from "@/io"
 import {
   type BrowserMode,
   childEnv,
@@ -461,7 +461,11 @@ export const setupProxy = async (
   const pool = opts.pool ?? DEFAULT_POOL
   opts.log?.(`Installing CLIProxyAPI ${PROXY_VERSION} (checksum-verified)...`)
   const bin = await installProxy({ run })
+  const had = readProxyKey(run)
   const key = ensureProxyKey(run)
+  // A new client key (the Keychain item was gone) must reach every pool, or the pools
+  // not being set up here keep the old key and reject every login's requests.
+  if (had !== key) rekeyPools(key, bin, run, pool)
   writeProxyFiles(port, key, bin, pool)
   startProxy(run, { pool })
   if (!(await proxyHealthy(port, key, { waitMs: 15_000 })))
@@ -469,6 +473,36 @@ export const setupProxy = async (
       `the proxy${pool === DEFAULT_POOL ? "" : ` for pool ${pool}`} did not come up on ${proxyUrl(port)}; see ${proxyLogPath(pool)}. Is the port in use? Pick another with --port.`,
     )
 }
+
+// The pools installed on disk, with the port each config names: the default pool's
+// config, and every pools/<name>/config.yaml.
+export const installedPools = (): { name: string; port: number }[] => {
+  const out: { name: string; port: number }[] = []
+  const read = (name: string) => {
+    const m = readFileOrNull(proxyConfigPath(name))?.match(/^ {2}port: (\d+)$/m)
+    if (m) out.push({ name, port: Number(m[1]) })
+  }
+  read(DEFAULT_POOL)
+  try {
+    for (const d of fs.readdirSync(path.join(proxyRoot(), "pools"), { withFileTypes: true }))
+      if (d.isDirectory()) read(d.name)
+  } catch {}
+  return out
+}
+
+// Rewrite every other installed pool's config with `key`, restarting the ones running.
+const rekeyPools = (key: string, bin: string, run: Runner, except: string) => {
+  for (const p of installedPools()) {
+    if (p.name === except) continue
+    const running = proxyLoaded(run, p.name)
+    writeProxyFiles(p.port, key, bin, p.name)
+    if (running) startProxy(run, { pool: p.name })
+  }
+}
+
+// Whether a pool's config admits `key` (the client key the logins send).
+export const poolHasKey = (pool: string, key: string): boolean =>
+  Boolean(readFileOrNull(proxyConfigPath(pool))?.includes(`- ${JSON.stringify(key)}`))
 
 // Stop the proxy and remove its launchd agent, so launchd neither restarts it nor starts
 // it at the next login. The binary, config, and accounts stay.

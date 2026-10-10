@@ -443,6 +443,34 @@ test("CLI: doctor flags an account in two pools and a pool the config no longer 
   expect(strays[0].detail).toContain("launchctl bootout gui/$(id -u)/dev.inscope.proxy.")
 }, 60_000)
 
+test("CLI: a new client key reaches every pool, and one pool failing to start leaves the others running", async () => {
+  const { s, p1, p2, login, poolDir, loaded } = poolSandbox()
+  expect((await login("me@x.dev", ["--port", String(p1)])).status).toBe(0)
+  expect((await login("w1@x.dev", ["--pool", "work", "--port", String(p2)])).status).toBe(0)
+  const old = s.keychain().INSCOPE_PROXY_KEY
+  // the Keychain item is lost; setting the default pool up mints a new key
+  s.setKeychain({})
+  expect((await s.cliAsync(["proxy", "setup"])).status).toBe(0)
+  const key = s.keychain().INSCOPE_PROXY_KEY
+  expect(key).toMatch(/^inscope-[0-9a-f]{48}$/)
+  expect(key).not.toBe(old)
+  // the work pool, not the one being set up, has it too, and runs on it
+  expect(fs.readFileSync(path.join(poolDir, "config.yaml"), "utf8")).toContain(`- "${key}"`)
+  expect(loaded("dev.inscope.proxy.work")).toBe(true)
+  const checks = JSON.parse(s.cli(["doctor", "--json"]).stdout).checks
+  expect(checks.filter((c: any) => c.detail?.includes("different client key"))).toEqual([])
+
+  // starting every pool: the first bootstrap fails, the work pool still starts
+  expect(s.cli(["proxy", "stop"]).status).toBe(0)
+  const start = s.cli(["proxy", "start"], { FAKE_BOOTSTRAP_FAIL: "once" })
+  expect(start.status).toBe(1)
+  expect(start.stderr).toContain(
+    "Could not start every pool:\n  default: launchctl bootstrap failed",
+  )
+  expect(loaded("dev.inscope.proxy")).toBe(false)
+  expect(loaded("dev.inscope.proxy.work")).toBe(true)
+}, 60_000)
+
 // --- the real CLIProxyAPI: two pools side by side ------------------------------------------
 
 // Two pinned, checksum-verified instances, each with its own config, auth dir, and port,

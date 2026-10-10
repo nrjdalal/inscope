@@ -110,9 +110,11 @@ export const signIn = async (
   const port =
     existing ?? opts.port ?? (pool === DEFAULT_POOL ? DEFAULT_PROXY_PORT : await nextPoolPort(cfg))
   const fresh = existing === undefined
-  // A new named pool starts empty: files left by an earlier pool of that name (a proxy
-  // uninstall that kept its files, or an interrupted sign-in) would hand it accounts the
-  // config does not know, maybe ones another pool holds.
+  // A new named pool starts empty: files left by an earlier pool of that name (the
+  // default pool instead keeps its accounts across an uninstall without --purge, which
+  // also drops every named pool, so they cannot be in two pools);
+  // here, files from a proxy uninstall that kept them, or an interrupted sign-in, would
+  // hand it accounts the config does not know, maybe ones another pool holds.
   if (fresh && pool !== DEFAULT_POOL && fs.existsSync(poolDir(pool))) {
     log(`\nRemoving files an earlier pool ${pool} left in ${contractTilde(poolDir(pool))}.`)
     dropPool(pool, run)
@@ -159,9 +161,17 @@ export const signIn = async (
     await reconfigure(withPool(latest, pool, port), () => {})
   } catch (err) {
     // The account is in, but the config changed under the sign-in so that this pool no
-    // longer fits it (the proxy was uninstalled meanwhile, say).
+    // longer fits it (another sign-in took its port, or the proxy was uninstalled). A new
+    // pool goes again, so nothing unrecorded keeps running.
+    const why = err instanceof Error ? err.message : err
+    if (fresh && pool !== DEFAULT_POOL) {
+      dropPool(pool, run)
+      throw new Error(
+        `${account.email} signed in, but pool ${pool} could not be recorded (${why}), so it was removed again; sign in again.`,
+      )
+    }
     throw new Error(
-      `${account.email} signed in to pool ${pool}, but the config could not record it: ${err instanceof Error ? err.message : err}\nIts proxy runs on ${proxyUrl(port)} with files in ${contractTilde(poolDir(pool))}; sign in again once the config is fixed.`,
+      `${account.email} signed in to pool ${pool}, but the config could not record it: ${why}\nIts proxy runs on ${proxyUrl(port)} with files in ${contractTilde(poolDir(pool))}; sign in again once the config is fixed.`,
     )
   }
   return { account, pool, port, accounts: proxyAccounts(pool).length }

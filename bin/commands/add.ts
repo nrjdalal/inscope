@@ -327,6 +327,10 @@ export const add = async (args: string[]) => {
   // --- Claude config: the shared base, or its own .inscope ---
   // A pool lives in a separate config, so --pool <name> implies --isolate.
   const wantPool = values.pool
+  if (wantPool === "") {
+    console.error("\n--pool needs a name (or default)")
+    process.exit(1)
+  }
   if (wantPool && wantPool !== "default" && values.isolate === false) {
     console.error("\n--pool needs a separate Claude config; drop --no-isolate")
     process.exit(1)

@@ -77,7 +77,7 @@ test("the rendered config is loopback only, keyed, management off, and fails ove
   expect(yaml).toContain('- name: "claude-haiku-4-5-20251001"\n        alias: "claude-haiku-4-5"')
 })
 
-test("proxyRoute sends every login to the proxy, once one is configured", () => {
+test("routeFor sends every login to the proxy, once one is configured", () => {
   expect(routeTo(9000)).toEqual({ url: "http://127.0.0.1:9000", keychain: PROXY_KEYCHAIN })
   expect(routeFor({ version: 1, proxy: { port: 9000 }, workspaces: [] })).toEqual(routeTo(9000))
   expect(routeFor({ version: 1, workspaces: [] })).toBeUndefined()
@@ -395,10 +395,21 @@ test("doctor checks the proxy's install, key, config privacy, process, and accou
     fs.mkdirSync(path.dirname(proxyBinPath()), { recursive: true })
     fs.writeFileSync(proxyBinPath(), "")
     fs.mkdirSync(path.dirname(proxyConfigPath()), { recursive: true })
-    fs.writeFileSync(proxyConfigPath(), "", { mode: 0o644 })
+    fs.writeFileSync(
+      proxyConfigPath(),
+      renderProxyConfig({ port: 9000, key: "old", authDir: "/a" }),
+      {
+        mode: 0o644,
+      },
+    )
     expect(proxyLines(run(true)).map((c) => c.detail)).toContainEqual(
       expect.stringContaining("is readable by others"),
     )
+    // a config on another client key than the Keychain's ("k") rejects every request
+    expect(proxyLines(run(true)).map((c) => c.detail)).toContainEqual(
+      "its config has a different client key than the Keychain; run `inscope proxy setup`",
+    )
+    fs.writeFileSync(proxyConfigPath(), renderProxyConfig({ port: 9000, key: "k", authDir: "/a" }))
     fs.chmodSync(proxyConfigPath(), 0o600)
     writeAuth(path.join(proxyAuthDir(), "claude-a.json"), { type: "claude", email: "a@x.dev" })
     fs.chmodSync(proxyAuthDir(), 0o755)
