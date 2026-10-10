@@ -4,7 +4,7 @@ import fs from "node:fs"
 import net from "node:net"
 import path from "node:path"
 
-import type { Config, Workspace } from "@/config"
+import type { Config, Pool, Workspace } from "@/config"
 import { home, inscopeHome } from "@/env"
 import { readFileOrNull, writeFileAtomic } from "@/io"
 import {
@@ -482,9 +482,10 @@ export const setupProxy = async (
 }
 
 // The pools installed on disk, with the port each config names: the default pool's
-// config, and every pools/<name>/config.yaml.
-export const installedPools = (): { name: string; port: number }[] => {
-  const out: { name: string; port: number }[] = []
+// config, and every pools/<name>/config.yaml. Reads the `  port: N` line
+// renderProxyConfig writes (inscope owns these files).
+const installedPools = (): Pool[] => {
+  const out: Pool[] = []
   const read = (name: string) => {
     const m = readFileOrNull(proxyConfigPath(name))?.match(/^ {2}port: (\d+)$/m)
     if (m) out.push({ name, port: Number(m[1]) })
@@ -523,7 +524,8 @@ const rekeyPools = (
   }
 }
 
-// Whether a pool's config admits `key` (the client key the logins send).
+// Whether a pool's config admits `key` (the client key the logins send), by the
+// `    - "<key>"` api-keys line renderProxyConfig writes.
 export const poolHasKey = (pool: string, key: string): boolean =>
   Boolean(readFileOrNull(proxyConfigPath(pool))?.includes(`- ${JSON.stringify(key)}`))
 
@@ -547,7 +549,7 @@ export const uninstallProxy = (opts: { pools?: string[]; purge?: boolean; run?: 
 }
 
 // Every pool the config knows, as name and port: the default pool first.
-export const configPools = (cfg: Config | null | undefined): { name: string; port: number }[] =>
+export const configPools = (cfg: Config | null | undefined): Pool[] =>
   cfg?.proxy ? [{ name: DEFAULT_POOL, port: cfg.proxy.port }, ...(cfg.pools ?? [])] : []
 
 export const poolPort = (cfg: Config | null | undefined, pool: string): number | undefined =>
@@ -564,41 +566,24 @@ export const routeFor = (cfg: Config | null | undefined, ws?: Workspace): Route 
   return port === undefined ? undefined : routeTo(port)
 }
 
-// A workspace's pool once `add`/`edit` change it: `want` names a pool ("default"
-// clears it), else the workspace keeps its pool, which needs an isolated config (only
-// that has settings of its own to route), so it is dropped, with a note, without one.
-export const poolAfterChange = (
-  cfg: Config | null | undefined,
-  prior: Workspace | undefined,
-  isolate: boolean,
-  want?: string,
-): { pool: string | undefined; note?: string } => {
-  if (want === DEFAULT_POOL) return { pool: undefined }
-  if (want !== undefined) {
-    if (!cfg?.pools?.some((p) => p.name === want))
-      throw new Error(
-        `No pool ${want}. Create it by signing an account in to it: inscope login --pool ${want}`,
-      )
-    return { pool: want }
-  }
-  if (!prior?.pool) return { pool: undefined }
-  if (isolate) return { pool: prior.pool }
-  return {
-    pool: undefined,
-    note: `Note: this workspace left pool ${prior.pool}; a pool needs a separate Claude config, so it uses the default pool now.`,
-  }
-}
-
 // Every account in every pool, with the pool that holds it.
 export const poolAccounts = (cfg: Config | null | undefined) =>
   configPools(cfg).flatMap((p) =>
     proxyAccounts(p.name).map((account) => ({ pool: p.name, account })),
   )
 
-// The workspaces routed to a pool, by name ("the shared login" for the default pool's
-// base login is the caller's to add).
-export const poolUsers = (cfg: Config, pool: string): string[] =>
-  cfg.workspaces.filter((w) => w.isolate && poolOf(w) === pool).map((w) => w.name)
+// Who a pool serves: "the shared login" for the default pool, then every isolated
+// workspace routed to it, by name.
+export const poolUsers = (cfg: Config, pool: string): string[] => [
+  ...(pool === DEFAULT_POOL ? ["the shared login"] : []),
+  ...cfg.workspaces.filter((w) => w.isolate && poolOf(w) === pool).map((w) => w.name),
+]
+
+// `--pool <name>` for a named pool, nothing for the default one (for printed commands).
+export const poolFlag = (pool: string) => (pool === DEFAULT_POOL ? "" : ` --pool ${pool}`)
+
+// How output names a pool: "the proxy" for the default one, "pool <name>" otherwise.
+export const poolLabel = (pool: string) => (pool === DEFAULT_POOL ? "the proxy" : `pool ${pool}`)
 
 const portFree = (port: number) =>
   new Promise<boolean>((resolve) => {

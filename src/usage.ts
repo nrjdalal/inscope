@@ -229,7 +229,8 @@ const stateNote = (state: Exclude<UsageState, "ok">, rows: UsageRow[]): string =
 // command passes real colors, which no-op when stdout is piped. Widths are measured on
 // the plain text so color codes never skew the columns.
 export const renderUsage = (rows: UsageRow[], now: number, c: UsagePainters = PLAIN): string => {
-  // The POOL column appears once there is more than the default pool.
+  // The POOL column appears once the rows span more than one pool (a named pool always
+  // holds an account, so: once there is a named pool).
   const pooled = rows.some((r) => r.pool !== rows[0]?.pool)
   const head = [...(pooled ? ["POOL"] : []), "ACCOUNT", "PLAN", "5-HOUR", "WEEKLY"]
   const lead = (r: UsageRow) => (pooled ? [r.pool] : [])

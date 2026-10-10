@@ -35,6 +35,7 @@ import {
   proxyAuthDir,
   proxyBinPath,
   proxyConfigPath,
+  poolFlag,
   poolHasKey,
   proxyLabel,
   proxyLoaded,
@@ -221,7 +222,7 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
   const seen = new Map<string, string>()
   for (const { name, port } of pools) {
     const label = name === DEFAULT_POOL ? "proxy" : `proxy ${name}`
-    const poolFix = `run \`inscope proxy setup${name === DEFAULT_POOL ? "" : ` --pool ${name}`}\``
+    const poolFix = `run \`inscope proxy setup${poolFlag(name)}\``
     const mine: Check[] = []
     try {
       if ((fs.statSync(proxyConfigPath(name)).mode & 0o077) !== 0)
@@ -264,7 +265,7 @@ const proxyChecks = (cfg: Config, run: Runner): Check[] => {
       mine.push({
         status: "warn",
         label,
-        detail: `no accounts signed in; run \`inscope login${name === DEFAULT_POOL ? "" : ` --pool ${name}`}\``,
+        detail: `no accounts signed in; run \`inscope login${poolFlag(name)}\``,
       })
     // An account in two pools has its single-use refresh token used by two proxies.
     for (const a of accounts) {

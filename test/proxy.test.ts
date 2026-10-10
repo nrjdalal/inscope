@@ -614,7 +614,7 @@ test("CLI: logout removes an account, but never the proxy's last one", async () 
   const last = s.cli(["logout", "b@x.dev"])
   expect(last.status).toBe(1)
   expect(last.stderr).toContain(
-    "b@x.dev is the last account in pool default, which the shared login uses",
+    "b@x.dev is the last account in pool default, which the shared login and iso use",
   )
   expect(fs.readdirSync(authDir).filter((f) => f.endsWith(".json"))).toEqual([
     "claude-b@x.dev.json",

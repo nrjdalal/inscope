@@ -7,6 +7,8 @@ import { contractTilde } from "@/env"
 import {
   configPools,
   DEFAULT_POOL,
+  poolFlag,
+  poolPort,
   PROXY_VERSION,
   proxyAccounts,
   proxyBinPath,
@@ -76,13 +78,13 @@ export const proxy = async (args: string[]) => {
 
   if (sub === "setup") {
     const cfg = requireProxy()
-    const pool = values.pool ?? DEFAULT_POOL
-    const current = configPools(cfg).find((p) => p.name === pool)
-    if (!current) {
+    const pool = values.pool || DEFAULT_POOL
+    const current = poolPort(cfg, pool)
+    if (current === undefined) {
       console.error(`No pool ${pool}. See \`${name} pool list\`.`)
       process.exit(1)
     }
-    const port = values.port ? Number(values.port) : current.port
+    const port = values.port ? Number(values.port) : current
     if (!isProxyPort(port)) {
       console.error(`Invalid --port "${values.port}": use 1024-65535`)
       process.exit(1)
@@ -116,7 +118,9 @@ export const proxy = async (args: string[]) => {
     )
     if (values.json) {
       const installed = fs.existsSync(proxyBinPath())
-      console.log(JSON.stringify({ version: PROXY_VERSION, installed, pools }, null, 2))
+      // The default pool's fields stay at the top level, as before pools existed.
+      const { pool: _pool, config: _config, ...main } = pools[0]
+      console.log(JSON.stringify({ version: PROXY_VERSION, installed, ...main, pools }, null, 2))
       process.exit(0)
     }
     const ok = (b: boolean, yes: string, no: string) => (b ? green(yes) : yellow(no))
@@ -127,7 +131,7 @@ export const proxy = async (args: string[]) => {
         `  state    ${ok(p.healthy, "running", p.loaded ? "loaded but not answering" : "stopped")}`,
       )
       console.log(
-        `  accounts ${p.accounts.length ? p.accounts.map((a) => `${a.email}${a.disabled ? " (disabled)" : ""}`).join(", ") : yellow(`none; run \`${name} login${p.pool === DEFAULT_POOL ? "" : ` --pool ${p.pool}`}\``)}`,
+        `  accounts ${p.accounts.length ? p.accounts.map((a) => `${a.email}${a.disabled ? " (disabled)" : ""}`).join(", ") : yellow(`none; run \`${name} login${poolFlag(p.pool)}\``)}`,
       )
       console.log(`  config   ${p.config}`)
     }

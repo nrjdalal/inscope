@@ -3,8 +3,9 @@ import fs from "node:fs"
 import net from "node:net"
 import path from "node:path"
 
+import { poolAfterChange } from "@/accounts"
 import { type Config, validateConfig } from "@/config"
-import { nextPoolPort, poolAfterChange, PROXY_VERSION, routeFor } from "@/proxy"
+import { nextPoolPort, PROXY_VERSION, routeFor } from "@/proxy"
 
 import { startMessagesEmulator } from "./support/anthropic-messages-emulator"
 import { sandbox } from "./support/sandbox"

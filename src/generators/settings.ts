@@ -164,7 +164,7 @@ export const applyBypass = (ws: Workspace, bypass: boolean) => {
 // Every login inscope routes, with where it goes: the shared base login to the default
 // pool, and each isolated workspace's to its own pool (else the default). The route is
 // undefined while there is no proxy.
-export const routedLogins = (cfg: Config): { dir: string; route: Route | undefined }[] => [
+const routedLogins = (cfg: Config): { dir: string; route: Route | undefined }[] => [
   { dir: baseClaudeDir(), route: routeFor(cfg) },
   ...cfg.workspaces
     .filter((w) => w.isolate)

@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
+import { poolAfterChange } from "@/accounts"
 import {
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
@@ -11,7 +12,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, resolveAbsolute } from "@/env"
-import { poolAfterChange } from "@/proxy"
+import { DEFAULT_POOL } from "@/proxy"
 import { ghAccounts, keychainHas, shQuotePath } from "@/secrets"
 import { requireConfig } from "~/bin/commands/_config"
 import {
@@ -206,11 +207,11 @@ export const edit = async (args: string[]) => {
   // Once named pools exist, an isolated workspace picks the pool its requests use.
   let wantPool: string | undefined
   if (isolate && cfg.pools?.length) {
-    const names = ["default", ...cfg.pools.map((p) => p.name)]
+    const names = [DEFAULT_POOL, ...cfg.pools.map((p) => p.name)]
     wantPool = await selectOne(
       "Pool of Claude accounts for this workspace",
       names.map((n) => ({ label: n, value: n })),
-      Math.max(0, names.indexOf(ws.pool ?? "default")),
+      Math.max(0, names.indexOf(ws.pool ?? DEFAULT_POOL)),
     )
   }
   const poolChange = poolAfterChange(cfg, ws, isolate, wantPool)

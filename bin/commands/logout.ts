@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util"
 
 import { signOut } from "@/accounts"
-import { DEFAULT_POOL } from "@/proxy"
+import { poolLabel } from "@/proxy"
 import { requireConfig } from "~/bin/commands/_config"
 import { green } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
@@ -40,9 +40,7 @@ export const logout = async (args: string[]) => {
   }
   const res = await signOut(cfg, email)
   console.log(
-    green(
-      `\n✓ removed ${email} from ${res.pool === DEFAULT_POOL ? "the proxy" : `pool ${res.pool}`}`,
-    ) +
+    green(`\n✓ removed ${email} from ${poolLabel(res.pool)}`) +
       (res.poolRemoved
         ? `\n  it was the pool's last account, so pool ${res.pool} is gone too`
         : ""),

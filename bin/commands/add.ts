@@ -2,6 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { parseArgs } from "node:util"
 
+import { poolAfterChange } from "@/accounts"
 import {
   configExists,
   DEFAULT_SLACK_PACKAGE,
@@ -17,7 +18,7 @@ import {
 } from "@/config"
 import { contractTilde, resolveAbsolute, sameDir } from "@/env"
 import { SERVER_TYPES } from "@/generators/mcp"
-import { poolAfterChange } from "@/proxy"
+import { DEFAULT_POOL } from "@/proxy"
 import { ghAccounts, gitGlobal, keychainHas, shQuotePath } from "@/secrets"
 import {
   isInteractive,
@@ -327,17 +328,17 @@ export const add = async (args: string[]) => {
   // --- Claude config: the shared base, or its own .inscope ---
   // A pool lives in a separate config, so --pool <name> implies --isolate.
   const wantPool = values.pool
+  const namedPool = wantPool !== undefined && wantPool !== DEFAULT_POOL
   if (wantPool === "") {
     console.error("\n--pool needs a name (or default)")
     process.exit(1)
   }
-  if (wantPool && wantPool !== "default" && values.isolate === false) {
+  if (namedPool && values.isolate === false) {
     console.error("\n--pool needs a separate Claude config; drop --no-isolate")
     process.exit(1)
   }
-  let isolate =
-    values.isolate ?? (wantPool && wantPool !== "default" ? true : Boolean(existing?.isolate))
-  if (values.isolate === undefined && !(wantPool && wantPool !== "default") && interactive)
+  let isolate = values.isolate ?? (namedPool ? true : Boolean(existing?.isolate))
+  if (values.isolate === undefined && !namedPool && interactive)
     isolate = await promptConfirm(
       "\nSeparate Claude config for this workspace (its own history, settings, and skills)?",
       isolate,
@@ -368,11 +369,11 @@ export const add = async (args: string[]) => {
   // Once named pools exist, an isolated workspace picks the pool its requests use.
   let poolPick = wantPool
   if (poolPick === undefined && isolate && interactive && cfg?.pools?.length) {
-    const names = ["default", ...cfg.pools.map((p) => p.name)]
+    const names = [DEFAULT_POOL, ...cfg.pools.map((p) => p.name)]
     poolPick = await selectOne(
       "\nPool of Claude accounts for this workspace",
       names.map((n) => ({ label: n, value: n })),
-      Math.max(0, names.indexOf(existing?.pool ?? "default")),
+      Math.max(0, names.indexOf(existing?.pool ?? DEFAULT_POOL)),
     )
   }
   const poolChange = poolAfterChange(cfg, existing, isolate, poolPick)

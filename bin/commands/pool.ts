@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util"
 
-import { configPools, DEFAULT_POOL, poolUsers, proxyAccounts, proxyUrl } from "@/proxy"
+import { configPools, poolUsers, proxyAccounts, proxyUrl } from "@/proxy"
 import { requireConfig } from "~/bin/commands/_config"
 import { dim, orange, yellow } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
@@ -37,10 +37,7 @@ export const pool = (args: string[]) => {
     pool: p.name,
     url: proxyUrl(p.port),
     accounts: proxyAccounts(p.name).map((a) => a.email),
-    usedBy:
-      p.name === DEFAULT_POOL
-        ? ["the shared login", ...poolUsers(cfg, p.name)]
-        : poolUsers(cfg, p.name),
+    usedBy: poolUsers(cfg, p.name),
   }))
   if (values.json) {
     console.log(JSON.stringify(pools, null, 2))

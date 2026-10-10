@@ -3,6 +3,7 @@ import fs from "node:fs"
 import { applyAll, preflightApply } from "@/apply"
 import {
   type Config,
+  type Workspace,
   configExists,
   defaultConfig,
   loadConfig,
@@ -20,6 +21,7 @@ import {
   nextPoolPort,
   poolAccounts,
   poolDir,
+  poolFlag,
   poolPort,
   poolUsers,
   type ProxyAccount,
@@ -34,7 +36,7 @@ import {
 import { defaultRunner, type Runner } from "@/secrets"
 
 // Your Claude accounts, as inscope's config sees them: signing one in to a pool of the
-// proxy, signing one out, and moving or removing the proxy. Every change is checked against the config it leads to
+// proxy, signing one out, a workspace's pool, and moving or removing the proxy. Every change is checked against the config it leads to
 // before anything is touched, then saved and applied, so every login always points at a
 // proxy that runs (or straight at Anthropic once there is none).
 
@@ -99,7 +101,7 @@ export const signIn = async (
   const existing = poolPort(cfg, pool)
   if (existing !== undefined && opts.port !== undefined && opts.port !== existing)
     throw new Error(
-      `Pool ${pool} already runs on port ${existing}; change it with \`inscope proxy setup${pool === DEFAULT_POOL ? "" : ` --pool ${pool}`} --port ${opts.port}\`.`,
+      `Pool ${pool} already runs on port ${existing}; change it with \`inscope proxy setup${poolFlag(pool)} --port ${opts.port}\`.`,
     )
   if (
     existing === undefined &&
@@ -202,6 +204,35 @@ export const moveProxy = (cfg: Config, pool: string, port: number, run: Runner =
   })
 }
 
+// A workspace's pool once `add`/`edit` change it: `want` names a pool ("default"
+// clears it), else the workspace keeps its pool, which needs an isolated config (only
+// that has settings of its own to route), so it is dropped, with a note, without one.
+export const poolAfterChange = (
+  cfg: Config | null | undefined,
+  prior: Workspace | undefined,
+  isolate: boolean,
+  want?: string,
+): { pool: string | undefined; note?: string } => {
+  if (want === DEFAULT_POOL) return { pool: undefined }
+  if (want !== undefined) {
+    if (!cfg?.pools?.some((p) => p.name === want))
+      throw new Error(
+        `No pool ${want}. Create it by signing an account in to it: inscope login --pool ${want}`,
+      )
+    return { pool: want }
+  }
+  if (!prior?.pool) return { pool: undefined }
+  if (isolate) return { pool: prior.pool }
+  return {
+    pool: undefined,
+    note: `Note: this workspace left pool ${prior.pool}; a pool needs a separate Claude config, so it uses the default pool now.`,
+  }
+}
+
+// "a", "a and b", "a, b, and c"
+const listOf = (items: string[]) =>
+  items.length < 3 ? items.join(" and ") : `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`
+
 // Remove an account from whichever pool holds it. A pool's last account is refused while
 // a login uses that pool (the default pool always: the shared login runs on it), since
 // that login would have no account; the last account of an unused named pool takes the
@@ -219,10 +250,10 @@ export const signOut = async (
     )
   const { pool } = hit
   const last = proxyAccounts(pool).length === 1
-  const users = pool === DEFAULT_POOL ? ["the shared login"] : poolUsers(cfg, pool)
+  const users = poolUsers(cfg, pool)
   if (last && users.length)
     throw new Error(
-      `${email} is the last account in pool ${pool}, which ${users.join(", ")} ${users.length === 1 ? "uses" : "use"}; removing it would leave ${users.length === 1 ? "that login" : "them"} with no account. Sign another in first (\`inscope login${pool === DEFAULT_POOL ? "" : ` --pool ${pool}`}\`)${pool === DEFAULT_POOL ? ", or stop using the proxy with `inscope proxy uninstall`" : `, or move ${users.length === 1 ? "it" : "them"} to another pool`}. Nothing was changed.`,
+      `${email} is the last account in pool ${pool}, which ${listOf(users)} ${users.length === 1 ? "uses" : "use"}; removing it would leave ${users.length === 1 ? "that login" : "them"} with no account. Sign another in first (\`inscope login${poolFlag(pool)}\`)${pool === DEFAULT_POOL ? ", or stop using the proxy with `inscope proxy uninstall`" : `, or move ${users.length === 1 ? "it" : "them"} to another pool`}. Nothing was changed.`,
     )
   if (!last) {
     logoutProxyAccount(email, pool)

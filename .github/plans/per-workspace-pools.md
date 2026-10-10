@@ -1,6 +1,6 @@
 # Plan: an account pool per workspace
 
-Status: in progress (branch feat/pools).
+Status: built in PR #63 (branch feat/pools).
 
 ## The idea
 
@@ -13,7 +13,7 @@ That way personal and work accounts never serve each other's conversations.
 
 ## Findings
 
-- **CLIProxyAPI 8.0.23 has no per-client-key credential scoping** (verified in its source and config docs; upstream issue #5188 asked for exactly this, "bind downstream API keys to credential groups", and was closed with no change). `access.api-keys` admits a client to every credential. Its only scoping is a per-credential model `prefix` (with `routing.force-model-prefix`). Using that would mean every request names `pool/model`, and Claude Code asks for plain model ids (main model, subagents, the small fast model), so we'd have to rewrite all of them through `ANTHROPIC_DEFAULT_*_MODEL` overrides. That is too fragile.
+- **CLIProxyAPI 8.0.23 has no per-client-key credential scoping** (verified in its source and config docs). Upstream issue #5188 asked for exactly this ("bind downstream API keys to credential groups") and was closed without it shipping; PR #5200, "bind API keys to credential groups", which would add it, is still open and unmerged (checked 2026-10-10). Once a release ships it, pools can become groups inside one instance: same config and CLI, one process. `access.api-keys` admits a client to every credential. Its only scoping is a per-credential model `prefix` (with `routing.force-model-prefix`). Using that would mean every request names `pool/model`, and Claude Code asks for plain model ids (main model, subagents, the small fast model), so we'd have to rewrite all of them through `ANTHROPIC_DEFAULT_*_MODEL` overrides. That is too fragile.
 - **So each pool is its own proxy instance.** It shares the pinned binary and the client key, and gets its own port, config, auth dir, log, and launchd agent. A pool is cheap: one small process, idle until used. Two instances run side by side with no shared state (tested: no shared home dir, lock, or extra port). This reuses CLIProxyAPI as it is; if `native-proxy.md` lands, pools become routing inside one process.
 - **No portless.** Stable `*.localhost` names per pool (vercel-labs/portless, as zerostarter uses for its dev servers) were tried: SSE passes through at about 1 ms per request, but nobody types a pool URL (inscope writes it into settings.json), port changes already re-apply, and it would put a second, pre-1.0 daemon in front of every login. Revisit only for something people open in a browser.
 - **Claude Code's settings.json `env` outranks the shell**, so a non-isolated workspace cannot be pooled by a hook export while `~/.claude/settings.json` routes to the default pool: a pool requires `isolate`.
