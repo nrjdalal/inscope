@@ -5,9 +5,7 @@ import type { Config, Workspace } from "@/config"
 import { renderGitInclude, renderPerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { renderHook } from "@/generators/hook"
 import { renderMcp, SERVER_TYPES } from "@/generators/mcp"
-import { renderLaunchAgent, renderProxyConfig } from "@/proxy"
 import { renderStatus, type StatusSnapshot } from "@/status"
-import { renderUsage, type UsageRow } from "@/usage"
 import { slackKeychainFor } from "~/bin/commands/_workspace"
 
 // Golden suite: lock the EXACT generated artifacts (chpwd hook, .mcp.json, git
@@ -403,105 +401,4 @@ test("golden: status card, isolated login not signed in", () => {
     skills: ["inscope"],
   }
   expect(renderStatus(snap)).toMatchSnapshot()
-})
-
-test("golden: usage table", () => {
-  const now = Date.parse("2026-10-10T12:00:00Z")
-  const auth = (e: string) => `/h/.config/inscope/proxy/auth/claude-${e}.json`
-  const rows: UsageRow[] = [
-    {
-      email: "me@x.dev",
-      file: auth("me@x.dev"),
-      disabled: false,
-      plan: "max 20x",
-      state: "ok",
-      fiveHour: { percent: 3.4, resetsAt: "2026-10-10T14:05:00Z" },
-      week: { percent: 99, resetsAt: "2026-10-11T17:00:00Z" },
-    },
-    {
-      email: "alt@x.dev",
-      file: auth("alt@x.dev"),
-      disabled: false,
-      plan: "max 5x",
-      state: "ok",
-      fiveHour: { percent: 0, resetsAt: null },
-      week: { percent: 72, resetsAt: "2026-10-15T09:00:00Z" },
-    },
-    { email: "old@x.dev", file: auth("old@x.dev"), disabled: false, state: "expired" },
-    { email: "gone@x.dev", file: auth("gone@x.dev"), disabled: false, state: "signed-out" },
-    {
-      email: "fresh@x.dev",
-      file: auth("fresh@x.dev"),
-      disabled: true,
-      plan: "pro",
-      state: "ok",
-      fiveHour: { percent: null, resetsAt: "2026-10-10T13:00:00Z" },
-      week: { percent: 0, resetsAt: null },
-    },
-    {
-      email: "c@client.com",
-      file: auth("c@client.com"),
-      disabled: false,
-      plan: "team",
-      state: "error",
-      detail: "usage endpoint returned 500",
-    },
-  ]
-  expect(renderUsage(rows, now)).toMatchSnapshot()
-})
-
-test("golden: status card, isolated login through the proxy", () => {
-  const snap: StatusSnapshot = {
-    workspace: "acme",
-    path: "~/acme",
-    claude: {
-      isolated: true,
-      configDir: "~/acme/.inscope",
-      signedIn: true,
-      proxy: { host: "127.0.0.1:8317", accounts: 3 },
-    },
-    github: { account: "neeraj-acme-org", token: true },
-    git: { email: "neeraj@acme.org", source: "workspace" },
-    servers: ["github"],
-    skills: ["inscope"],
-  }
-  expect(renderStatus(snap)).toMatchSnapshot()
-})
-
-test("golden: status card, shared login through a proxy with no accounts", () => {
-  const snap: StatusSnapshot = {
-    workspace: null,
-    path: "~/scratch",
-    claude: {
-      isolated: false,
-      configDir: "~/.claude",
-      signedIn: true,
-      proxy: { host: "127.0.0.1:8317", accounts: 0 },
-    },
-    github: null,
-    git: { email: "neeraj@x.dev", source: "global" },
-    servers: [],
-    skills: [],
-  }
-  expect(renderStatus(snap)).toMatchSnapshot()
-})
-
-test("golden: proxy config", () => {
-  expect(
-    renderProxyConfig({
-      port: 8317,
-      key: "inscope-0123abcd",
-      authDir: "/h/.config/inscope/proxy/auth",
-    }),
-  ).toMatchSnapshot()
-})
-
-test("golden: proxy launchd agent", () => {
-  expect(
-    renderLaunchAgent({
-      bin: "/h/.config/inscope/proxy/bin/8.0.23/cli-proxy-api",
-      config: "/h/.config/inscope/proxy/config.yaml",
-      log: "/h/.config/inscope/proxy/proxy & log.log",
-    }),
-  ).toMatchSnapshot()
 })

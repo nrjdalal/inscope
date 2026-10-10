@@ -2,30 +2,17 @@ import { spawnSync } from "node:child_process"
 
 export type RunResult = { status: number; stdout: string; stderr: string }
 
-export type RunOpts = {
-  input?: string
-  env?: Record<string, string>
-  // Variables to remove from the child's environment (an overlay cannot unset one).
-  unset?: string[]
-  cwd?: string
-  timeoutMs?: number
-}
+export type RunOpts = { input?: string; env?: Record<string, string>; timeoutMs?: number }
 
 export type Runner = (cmd: string, args: string[], opts?: RunOpts) => RunResult
 
 export const defaultRunner: Runner = (cmd, args, opts) => {
-  let env: NodeJS.ProcessEnv | undefined
-  if (opts?.env || opts?.unset?.length) {
-    // Overlay onto the current env so a caller can pin one var (e.g.
-    // CLAUDE_CONFIG_DIR for `claude auth status`) without dropping PATH/HOME.
-    env = { ...process.env, ...opts.env }
-    for (const k of opts.unset ?? []) delete env[k]
-  }
   const res = spawnSync(cmd, args, {
     encoding: "utf8",
     input: opts?.input,
-    env,
-    cwd: opts?.cwd,
+    // Overlay onto the current env so a caller can pin one var (e.g.
+    // CLAUDE_CONFIG_DIR for `claude auth status`) without dropping PATH/HOME.
+    env: opts?.env ? { ...process.env, ...opts.env } : undefined,
     timeout: opts?.timeoutMs,
   })
   return {
@@ -67,13 +54,6 @@ export const gitGlobal = (key: string, run: Runner = defaultRunner): string | nu
 
 export const keychainHas = (service: string, run: Runner = defaultRunner) => {
   const r = run("security", ["find-generic-password", "-a", user(), "-s", service, "-w"])
-  return r.status === 0 && r.stdout.trim().length > 0
-}
-
-// Whether any Keychain item has this service, whatever its account: the lookup
-// inscope's proxy apiKeyHelper makes, so doctor checks exactly what Claude will find.
-export const keychainHasService = (service: string, run: Runner = defaultRunner) => {
-  const r = run("security", ["find-generic-password", "-s", service, "-w"])
   return r.status === 0 && r.stdout.trim().length > 0
 }
 
@@ -128,17 +108,9 @@ export type ClaudeAuth = {
   orgName?: string
 }
 
-// `configDir` undefined means Claude's default login with CLAUDE_CONFIG_DIR unset (its
-// bare Keychain slot), which is a different login from CLAUDE_CONFIG_DIR=~/.claude.
-export const claudeAuthStatus = (
-  configDir: string | undefined,
-  run: Runner = defaultRunner,
-  opts: { unset?: string[] } = {},
-): ClaudeAuth => {
+export const claudeAuthStatus = (configDir: string, run: Runner = defaultRunner): ClaudeAuth => {
   const r = run("claude", ["auth", "status", "--json"], {
-    ...(configDir === undefined
-      ? { unset: ["CLAUDE_CONFIG_DIR", ...(opts.unset ?? [])] }
-      : { env: { CLAUDE_CONFIG_DIR: configDir }, unset: opts.unset }),
+    env: { CLAUDE_CONFIG_DIR: configDir },
     timeoutMs: 5000,
   })
   if (r.status !== 0 || !r.stdout.trim()) return { signedIn: false }
