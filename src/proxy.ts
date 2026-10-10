@@ -372,7 +372,9 @@ export const loginProxyAccount = async (opts: {
       opened = true
       if (mode !== "none")
         log(
-          `Sign in to Claude in ${mode === "chrome" ? "the new Chrome window" : "your browser"}; this continues when you are done.`,
+          mode === "chrome"
+            ? "A new Chrome window (a fresh profile, deleted afterwards) opened on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize; this continues once you do."
+            : "Sign in to Claude in your browser; this continues once you do.",
         )
       // An opener that throws (no Chrome, say) must not leave the login running.
       try {

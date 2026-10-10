@@ -502,7 +502,10 @@ test("CLI: by default the sign-in opens a new Chrome window on a fresh profile, 
     FAKE_WAIT_FOR_BROWSER: "1",
   })
   expect(r.status).toBe(0)
-  expect(r.stdout).toContain("A new Chrome window (a fresh profile, deleted afterwards) opens")
+  expect(r.stdout).toContain(
+    "A new Chrome window (a fresh profile, deleted afterwards) opened on Claude's sign-in page.",
+  )
+  expect(r.stdout.match(/Chrome window/g)).toHaveLength(1)
   const [args] = s.calls("chrome")
   const profile = path.join(s.sb, ".config", "inscope", "browser", "proxy-profile")
   // a fresh, throwaway profile, opened straight on the sign-in page, nothing pre-filled

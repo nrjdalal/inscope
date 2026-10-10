@@ -64,10 +64,6 @@ export const signIn = async (
     const key = readProxyKey(run)
     if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
       await setupProxy(port, { run, log: (l) => log(`\n${l}`) })
-    if (opts.mode === "chrome")
-      log(
-        "\nA new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize. This finishes on its own once you do.",
-      )
     account = await loginProxyAccount({ email: opts.email, mode: opts.mode, log })
   } catch (err) {
     // Nothing routes to a first proxy yet, so a setup or sign-in that fails leaves none
