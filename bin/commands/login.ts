@@ -1,19 +1,10 @@
 import { parseArgs } from "node:util"
 
-import { applyAll, preflightApply } from "@/apply"
-import { configExists, defaultConfig, isProxyPort, loadConfig, saveConfig } from "@/config"
+import { signIn } from "@/accounts"
+import { isProxyPort } from "@/config"
 import { BROWSER_MODES, type BrowserMode, defaultBrowserMode } from "@/login"
-import {
-  DEFAULT_PROXY_PORT,
-  loginProxyAccount,
-  proxyAccounts,
-  proxyHealthy,
-  proxyUrl,
-  readProxyKey,
-  setupProxy,
-} from "@/proxy"
-import { defaultRunner } from "@/secrets"
-import { dim, green } from "~/bin/commands/_prompt"
+import { DEFAULT_PROXY_PORT, proxyUrl } from "@/proxy"
+import { green } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
 
 const helpMessage = `Sign a Claude account in to inscope. Every account lives in a local proxy
@@ -63,51 +54,15 @@ export const login = (args: string[]) =>
       console.error(`Invalid --browser "${values.browser}": use ${BROWSER_MODES.join(", ")}`)
       process.exit(1)
     }
-
-    const cfg = configExists() ? loadConfig() : defaultConfig()
-    const port = cfg.proxy?.port ?? (values.port ? Number(values.port) : DEFAULT_PROXY_PORT)
-    if (!isProxyPort(port)) {
+    const port = values.port === undefined ? undefined : Number(values.port)
+    if (port !== undefined && !isProxyPort(port)) {
       console.error(`Invalid --port "${values.port}": use 1024-65535`)
       process.exit(1)
     }
-    if (cfg.proxy && values.port && Number(values.port) !== cfg.proxy.port) {
-      console.error(
-        `The proxy already runs on port ${cfg.proxy.port}; change it with \`${name} proxy setup --port ${values.port}\`.`,
-      )
-      process.exit(1)
-    }
-    // Routing every login through the proxy must be possible before anyone signs in:
-    // a settings.json with a key helper of its own stops here, not after the sign-in.
-    const routed = { ...cfg, proxy: { port } }
-    preflightApply(routed)
-
-    if (!cfg.proxy)
-      console.log(
-        dim(
-          "\nThe proxy stores your Claude accounts' tokens locally and relays Claude Code's requests; Anthropic's terms forbid third parties doing that with Claude.ai credentials, so running it is your choice and your accounts' risk.",
-        ),
-      )
-    const key = readProxyKey(defaultRunner)
-    if (!cfg.proxy || !key || !(await proxyHealthy(port, key)))
-      await setupProxy(port, { log: (l) => console.log(`\n${l}`) })
-
-    if (mode === "chrome")
-      console.log(
-        "\nA new Chrome window (a fresh profile, deleted afterwards) opens on Claude's sign-in page. Enter the account's email, then the code Claude emails you, then authorize. This finishes on its own once you do.",
-      )
-    const account = await loginProxyAccount({ email: values.email, mode })
-
-    // Re-read: the sign-in can take minutes, and another inscope command may have saved
-    // the config meanwhile. Record the proxy only now that it has an account to route to.
-    const latest = configExists() ? loadConfig() : cfg
-    const next = { ...latest, proxy: { port } }
-    saveConfig(next)
-    applyAll(next)
-
-    const n = proxyAccounts().length
+    const res = await signIn({ email: values.email, mode, port })
     console.log(
-      green(`\n✓ ${account.email} signed in`) +
-        `\n  the proxy (${proxyUrl(port)}) holds ${n} account${n === 1 ? "" : "s"}; every Claude Code login goes through it` +
+      green(`\n✓ ${res.account.email} signed in`) +
+        `\n  the proxy (${proxyUrl(res.port)}) holds ${res.accounts} account${res.accounts === 1 ? "" : "s"}; every Claude Code login goes through it` +
         `\n  Claude Code sessions started from now on use it. See the limits: ${name} usage`,
     )
     process.exit(0)

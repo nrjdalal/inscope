@@ -6,10 +6,10 @@ import { proxyAccounts } from "@/proxy"
 // login`), its plan, and its 5-hour and weekly usage. Read with the account's own token
 // from the proxy's auth file, which the proxy keeps fresh; inscope never refreshes it.
 
-// Anthropic's subscription usage endpoint. Undocumented (it backs Claude Code's own
-// /usage view), so every field is read defensively and any surprise degrades to an
-// error row instead of a crash. INSCOPE_ANTHROPIC_API_URL points it at a local
-// emulator in tests, and is honored only for a loopback host: every login's bearer
+// Anthropic's subscription endpoints. Undocumented (they back Claude Code's own /usage
+// and account views), so every field is read defensively and any surprise degrades to
+// an error row instead of a crash. INSCOPE_ANTHROPIC_API_URL points them at a local
+// emulator in tests, and is honored only for a loopback host: each account's bearer
 // token goes to this URL, so a stray override must never send them off the machine.
 const ANTHROPIC_API = "https://api.anthropic.com"
 
@@ -48,16 +48,20 @@ export type FetchLike = (
   json: () => Promise<unknown>
 }>
 
+// One of the account endpoints, with the account's token and the OAuth beta they need.
+const oauthGet = (endpoint: "usage" | "profile", token: string, fetchImpl: FetchLike) =>
+  fetchImpl(`${anthropicApiBase()}/api/oauth/${endpoint}`, {
+    headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
+    signal: AbortSignal.timeout(10_000),
+  })
+
 export const fetchUsage = async (
   token: string,
   fetchImpl: FetchLike = fetch as unknown as FetchLike,
 ): Promise<UsageFetch> => {
   let res: Awaited<ReturnType<FetchLike>>
   try {
-    res = await fetchImpl(`${anthropicApiBase()}/api/oauth/usage`, {
-      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
-      signal: AbortSignal.timeout(10_000),
-    })
+    res = await oauthGet("usage", token, fetchImpl)
   } catch (err) {
     return {
       ok: false,
@@ -103,10 +107,7 @@ export const fetchPlan = async (
   fetchImpl: FetchLike = fetch as unknown as FetchLike,
 ): Promise<string | undefined> => {
   try {
-    const res = await fetchImpl(`${anthropicApiBase()}/api/oauth/profile`, {
-      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
-      signal: AbortSignal.timeout(10_000),
-    })
+    const res = await oauthGet("profile", token, fetchImpl)
     if (res.status !== 200) return undefined
     const org = ((await res.json()) as Record<string, any> | null)?.organization
     return planLabel({

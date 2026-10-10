@@ -19,7 +19,7 @@ import {
   proxyBinPath,
   proxyConfigPath,
   PROXY_VERSION,
-  proxyGateway,
+  routeTo,
   proxyHealthy,
   proxyRoute,
   renderProxyConfig,
@@ -78,10 +78,8 @@ test("the rendered config is loopback only, keyed, management off, and fails ove
 })
 
 test("proxyRoute sends every login to the proxy, once one is configured", () => {
-  expect(proxyGateway(9000)).toEqual({ url: "http://127.0.0.1:9000", keychain: PROXY_KEYCHAIN })
-  expect(proxyRoute({ version: 1, proxy: { port: 9000 }, workspaces: [] })).toEqual(
-    proxyGateway(9000),
-  )
+  expect(routeTo(9000)).toEqual({ url: "http://127.0.0.1:9000", keychain: PROXY_KEYCHAIN })
+  expect(proxyRoute({ version: 1, proxy: { port: 9000 }, workspaces: [] })).toEqual(routeTo(9000))
   expect(proxyRoute({ version: 1, workspaces: [] })).toBeUndefined()
   expect(proxyRoute(null)).toBeUndefined()
 })
@@ -497,6 +495,27 @@ test("CLI: the first login sets the proxy up, signs the account in, and routes e
   expect(moved.stderr).toContain("change it with `inscope proxy setup --port 1234`")
 }, 30_000)
 
+test("CLI: by default the sign-in opens a new Chrome window on a fresh profile, deleted afterwards", async () => {
+  const { s, port } = proxySandbox()
+  const r = await s.cliAsync(["login", "--port", String(port)], {
+    FAKE_LOGIN_EMAIL: "a@x.dev",
+    FAKE_WAIT_FOR_BROWSER: "1",
+  })
+  expect(r.status).toBe(0)
+  expect(r.stdout).toContain("A new Chrome window (a fresh profile, deleted afterwards) opens")
+  const [args] = s.calls("chrome")
+  const profile = path.join(s.sb, ".config", "inscope", "browser", "proxy-profile")
+  // a fresh, throwaway profile, opened straight on the sign-in page, nothing pre-filled
+  expect(args).toEqual([
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--new-window",
+    "https://claude.ai/oauth/authorize?code=true&state=fake",
+  ])
+  expect(fs.existsSync(profile)).toBe(false)
+}, 30_000)
+
 test("CLI: a sign-in that fails or is the wrong account saves and routes nothing", async () => {
   const { s, login, settings, authDir, base } = proxySandbox()
   const failed = await login("a@x.dev", [], { FAKE_LOGIN_FAIL: "1" })
@@ -509,6 +528,28 @@ test("CLI: a sign-in that fails or is the wrong account saves and routes nothing
   // no account yet, so the proxy is not recorded and no login is pointed at it
   expect(s.readCfg()?.proxy).toBeUndefined()
   expect(settings(base)).toBeUndefined()
+  // and it is not left running, nor set to start at the next login
+  expect(s.calls("launchctl").at(-1)?.[0]).toBe("print")
+  expect(fs.existsSync(path.join(s.sb, ".fake", "launchctl-loaded"))).toBe(false)
+  expect(fs.existsSync(path.join(s.sb, "Library", "LaunchAgents", "dev.inscope.proxy.plist"))).toBe(
+    false,
+  )
+}, 30_000)
+
+test("CLI: login refuses a login with its own key helper before setting anything up", async () => {
+  const { s, login, base } = proxySandbox()
+  fs.mkdirSync(base, { recursive: true })
+  fs.writeFileSync(path.join(base, "settings.json"), JSON.stringify({ apiKeyHelper: "~/bin/k.sh" }))
+  const r = await login("a@x.dev")
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain("already sets its own apiKeyHelper; remove it to send this login")
+  // refused before the proxy was installed, started, or signed in to
+  expect(s.calls("launchctl")).toEqual([])
+  expect(s.keychain().INSCOPE_PROXY_KEY).toBeUndefined()
+  expect(s.readCfg()?.proxy).toBeUndefined()
+  expect(JSON.parse(fs.readFileSync(path.join(base, "settings.json"), "utf8"))).toEqual({
+    apiKeyHelper: "~/bin/k.sh",
+  })
 }, 30_000)
 
 test("CLI: logout removes an account, but never the proxy's last one", async () => {
@@ -550,6 +591,10 @@ test("CLI: stop warns that Claude Code is cut off; uninstall sends every login s
   expect(settings(path.join(iso, ".inscope"))).toBeUndefined()
   // the accounts are kept unless --purge
   expect(fs.existsSync(path.join(s.sb, ".config", "inscope", "proxy", "auth"))).toBe(true)
+  // with no proxy, status reads the login's own sign-in again
+  expect(s.cli(["status"]).stdout).toContain(
+    "Claude  shared · not signed in; launch `claude` here and log in",
+  )
 }, 30_000)
 
 test("CLI: proxy commands refuse before the first login", () => {

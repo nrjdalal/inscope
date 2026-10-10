@@ -5,11 +5,11 @@ import path from "node:path"
 import { retireLegacyFields } from "@/config"
 import {
   foreignRouting,
-  gatewayKeyHelper,
+  proxyKeyHelper,
   mergeBypassSettings,
-  mergeGatewaySettings,
+  mergeRouting,
 } from "@/generators/settings"
-import { PROXY_KEYCHAIN, proxyGateway } from "@/proxy"
+import { PROXY_KEYCHAIN, routeTo } from "@/proxy"
 
 import { sandbox } from "./support/sandbox"
 
@@ -18,18 +18,18 @@ import { sandbox } from "./support/sandbox"
 // Anything that reads the base login runs in a sandbox HOME through the real CLI, so
 // no test ever reads or writes the real ~/.claude.
 
-const GW = proxyGateway(18317)
-const HELPER = gatewayKeyHelper(PROXY_KEYCHAIN)
+const GW = routeTo(18317)
+const HELPER = proxyKeyHelper(PROXY_KEYCHAIN)
 
 // --- unit -----------------------------------------------------------------------------
 
-test("gatewayKeyHelper reads the key by service, single-quoted, with no shell variables", () => {
+test("proxyKeyHelper reads the key by service, single-quoted, with no shell variables", () => {
   expect(HELPER).toBe("security find-generic-password -s 'INSCOPE_PROXY_KEY' -w")
-  expect(gatewayKeyHelper("it's")).toBe("security find-generic-password -s 'it'\\''s' -w")
+  expect(proxyKeyHelper("it's")).toBe("security find-generic-password -s 'it'\\''s' -w")
 })
 
-test("mergeGatewaySettings sets/clears only its own keys, preserving the rest", () => {
-  const set = mergeGatewaySettings(
+test("mergeRouting sets/clears only its own keys, preserving the rest", () => {
+  const set = mergeRouting(
     { model: "opus", env: { FOO: "1" }, permissions: { defaultMode: "bypassPermissions" } },
     GW,
   )
@@ -40,30 +40,28 @@ test("mergeGatewaySettings sets/clears only its own keys, preserving the rest", 
     apiKeyHelper: HELPER,
   })
   // idempotent, and a moved port moves the URL
-  expect(mergeGatewaySettings(set, GW)).toEqual(set)
-  expect(mergeGatewaySettings(set, proxyGateway(9000)).env.ANTHROPIC_BASE_URL).toBe(
-    "http://127.0.0.1:9000",
-  )
+  expect(mergeRouting(set, GW)).toEqual(set)
+  expect(mergeRouting(set, routeTo(9000)).env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9000")
   // clearing removes the pair and keeps unrelated env; an env it emptied is dropped
-  expect(mergeGatewaySettings(set, undefined)).toEqual({
+  expect(mergeRouting(set, undefined)).toEqual({
     model: "opus",
     env: { FOO: "1" },
     permissions: { defaultMode: "bypassPermissions" },
   })
-  expect(mergeGatewaySettings(mergeGatewaySettings({}, GW), undefined)).toEqual({})
+  expect(mergeRouting(mergeRouting({}, GW), undefined)).toEqual({})
   // a hand-set helper (and its base URL) is left alone when clearing
   const hand = { apiKeyHelper: "~/bin/key.sh", env: { ANTHROPIC_BASE_URL: "https://mine" } }
-  expect(mergeGatewaySettings(hand, undefined)).toEqual(hand)
+  expect(mergeRouting(hand, undefined)).toEqual(hand)
   // composes with the bypass merge in either order
-  expect(mergeBypassSettings(mergeGatewaySettings({}, GW), true)).toEqual(
-    mergeGatewaySettings(mergeBypassSettings({}, true), GW),
+  expect(mergeBypassSettings(mergeRouting({}, GW), true)).toEqual(
+    mergeRouting(mergeBypassSettings({}, true), GW),
   )
 })
 
 test("foreignRouting flags a key helper or base URL that is not inscope's", () => {
   expect(foreignRouting({})).toBeNull()
   expect(foreignRouting({ model: "opus", env: { FOO: "1" } })).toBeNull()
-  expect(foreignRouting(mergeGatewaySettings({}, GW))).toBeNull()
+  expect(foreignRouting(mergeRouting({}, GW))).toBeNull()
   expect(foreignRouting({ apiKeyHelper: "~/bin/key.sh" })).toBe("already sets its own apiKeyHelper")
   expect(foreignRouting({ env: { ANTHROPIC_BASE_URL: "https://gw.example" } })).toBe(
     "already sets its own env.ANTHROPIC_BASE_URL",
@@ -77,7 +75,7 @@ test("retireLegacyFields drops accounts, account, and gateway, with a note for e
     accounts: [{ name: "alt1", email: "a@x.dev" }, { name: "alt2" }],
     workspaces: [
       { name: "w", path: "/w", servers: {}, account: "alt1" },
-      { name: "p", path: "/p", servers: {}, isolate: true, gateway: proxyGateway(8317) },
+      { name: "p", path: "/p", servers: {}, isolate: true, gateway: routeTo(8317) },
       {
         name: "g",
         path: "/g",

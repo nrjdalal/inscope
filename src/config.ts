@@ -1,8 +1,9 @@
 import fs from "node:fs"
 import path from "node:path"
 
-import { configPath, contractTilde, resolveAbsolute } from "@/env"
+import { configPath, contractTilde, inscopeHome, resolveAbsolute } from "@/env"
 import { writeFileAtomic } from "@/io"
+import { proxyUrl } from "@/proxy"
 
 // The Slack MCP server package a workspace runs. The @nrjdalal fork is the
 // default and floats on @latest; the original (korotovsky) is pinned for
@@ -101,11 +102,6 @@ export type Workspace = {
   selfSkill?: boolean
 }
 
-// Where a login's Claude Code sends its requests (the proxy, see src/proxy.ts): the
-// base URL and the keychain service holding the client key it expects (sent as both
-// `Authorization: Bearer` and `x-api-key`).
-export type Gateway = { url: string; keychain: string }
-
 // A skill declared on a workspace. Either a string shorthand `"<source>#<subdir>"`
 // (e.g. `"owner/repo#skills/readme-audit"`) or the object form. See normalizeSkill
 // for how both collapse to a NormalizedSkill. `ref` is git-only and pins a branch,
@@ -156,7 +152,9 @@ export const defaultConfig = (): Config => ({
 
 export const configExists = () => fs.existsSync(configPath())
 
-export const loadConfig = (): Config => {
+// Read and validate the config, dropping fields a newer inscope retired; `notes` says
+// what was dropped and what to do instead (saving the config persists the cleanup).
+export const readConfig = (): { cfg: Config; notes: string[] } => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
   // A raw JSON.parse throws "Unexpected EOF" with no path; match the friendly,
@@ -172,22 +170,25 @@ export const loadConfig = (): Config => {
   const versionErr = configVersionError(parsed)
   if (versionErr) throw new Error(versionErr)
   const notes = retireLegacyFields(parsed)
-  for (const note of notes) console.error(`inscope: ${note}`)
-  if (notes.length) retired.add(parsed)
   try {
     validateConfig(parsed)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
   }
-  return parsed
+  return { cfg: parsed, notes }
 }
 
-const retired = new WeakSet<Config>()
+let noted = false
 
-// Whether loading dropped retired fields from this config, so saving it would persist
-// the cleanup (`inscope apply` does, to stop the notes).
-export const hadRetiredFields = (cfg: Config) => retired.has(cfg)
+// readConfig for commands that only use the config: the notes about retired fields go
+// to stderr, once per run however often the config is read.
+export const loadConfig = (): Config => {
+  const { cfg, notes } = readConfig()
+  if (!noted) for (const note of notes) console.error(`inscope: ${note}`)
+  noted = true
+  return cfg
+}
 
 // Fields from canary builds that the proxy replaced, dropped as the config loads (so
 // the next save removes them) with a note on what to do instead: named accounts sign in
@@ -204,7 +205,7 @@ export const retireLegacyFields = (raw: Record<string, any>): string[] => {
       .map((a) => `${a?.name}${typeof a?.email === "string" ? ` (${a.email})` : ""}`)
       .join(", ")
     notes.push(
-      `named accounts are retired; sign each Claude account in to the proxy with \`inscope login\`${who ? `: ${who}` : ""}. Their old logins stay in ~/.config/inscope/accounts until you delete them.`,
+      `named accounts are retired; sign each Claude account in to the proxy with \`inscope login\`${who ? `: ${who}` : ""}. Their old logins stay in ${contractTilde(path.join(inscopeHome(), "accounts"))} until you delete them.`,
     )
   }
   for (const ws of Array.isArray(raw.workspaces) ? raw.workspaces : []) {
@@ -217,7 +218,7 @@ export const retireLegacyFields = (raw: Record<string, any>): string[] => {
     }
     if ("gateway" in ws) {
       const url = ws.gateway?.url
-      if (!(raw.proxy && url === `http://127.0.0.1:${raw.proxy.port}`))
+      if (!(raw.proxy && url === proxyUrl(raw.proxy.port)))
         notes.push(
           `workspace "${ws.name}" gateway${typeof url === "string" ? ` (${url})` : ""} is dropped; every login goes through the proxy (\`inscope login\`).`,
         )

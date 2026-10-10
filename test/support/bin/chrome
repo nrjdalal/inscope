@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Fake Chrome for `inscope login`: records how it was launched, and plays the person
-// who signs in to Claude in that window (as FAKE_BROWSER_EMAIL, else FAKE_LOGIN_EMAIL).
+// Fake Chrome for `inscope login`: records how it was launched (its profile and URL).
+// The person signing in is played by the stand-in proxy's sign-in (FAKE_LOGIN_EMAIL).
 // Refuse to run outside a test sandbox: a fake pointed at a real config dir would
 // overwrite that login's .claude.json (this happened once in development). The sandbox
 // must be a fresh `inscope-acct-*` dir under the OS temp dir, and HOME, FAKE_STATE, and
@@ -39,8 +39,3 @@ const fs = require("node:fs")
 const path = require("node:path")
 const state = process.env.FAKE_STATE
 fs.appendFileSync(path.join(state, "chrome-calls.jsonl"), JSON.stringify(process.argv.slice(2)) + "\n")
-// Atomically (write, then rename): the fake claude polls for this file, and a plain
-// write lets it see the file created but still empty on a slow machine.
-const signed = path.join(state, "browser-signed-in")
-fs.writeFileSync(`${signed}.tmp`, process.env.FAKE_BROWSER_EMAIL || process.env.FAKE_LOGIN_EMAIL)
-fs.renameSync(`${signed}.tmp`, signed)

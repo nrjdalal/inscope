@@ -66,7 +66,7 @@ export const sandbox = () => {
   }
   const setKeychain = (k: Record<string, string>) =>
     fs.writeFileSync(path.join(state, "keychain.json"), JSON.stringify(k, null, 2))
-  const calls = (tool: "claude" | "chrome" | "launchctl"): any[] => {
+  const calls = (tool: "chrome" | "launchctl"): any[] => {
     const f = path.join(state, `${tool}-calls.jsonl`)
     return fs.existsSync(f)
       ? fs
@@ -76,8 +76,5 @@ export const sandbox = () => {
           .map((l) => JSON.parse(l))
       : []
   }
-  // run the fake claude directly (e.g. to sign the base login in)
-  const fakeClaude = (args: string[], extra: Record<string, string> = {}) =>
-    spawnSync(path.join(FAKES, "claude"), args, { encoding: "utf8", env: { ...env, ...extra } })
-  return { sb, env, cli, cliAsync, readCfg, writeCfg, keychain, setKeychain, calls, fakeClaude }
+  return { sb, env, cli, cliAsync, readCfg, writeCfg, keychain, setKeychain, calls }
 }

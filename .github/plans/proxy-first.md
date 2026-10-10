@@ -14,7 +14,8 @@ come from that one place.
 
 - `inscope login`: signs a Claude account into the proxy. The user signs in, in a
   fresh Chrome profile, with nothing pre-filled. The first login installs and starts
-  the proxy itself, so there is no separate `proxy setup` step.
+  the proxy itself, so there is no setup step first (`proxy setup` remains only to
+  reinstall it or move its port).
 - Workspaces route through the proxy by default (`ANTHROPIC_BASE_URL` plus a
   Keychain `apiKeyHelper`). A workspace picks which accounts serve it (see
   `per-workspace-pools.md`); the default is all of them.
@@ -65,10 +66,11 @@ canary builds (`0.18.0-canary.*`), never in a release, so they can be reshaped f
      `~/.claude`), with only inscope's own keys touched;
    - into every isolated workspace's `.inscope/settings.json`.
 
-   A workspace's own `gateway` (some other gateway) still overrides the proxy for
-   that isolated workspace. Without a proxy, apply clears inscope's keys from both.
-   `add --proxy` / `--no-proxy` go away; a `gateway` equal to the proxy's URL is
-   dropped as redundant.
+   Without a proxy, apply clears inscope's keys from both. `add --proxy` /
+   `--no-proxy` go away, and so does the workspace `gateway` field (decided during
+   the build: one path, everything through the proxy; routing a workspace elsewhere
+   becomes a pool setting, see `per-workspace-pools.md`). A config that still has a
+   `gateway` loads with it dropped, and a note unless it was the proxy's own URL.
 
 3. **Named accounts retired.** This removes:
    - `accounts` and workspace `account` in the config;

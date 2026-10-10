@@ -44,16 +44,16 @@ export const resolveStatus = (
   // Behind the proxy the login's own OAuth state is beside the point (and reads as an
   // API-key login), so only ask Claude when it is not routed.
   const auth = route ? undefined : claudeAuthStatus(configDir, run)
+  const accounts = route ? proxyAccounts().length : 0
   return {
     workspace: ws?.name ?? null,
     path: ws ? ws.path : contractTilde(cwd),
     claude: {
       isolated,
-      ...(route
-        ? { proxy: { host: new URL(route.url).host, accounts: proxyAccounts().length } }
-        : {}),
+      ...(route ? { proxy: { host: new URL(route.url).host, accounts } } : {}),
       configDir: contractTilde(configDir),
-      signedIn: auth?.signedIn ?? true,
+      // Behind the proxy, signed in means it holds an account to answer with.
+      signedIn: auth ? auth.signedIn : accounts > 0,
       email: auth?.email,
       subscription: auth?.subscriptionType,
       org: auth?.orgName,

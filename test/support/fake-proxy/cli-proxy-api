@@ -43,6 +43,14 @@ if (!args.includes("-claude-login")) process.exit(2)
 console.log("Visit the following URL to continue authentication:")
 console.log("https://claude.ai/oauth/authorize?code=true&state=fake")
 console.log("Waiting for Claude authentication callback...")
+// FAKE_WAIT_FOR_BROWSER: the person signs in in the window inscope opened, so wait for
+// the (fake) browser to have launched, as a real sign-in waits for the person.
+if (process.env.FAKE_WAIT_FOR_BROWSER) {
+  const opened = path.join(process.env.FAKE_STATE, "chrome-calls.jsonl")
+  const until = Date.now() + 5000
+  while (!fs.existsSync(opened) && Date.now() < until)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+}
 if (process.env.FAKE_LOGIN_FAIL) {
   console.error("authentication failed")
   process.exit(1)

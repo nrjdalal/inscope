@@ -1,8 +1,8 @@
 import fs from "node:fs"
 import { parseArgs } from "node:util"
 
-import { applyAll, preflightApply } from "@/apply"
-import { configExists, isProxyPort, loadConfig, saveConfig } from "@/config"
+import { moveProxy, removeProxy } from "@/accounts"
+import { configExists, isProxyPort, loadConfig } from "@/config"
 import { contractTilde } from "@/env"
 import {
   PROXY_VERSION,
@@ -14,10 +14,8 @@ import {
   proxyRoot,
   proxyUrl,
   readProxyKey,
-  setupProxy,
   startProxy,
   stopProxy,
-  uninstallProxy,
 } from "@/proxy"
 import { defaultRunner } from "@/secrets"
 import { green, yellow } from "~/bin/commands/_prompt"
@@ -78,12 +76,8 @@ export const proxy = async (args: string[]) => {
       console.error(`Invalid --port "${values.port}": use 1024-65535`)
       process.exit(1)
     }
-    const next = { ...cfg, proxy: { port } }
-    preflightApply(next)
-    await setupProxy(port, { run, log: (l) => console.log(`\n${l}`) })
-    saveConfig(next)
-    // A new port moves every login's base URL with it.
-    applyAll(next)
+    console.log(`\nInstalling CLIProxyAPI ${PROXY_VERSION} (checksum-verified)...`)
+    await moveProxy(cfg, port, run)
     console.log(green(`✓ proxy running on ${proxyUrl(port)} (local only), started at login`))
     process.exit(0)
   }
@@ -135,12 +129,7 @@ export const proxy = async (args: string[]) => {
 
   if (sub === "uninstall") {
     const { cfg } = requireProxy()
-    const { proxy: _gone, ...rest } = cfg
-    preflightApply(rest)
-    uninstallProxy({ purge: values.purge, run })
-    saveConfig(rest)
-    // Clear the routing from every login, so none points at a proxy that is gone.
-    applyAll(rest)
+    await removeProxy(cfg, { purge: values.purge, run })
     console.log(
       green(`✓ proxy uninstalled; every login goes straight to Anthropic again`) +
         (values.purge

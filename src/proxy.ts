@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
-import type { Config, Gateway } from "@/config"
+import type { Config } from "@/config"
 import { home, inscopeHome } from "@/env"
 import { writeFileAtomic } from "@/io"
 import {
@@ -70,8 +70,12 @@ export const launchAgentPath = () =>
 
 export const proxyUrl = (port: number) => `http://127.0.0.1:${port}`
 
-// How a login reaches the proxy: its URL, and the Keychain item holding its client key.
-export const proxyGateway = (port: number): Gateway => ({
+// Where a login's Claude Code sends its requests: the proxy's URL, and the Keychain item
+// holding the client key it expects (sent as both `Authorization: Bearer` and
+// `x-api-key`).
+export type Route = { url: string; keychain: string }
+
+export const routeTo = (port: number): Route => ({
   url: proxyUrl(port),
   keychain: PROXY_KEYCHAIN,
 })
@@ -452,5 +456,5 @@ export const uninstallProxy = (opts: { purge?: boolean; run?: Runner } = {}) => 
 }
 
 // Where every login sends its requests: the proxy, while one is configured.
-export const proxyRoute = (cfg: Config | null | undefined): Gateway | undefined =>
-  cfg?.proxy ? proxyGateway(cfg.proxy.port) : undefined
+export const proxyRoute = (cfg: Config | null | undefined): Route | undefined =>
+  cfg?.proxy ? routeTo(cfg.proxy.port) : undefined
