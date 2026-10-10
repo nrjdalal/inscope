@@ -18,8 +18,13 @@ Status: planned, not started. First make the CLIProxyAPI version (`inscope proxy
 
 ## Keep
 
-- The `inscope proxy` CLI surface (`setup`, `login`, `status`, ...) and the workspace gateway (`ANTHROPIC_BASE_URL` + Keychain `apiKeyHelper`), so the switch is internal.
-- The test approach: a Messages API emulator on vercel-labs/emulate, plus a real `claude` CLI run through the proxy.
+- The workspace gateway (`ANTHROPIC_BASE_URL` + Keychain `apiKeyHelper`), so the
+  switch is internal to inscope.
+- The command surface from `proxy-first.md`: one `inscope login`, with
+  `inscope proxy status/start/stop` as low-level controls (no separate `proxy login`
+  or `proxy setup`).
+- The test approach: a Messages API emulator on vercel-labs/emulate, plus a real
+  `claude` CLI run through the proxy.
 
 ## Risks to weigh first
 

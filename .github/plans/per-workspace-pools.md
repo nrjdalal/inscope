@@ -17,6 +17,7 @@ That way personal and work accounts never serve each other's conversations.
 - One proxy that maps each client key to its own set of accounts. Check whether CLIProxyAPI supports this.
 - With a built-in proxy (see `native-proxy.md`), routing per pool is straightforward.
 
-## Open question
+## Decided
 
-- **The shared login.** A pool for it means writing a gateway into `~/.claude/settings.json`. Today inscope never writes the shared `~/.claude`, and a gateway requires `isolate: true`. This needs a decision.
+- The shared login goes through the proxy too (see `proxy-first.md`), so it gets a
+  pool like any workspace; by default, all accounts.
