@@ -454,9 +454,14 @@ test("CLI: a new client key reaches every pool, and one pool failing to start le
   const key = s.keychain().INSCOPE_PROXY_KEY
   expect(key).toMatch(/^inscope-[0-9a-f]{48}$/)
   expect(key).not.toBe(old)
-  // the work pool, not the one being set up, has it too, and runs on it
+  // the work pool, not the one being set up, has it too, and was restarted on it
   expect(fs.readFileSync(path.join(poolDir, "config.yaml"), "utf8")).toContain(`- "${key}"`)
   expect(loaded("dev.inscope.proxy.work")).toBe(true)
+  const boots = s
+    .calls("launchctl")
+    .filter((c) => c[0] === "bootstrap")
+    .map((c) => path.basename(c[2]))
+  expect(boots.slice(-2)).toEqual(["dev.inscope.proxy.work.plist", "dev.inscope.proxy.plist"])
   const checks = JSON.parse(s.cli(["doctor", "--json"]).stdout).checks
   expect(checks.filter((c: any) => c.detail?.includes("different client key"))).toEqual([])
 

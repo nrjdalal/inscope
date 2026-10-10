@@ -38,7 +38,7 @@ That way personal and work accounts never serve each other's conversations.
   - `inscope add <path> --pool <name>` implies `--isolate`; `--pool default` clears it. `edit` keeps the field, and once named pools exist, `add` and `edit` ask for the pool interactively.
   - `inscope proxy status|start|stop|uninstall` act on every pool (one failing to start does not stop the others); `proxy setup [--pool <name>] [--port <n>]` reinstalls or moves one pool. When the client key has to be minted again (its Keychain item was lost), every installed pool gets the new key; doctor flags a pool whose config has another key.
 - **Routing:** apply routes each login to its pool's port: the base and unpooled isolated logins to the default pool, and a pooled workspace to its pool.
-- **Ports:** a new pool takes the first port from 8318 up that no pool uses and nothing is listening on; config validation rejects a port two pools share.
+- **Ports:** a new pool takes the first port from the default pool's port + 1 up that no pool uses and nothing is listening on; config validation rejects a port two pools share.
 - **usage:** a POOL column, rows grouped by pool.
 - **status:** shows the pool name next to the proxy host.
 - **doctor:** per-pool checks for install, agent, port, accounts, and privacy; routing drift per login to its own pool.

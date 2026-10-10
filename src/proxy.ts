@@ -258,7 +258,13 @@ const uid = () => (typeof process.getuid === "function" ? process.getuid() : 0)
 const service = (pool = DEFAULT_POOL) => `gui/${uid()}/${proxyLabel(pool)}`
 
 // Write the config and launchd agent (startProxy then loads them).
-export const writeProxyFiles = (port: number, key: string, bin: string, pool = DEFAULT_POOL) => {
+export const writeProxyFiles = (
+  port: number,
+  key: string,
+  bin: string,
+  pool = DEFAULT_POOL,
+  opts: { agent?: boolean } = {},
+) => {
   for (const dir of [proxyRoot(), poolDir(pool), proxyAuthDir(pool)]) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     fs.chmodSync(dir, 0o700)
@@ -266,6 +272,7 @@ export const writeProxyFiles = (port: number, key: string, bin: string, pool = D
   const config = proxyConfigPath(pool)
   writeFileAtomic(config, renderProxyConfig({ port, key, authDir: proxyAuthDir(pool) }))
   fs.chmodSync(config, 0o600)
+  if (opts.agent === false) return
   fs.mkdirSync(path.dirname(launchAgentPath(pool)), { recursive: true })
   writeFileAtomic(
     launchAgentPath(pool),
@@ -465,7 +472,7 @@ export const setupProxy = async (
   const key = ensureProxyKey(run)
   // A new client key (the Keychain item was gone) must reach every pool, or the pools
   // not being set up here keep the old key and reject every login's requests.
-  if (had !== key) rekeyPools(key, bin, run, pool)
+  if (had !== key) rekeyPools(key, bin, run, pool, opts.log)
   writeProxyFiles(port, key, bin, pool)
   startProxy(run, { pool })
   if (!(await proxyHealthy(port, key, { waitMs: 15_000 })))
@@ -491,12 +498,28 @@ export const installedPools = (): { name: string; port: number }[] => {
 }
 
 // Rewrite every other installed pool's config with `key`, restarting the ones running.
-const rekeyPools = (key: string, bin: string, run: Runner, except: string) => {
+// A pool that is not running (one an uninstall kept the files of) gets only its config,
+// never a launchd agent that would start it at the next login. One pool failing to
+// restart does not stop the others; doctor then flags its key.
+const rekeyPools = (
+  key: string,
+  bin: string,
+  run: Runner,
+  except: string,
+  log?: (line: string) => void,
+) => {
   for (const p of installedPools()) {
     if (p.name === except) continue
     const running = proxyLoaded(run, p.name)
-    writeProxyFiles(p.port, key, bin, p.name)
-    if (running) startProxy(run, { pool: p.name })
+    writeProxyFiles(p.port, key, bin, p.name, { agent: running })
+    if (!running) continue
+    try {
+      startProxy(run, { pool: p.name })
+    } catch (err) {
+      log?.(
+        `pool ${p.name} did not restart on the new key: ${err instanceof Error ? err.message : err}`,
+      )
+    }
   }
 }
 
