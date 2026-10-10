@@ -4,7 +4,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-import { type Config, validateConfig, type Workspace } from "@/config"
+import { type Config, gatewayAfterLoginChange, validateConfig, type Workspace } from "@/config"
 import { runDoctor } from "@/doctor"
 import { inscopeDirPath } from "@/generators/isolate"
 import {
@@ -211,7 +211,20 @@ const sandboxCli = () => {
   return { sb, cli, readWs, writeCfg }
 }
 
-test("CLI: add --no-isolate drops the gateway with a note, and apply clears it from the login", () => {
+test("gatewayAfterLoginChange keeps the gateway with isolation and drops it, with a note, without", () => {
+  const ws: Workspace = { name: "acme", path: "/x", isolate: true, servers: {}, gateway: GW }
+  expect(gatewayAfterLoginChange(ws, true)).toEqual({ gateway: GW })
+  expect(gatewayAfterLoginChange(ws, false)).toEqual({
+    gateway: undefined,
+    note: `Note: removed the gateway (${GW.url}); it requires an isolated login.`,
+  })
+  expect(gatewayAfterLoginChange(undefined, true)).toEqual({ gateway: undefined })
+  expect(gatewayAfterLoginChange({ ...ws, gateway: undefined }, false)).toEqual({
+    gateway: undefined,
+  })
+})
+
+test("CLI: add --no-isolate drops the gateway with a note, and leaves the old .inscope as it was", () => {
   const s = sandboxCli()
   const ws = path.join(s.sb, "acme")
   fs.mkdirSync(ws)
@@ -232,7 +245,32 @@ test("CLI: add --no-isolate drops the gateway with a note, and apply clears it f
   expect(r.stdout).toContain(
     `Note: removed the gateway (${GW.url}); it requires an isolated login.`,
   )
+  expect(r.stdout).toContain(".inscope still holds a Claude login; it was left in place")
   expect(s.readWs().gateway).toBeUndefined()
+  // the de-isolated .inscope is no longer used, and inscope never rewrites a login it
+  // stopped managing, so its settings stay exactly as they were
+  const before = fs.readFileSync(settings, "utf8")
+  expect(s.cli(["apply"]).status).toBe(0)
+  expect(fs.readFileSync(settings, "utf8")).toBe(before)
+})
+
+test("CLI: add --account moves an isolated gateway workspace onto the account and drops the gateway", () => {
+  const s = sandboxCli()
+  const ws = path.join(s.sb, "acme")
+  fs.mkdirSync(ws)
+  s.writeCfg({
+    version: 1,
+    accounts: [{ name: "work", email: "w@x.dev" }],
+    workspaces: [{ name: "acme", path: ws, isolate: true, servers: {}, gateway: GW }],
+  })
+  const r = s.cli(["add", ws, "--label", "acme", "--account", "work", "-y"])
+  expect(r.status).toBe(0)
+  expect(r.stdout).toContain(
+    `Note: removed the gateway (${GW.url}); it requires an isolated login.`,
+  )
+  expect(s.readWs()).toMatchObject({ account: "work" })
+  expect(s.readWs().gateway).toBeUndefined()
+  expect(s.readWs().isolate).toBeUndefined()
 })
 
 test("doctor warns when ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN would outrank the gateway key", () => {
@@ -243,6 +281,7 @@ test("doctor warns when ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN would outrank 
       ? { status: 0, stdout: "key\n", stderr: "" }
       : { status: 1, stdout: "", stderr: "" }
   const prev = process.env.ANTHROPIC_API_KEY
+  const prevTok = process.env.ANTHROPIC_AUTH_TOKEN
   try {
     process.env.ANTHROPIC_API_KEY = "sk-ant-api03-x"
     const checks = runDoctor({ version: 1, workspaces: [ws] }, run)
@@ -251,11 +290,26 @@ test("doctor warns when ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN would outrank 
       label: "[acme] gateway",
       detail: "ANTHROPIC_API_KEY is set in this shell and outranks the gateway's key; unset it",
     })
+    process.env.ANTHROPIC_AUTH_TOKEN = "tok"
+    expect(runDoctor({ version: 1, workspaces: [ws] }, run)).toContainEqual({
+      status: "warn",
+      label: "[acme] gateway",
+      detail:
+        "ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY are set in this shell and outrank the gateway's key; unset them",
+    })
     delete process.env.ANTHROPIC_API_KEY
+    expect(runDoctor({ version: 1, workspaces: [ws] }, run)).toContainEqual({
+      status: "warn",
+      label: "[acme] gateway",
+      detail: "ANTHROPIC_AUTH_TOKEN is set in this shell and outranks the gateway's key; unset it",
+    })
+    delete process.env.ANTHROPIC_AUTH_TOKEN
     const clean = runDoctor({ version: 1, workspaces: [ws] }, run)
     expect(clean.some((c) => c.detail?.includes("outranks"))).toBe(false)
   } finally {
     if (prev === undefined) delete process.env.ANTHROPIC_API_KEY
     else process.env.ANTHROPIC_API_KEY = prev
+    if (prevTok === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN
+    else process.env.ANTHROPIC_AUTH_TOKEN = prevTok
   }
 })

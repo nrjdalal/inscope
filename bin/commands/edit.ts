@@ -5,6 +5,7 @@ import { parseArgs } from "node:util"
 import {
   DEFAULT_SLACK_PACKAGE,
   findWorkspace,
+  gatewayAfterLoginChange,
   hookValueError,
   type NylasServer,
   type SlackPackage,
@@ -216,8 +217,7 @@ export const edit = async (args: string[]) => {
     ...ws,
     isolate: isolate || undefined,
     account,
-    // A gateway lives in the isolated login's settings, so it goes with isolation.
-    gateway: isolate ? ws.gateway : undefined,
+    gateway: gatewayAfterLoginChange(ws, isolate).gateway,
     name: ws.name,
     // Resolve here too so the success output below prints the same path that
     // persist stores; also normalizes a legacy config whose path was saved
@@ -250,8 +250,8 @@ export const edit = async (args: string[]) => {
       `\nNote: ${next.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${next.path}/.inscope`)}`)}`,
     )
-  if (ws.gateway && !next.gateway)
-    console.log(`Note: removed the gateway (${ws.gateway.url}); it requires an isolated login.`)
+  const gatewayNote = gatewayAfterLoginChange(ws, isolate).note
+  if (gatewayNote) console.log(gatewayNote)
   await finalizeSlack(next, seedSlack)
   await finalizeNylas(next, seedNylas)
   if (next.account !== ws.account && next.account) console.log(`✓ runs on account ${next.account}`)

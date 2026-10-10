@@ -4,6 +4,7 @@ import { parseArgs } from "node:util"
 
 import {
   configExists,
+  gatewayAfterLoginChange,
   DEFAULT_SLACK_PACKAGE,
   hookValueError,
   labelFromPath,
@@ -370,8 +371,7 @@ export const add = async (args: string[]) => {
     ...existing,
     isolate: isolate || undefined,
     account,
-    // A gateway lives in the isolated login's settings, so it goes with isolation.
-    gateway: isolate ? existing?.gateway : undefined,
+    gateway: gatewayAfterLoginChange(existing, isolate).gateway,
     name: label,
     path: contractTilde(target),
     gh,
@@ -408,10 +408,8 @@ export const add = async (args: string[]) => {
       `\nNote: ${existing.path}/.inscope still holds a Claude login; it was left in place.\n` +
         `Delete it with: ${orange(`rm -rf ${shQuotePath(`${existing.path}/.inscope`)}`)}`,
     )
-  if (existing?.gateway && !ws.gateway)
-    console.log(
-      `Note: removed the gateway (${existing.gateway.url}); it requires an isolated login.`,
-    )
+  const gatewayNote = gatewayAfterLoginChange(existing, isolate).note
+  if (gatewayNote) console.log(gatewayNote)
   await finalizeSlack(ws, seedSlack)
   await finalizeNylas(ws, seedNylas)
   if (firstRun)

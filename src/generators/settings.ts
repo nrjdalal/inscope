@@ -5,6 +5,7 @@ import { accountDir } from "@/accounts"
 import type { Config, Gateway, Workspace } from "@/config"
 import { hasOwnLogin, inscopeDirPath, loginDir } from "@/generators/isolate"
 import { writeFileAtomic } from "@/io"
+import { shSingleQuote } from "@/secrets"
 
 // A login's own Claude user-scope settings live at the root of its config dir (an
 // isolated workspace's `.inscope`, or an account's dir), so `permissions.defaultMode`
@@ -60,14 +61,17 @@ export const mergeBypassSettings = (
 // `Authorization: Bearer` and `x-api-key`. Looking up by service alone (no
 // `-a "$USER"`) keeps it free of shell variables. A missing key makes `security`
 // exit nonzero, so Claude reports the failing helper instead of falling back to
-// the login's OAuth token. The service is validated and single-quoted.
-const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
-const GATEWAY_HELPER_RE = /^security find-generic-password -s '.*' -w$/
+// the login's OAuth token. The service is validated and single-quoted. The prefix
+// and suffix are the one definition of the format, used both to build inscope's
+// helper and to recognize it when clearing.
+const HELPER_PREFIX = "security find-generic-password -s "
+const HELPER_SUFFIX = " -w"
 
 export const gatewayKeyHelper = (service: string) =>
-  `security find-generic-password -s ${shSingleQuote(service)} -w`
+  `${HELPER_PREFIX}${shSingleQuote(service)}${HELPER_SUFFIX}`
 
-const isInscopeKeyHelper = (v: unknown) => typeof v === "string" && GATEWAY_HELPER_RE.test(v)
+const isInscopeKeyHelper = (v: unknown) =>
+  typeof v === "string" && v.startsWith(`${HELPER_PREFIX}'`) && v.endsWith(`'${HELPER_SUFFIX}`)
 
 // Set or clear inscope's gateway keys, `env.ANTHROPIC_BASE_URL` and
 // `apiKeyHelper`, preserving everything else. Clearing removes the pair only when

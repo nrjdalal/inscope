@@ -435,6 +435,21 @@ const gatewayError = (ws: Workspace): string | null => {
   return kcErr ? `keychain "${keychain}" is invalid: ${kcErr}` : null
 }
 
+// The gateway a workspace keeps after its login changes: it lives in the isolated
+// login's settings, so it goes away with isolation (turning isolation off, or moving
+// the workspace to an account). Returns the note to print when one was dropped.
+export const gatewayAfterLoginChange = (
+  prior: Workspace | undefined,
+  isolate: boolean,
+): { gateway: Gateway | undefined; note?: string } => {
+  if (!prior?.gateway) return { gateway: undefined }
+  if (isolate) return { gateway: prior.gateway }
+  return {
+    gateway: undefined,
+    note: `Note: removed the gateway (${prior.gateway.url}); it requires an isolated login.`,
+  }
+}
+
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)

@@ -135,6 +135,52 @@ const bypassChecks = (tag: string, ws: Workspace, bypass: boolean): Check[] => {
   return out
 }
 
+// A gateway on an isolated login: its client key is in the Keychain, the login's
+// settings match the config in both directions (configured but not applied, and
+// removed but still routed), and no exported variable outranks the gateway's key
+// (Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper).
+const gatewayChecks = (ws: Workspace, run: Runner): Check[] => {
+  const label = `[${ws.name}] gateway`
+  const out: Check[] = []
+  if (!ws.gateway) {
+    if (hasStaleGatewaySetting(ws))
+      out.push({
+        status: "warn",
+        label,
+        detail:
+          "gateway removed from config but this login still routes through it; run `inscope apply`",
+      })
+    return out
+  }
+  const svc = ws.gateway.keychain
+  out.push(
+    keychainHas(svc, run)
+      ? { status: "ok", label, detail: `${ws.gateway.url} · ${svc}` }
+      : {
+          status: "fail",
+          label,
+          detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "<gateway key>")}\``,
+        },
+  )
+  if (!hasGatewaySetting(ws))
+    out.push({
+      status: "warn",
+      label,
+      detail: "gateway configured but not applied to this login; run `inscope apply`",
+    })
+  const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
+  if (shadow.length)
+    out.push({
+      status: "warn",
+      label,
+      detail:
+        shadow.length > 1
+          ? `${shadow.join(" and ")} are set in this shell and outrank the gateway's key; unset them`
+          : `${shadow[0]} is set in this shell and outranks the gateway's key; unset it`,
+    })
+  return out
+}
+
 // An isolated workspace runs Claude from a workspace-local `.inscope`. Two things
 // can go wrong: you have not signed in there yet (apply scaffolds an empty dir,
 // which Claude fills on first login), and the dir, which holds that login, could
@@ -153,20 +199,6 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
         },
   )
   out.push(...bypassChecks(tag, ws, bypass))
-  // gateway drift, both directions, like bypass.
-  if (ws.gateway && !hasGatewaySetting(ws))
-    out.push({
-      status: "warn",
-      label: `[${ws.name}] gateway`,
-      detail: "gateway configured but not applied to this login; run `inscope apply`",
-    })
-  else if (hasStaleGatewaySetting(ws))
-    out.push({
-      status: "warn",
-      label: `[${ws.name}] gateway`,
-      detail:
-        "gateway removed from config but this login still routes through it; run `inscope apply`",
-    })
   // git ls-files exits 0 only if something under .inscope is tracked; a non-repo
   // (status 128) or a clean, ignored dir does not warn.
   const tracked = run("git", [
@@ -389,27 +421,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
       )
     }
 
-    if (ws.gateway) {
-      const svc = ws.gateway.keychain
-      checks.push(
-        keychainHas(svc, run)
-          ? { status: "ok", label: `${tag} gateway`, detail: `${ws.gateway.url} · ${svc}` }
-          : {
-              status: "fail",
-              label: `${tag} gateway`,
-              detail: `${svc} not in keychain; run \`${keychainSetCommand(svc, "<gateway key>")}\``,
-            },
-      )
-      // Claude Code ranks ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY above apiKeyHelper,
-      // so either one exported in the shell silently bypasses the gateway's key.
-      const shadow = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((k) => process.env[k])
-      if (shadow.length)
-        checks.push({
-          status: "warn",
-          label: `${tag} gateway`,
-          detail: `${shadow.join(" and ")} is set in this shell and outranks the gateway's key; unset it`,
-        })
-    }
+    if (ws.isolate) checks.push(...gatewayChecks(ws, run))
 
     if (hasGitIdentity(ws)) {
       const file = perWorkspaceGitconfigPath(ws.name)
