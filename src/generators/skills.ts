@@ -690,25 +690,39 @@ export type OtherSkill =
 
 const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 
+// The `.claude.json` Claude Code reads for a workspace's login: the one in
+// CLAUDE_CONFIG_DIR, else `~/.claude.json`. An isolated login always has it set (the hook
+// points it at `<ws>/.inscope`); the shared login has it set when the hook exports the
+// base (any workspace isolated) or the user set their own.
+const loginStateFile = (cfg: Config, ws: Workspace): string => {
+  if (ws.isolate) return path.join(inscopeDirPath(ws), ".claude.json")
+  if (cfg.workspaces.some((w) => w.isolate)) return path.join(baseClaudeDir(), ".claude.json")
+  const own = process.env.CLAUDE_CONFIG_DIR?.trim()
+  return own ? path.join(own, ".claude.json") : path.join(home(), ".claude.json")
+}
+
 // Claude Code keeps each claude.ai account's synced skills under
-// `synced/<organizationUuid>_<accountUuid>` and loads only the signed-in account's folder,
-// so the login's `.claude.json` (in its config dir; `~/.claude.json` for a ~/.claude used
-// without CLAUDE_CONFIG_DIR) names the one that counts.
-const syncedAccountDir = (loginDir: string): string | null => {
-  const files = [path.join(loginDir, ".claude.json")]
-  if (loginDir === path.join(home(), ".claude")) files.push(path.join(home(), ".claude.json"))
-  for (const file of files) {
-    try {
-      const o = JSON.parse(fs.readFileSync(file, "utf8"))?.oauthAccount
-      if (o?.organizationUuid && o?.accountUuid) return `${o.organizationUuid}_${o.accountUuid}`
-    } catch {}
-  }
+// `synced/<organizationUuid>_<accountUuid>` (lowercased) and loads only the signed-in
+// account's folder, which the login's `.claude.json` names.
+const syncedAccountDir = (stateFile: string): string | null => {
+  try {
+    const o = JSON.parse(fs.readFileSync(stateFile, "utf8"))?.oauthAccount
+    if (o?.organizationUuid && o?.accountUuid)
+      return `${o.organizationUuid}_${o.accountUuid}`.toLowerCase()
+  } catch {}
   return null
 }
 
 export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
   const dir = skillsDir(ws)
   const own = new Set(workspaceSkills(ws).map((s) => s.name))
+  // the other workspaces linking into this same dir, and where each wants its links
+  const sharers = cfg.workspaces
+    .filter((o) => o.name !== ws.name && skillsDir(o) === dir)
+    .map((o) => ({
+      name: o.name,
+      links: new Map(desiredSkillLinks(o).map((d) => [d.name, path.resolve(d.target)])),
+    }))
   const out: OtherSkill[] = []
   // claude.ai's synced skills come last, as a group
   const synced: OtherSkill[] = []
@@ -716,7 +730,7 @@ export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
     if (name.startsWith(".") || own.has(name)) continue
     const entry = path.join(dir, name)
     if (name === "synced") {
-      const account = syncedAccountDir(path.dirname(dir))
+      const account = syncedAccountDir(loginStateFile(cfg, ws))
       const from = account ? path.join(entry, account) : null
       if (from)
         for (const s of safeReaddir(from))
@@ -729,14 +743,12 @@ export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
     try {
       if (fs.lstatSync(entry).isSymbolicLink()) target = path.resolve(dir, fs.readlinkSync(entry))
     } catch {}
-    const other = cfg.workspaces.find(
-      (o) =>
-        o.name !== ws.name &&
-        skillsDir(o) === dir &&
-        desiredSkillLinks(o).some((d) => d.name === name && path.resolve(d.target) === target),
-    )
+    const owned = isOwnedLink(entry)
+    // an inscope link is the declaring workspace's even before apply re-points it; a
+    // link outside the cache (a local source) only when it is exactly the one declared
+    const other = sharers.find((o) => o.links.has(name) && (owned || o.links.get(name) === target))
     if (other) out.push({ name, kind: "workspace", workspace: other.name })
-    else if (isOwnedLink(entry)) out.push({ name, kind: "stale" })
+    else if (owned) out.push({ name, kind: "stale" })
     else out.push({ name, kind: "own", ...(target ? { target: contractTilde(target) } : {}) })
   }
   return [...out, ...synced]

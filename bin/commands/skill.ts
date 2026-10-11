@@ -49,7 +49,7 @@ Usage:
 
 Commands:
   add <source>        Add a skill (owner/repo#subdir, a git URL, or a local path)
-  list                Every skill in each workspace's skills dir, the current
+  list                List every skill in each workspace's skills dir, the current
                       workspace first; -w lists one (alias: ls)
   rename <old> <new>  Rename a skill (and its /command) in a workspace (alias: mv)
   rm <name>           Remove a skill from a workspace (alias: remove)
