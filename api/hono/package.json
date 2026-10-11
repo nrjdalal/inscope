@@ -30,6 +30,7 @@
     "hono": "catalog:",
     "hono-openapi": "catalog:",
     "hono-rate-limiter": "catalog:",
+    "inscope": "workspace:*",
     "ws": "catalog:",
     "zod": "catalog:"
   },

@@ -14,6 +14,7 @@ export const ERROR_CODES = [
   "CONFLICT",
   "ERROR",
   "FORBIDDEN",
+  "INSCOPE_CONFIG_INVALID",
   "INTERNAL_SERVER_ERROR",
   "NOT_FOUND",
   "TOO_MANY_REQUESTS",
@@ -124,6 +125,10 @@ export const conflictErrorResponses: ResponsesWithResolver = {
 // Add to routes behind the console gate, the only thing that returns 403.
 export const forbiddenErrorResponses: ResponsesWithResolver = {
   403: errorResponse("FORBIDDEN", "Forbidden"),
+}
+// Add to the inscope dashboard routes, which read ~/.config/inscope and return 422 when it does not validate.
+export const inscopeConfigErrorResponses: ResponsesWithResolver = {
+  422: errorResponse("INSCOPE_CONFIG_INVALID", "The inscope config is invalid"),
 }
 export const notFoundErrorResponses: ResponsesWithResolver = {
   404: errorResponse("NOT_FOUND", "Not found"),
