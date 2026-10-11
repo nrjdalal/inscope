@@ -38,7 +38,16 @@ const addressOf = (node: string): string => {
   return value.split(":").length === 2 ? value.split(":")[0] : value
 }
 
-// What a proxy in front of this request says about the hop it relayed. A proxy on this machine connects from loopback, so the socket peer alone would let a rebound or LAN request through it. These headers can only refuse, never admit: a relay must name its client (portless appends it to x-forwarded-for), and every host and client it names must be loopback. `next dev`'s /api forwarding names no client and passes the caller's own Host along, so a request through it is refused outright; the dashboard calls the API directly.
+const RELAY_HEADERS = [
+  "via",
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-port",
+  "x-forwarded-proto",
+  "x-real-ip",
+]
+
+// A proxy on this machine connects from loopback, so these headers name the hop it relayed: they can refuse a request (a relay that names no client, or any non-loopback host or client) but never admit one, since a client can write them itself.
 const relayed = (c: Context) => {
   const list = (name: string) =>
     (c.req.header(name) ?? "")
@@ -63,15 +72,6 @@ const relayed = (c: Context) => {
   }
 }
 
-const RELAY_HEADERS = [
-  "via",
-  "x-forwarded-for",
-  "x-forwarded-host",
-  "x-forwarded-port",
-  "x-forwarded-proto",
-  "x-real-ip",
-]
-
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
 // Routes that read this machine's own state: invisible off the local stage, and refused unless the request is addressed to and arrives from loopback, directly or through a proxy on this machine that names its loopback client, so a web page cannot reach them through DNS rebinding, the LAN, or a cross-site request.
@@ -79,6 +79,9 @@ export const requireLocal =
   ({ peer = socketPeer, stage, trustedOrigins }: RequireLocalOptions): MiddlewareHandler =>
   async (c, next) => {
     if (!isLocal(stage)) return c.notFound()
+    // next dev's /api rewrite skips these routes by path, but its matcher does not decode, so an encoded path (/api/%69nscope) would still reach them through it; no path these routes serve is ever encoded
+    if (new URL(c.req.url).pathname.includes("%"))
+      return jsonError(c, 403, "FORBIDDEN", "Refuses an encoded path")
     const { addresses, hosts, unnamed } = relayed(c)
     if (
       ![hostnameOf(c.req.header("host") ?? new URL(c.req.url).host), ...hosts].every(isLoopbackHost)

@@ -7,6 +7,7 @@ import {
   GIT_SOURCES,
   OTHER_SKILL_KINDS,
   type Runner,
+  SERVER_TYPES,
   workspaceNameError,
 } from "inscope"
 import { z } from "zod"
@@ -16,7 +17,7 @@ import {
   errorHandler,
   forbiddenErrorResponses,
   inscopeConfigErrorResponses,
-  notFoundErrorResponses,
+  inscopeWorkspaceErrorResponses,
   validationErrorResponses,
 } from "@/lib/error"
 import {
@@ -67,7 +68,7 @@ const workspaceSchema = z.object({
       }),
     ),
     state: z.enum(MCP_STATES),
-    types: z.array(z.string()).meta({ example: ["github", "linear"] }),
+    types: z.array(z.enum(SERVER_TYPES)).meta({ example: ["github", "linear"] }),
   }),
   name: z.string().meta({ example: "work" }),
   path: z.string().meta({ example: "~/work" }),
@@ -208,7 +209,7 @@ export const createInscopeRouter = ({
           drifts: z.array(driftSchema),
           identity: identitySchema,
         }),
-        { ...notFoundErrorResponses, ...validationErrorResponses },
+        { ...inscopeWorkspaceErrorResponses, ...validationErrorResponses },
       ),
       (c) => {
         const name = c.req.param("name")
