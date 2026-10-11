@@ -35,6 +35,12 @@ import {
 export type CheckStatus = "ok" | "warn" | "fail"
 export type Check = { status: CheckStatus; label: string; detail?: string }
 
+// The prefix every check about one workspace carries in its label.
+export const workspaceTag = (name: string) => `[${name}]`
+
+export const workspaceChecks = (checks: Check[], ws: Workspace): Check[] =>
+  checks.filter((c) => c.label.startsWith(`${workspaceTag(ws.name)} `))
+
 // The @nrjdalal Slack fork is rendered on @latest on purpose, so it is not an
 // accidental unpin; doctor skips it rather than nagging about it every run.
 const INTENTIONALLY_FLOATING = slackPackageSpec("@nrjdalal/slack-mcp-server")
@@ -108,7 +114,7 @@ export const liveSnapshot = (run: Runner = defaultRunner) => {
 // which Claude fills on first login), and the dir, which holds that login, could
 // be committed. Warn on both; neither is a hard failure.
 const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => {
-  const tag = `[${ws.name}] claude`
+  const tag = `${workspaceTag(ws.name)} claude`
   const dir = inscopeDirPath(ws)
   const out: Check[] = []
   out.push(
@@ -177,7 +183,7 @@ const isolateChecks = (ws: Workspace, run: Runner, bypass: boolean): Check[] => 
 const skillChecks = (ws: Workspace, cfg: Config): Check[] => {
   const desired = desiredSkillLinks(ws)
   if (!desired.length) return []
-  const tag = `[${ws.name}] skills`
+  const tag = `${workspaceTag(ws.name)} skills`
   // Stale = missing, pointing at the old source after a re-point, or shadowed by a
   // user-authored dir (skillLinkTarget returns null for a non-symlink).
   const stale = desired.filter((d) => skillLinkTarget(ws, d.name) !== d.target)
@@ -283,7 +289,7 @@ export const runDoctor = (cfg: Config, run: Runner = defaultRunner): Check[] => 
   }
 
   for (const ws of cfg.workspaces) {
-    const tag = `[${ws.name}]`
+    const tag = workspaceTag(ws.name)
 
     if (ws.gh) {
       checks.push(

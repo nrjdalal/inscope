@@ -158,6 +158,12 @@ export const computeDrift = (cfg: Config): Drift[] => {
   return drifts.filter((d) => d.error != null || d.current !== d.next)
 }
 
+// The drifts that belong to one workspace, matched by the file each one describes: its git include, its .mcp.json, and the skills folder it links into (the shared ~/.claude/skills for every workspace that is not isolated).
+export const workspaceDrifts = (drifts: Drift[], ws: Workspace): Drift[] => {
+  const paths = new Set([perWorkspaceGitconfigPath(ws.name), mcpFilePath(ws), skillsDir(ws)])
+  return drifts.filter((d) => paths.has(d.path))
+}
+
 // Minimal LCS line diff: "  " unchanged, "- " removed, "+ " added.
 export const diffLines = (a: string, b: string): string => {
   const A = a.length ? a.split("\n") : []

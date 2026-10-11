@@ -667,8 +667,6 @@ export const removeSkills = (ws: Workspace) => {
   pruneOwned(skillsDir(ws), new Set())
 }
 
-// The skills a workspace lists as its own: the bundled self-skill (unless opted out),
-// then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
 // The compact "owner/repo#subdir@ref" source label shown in listings.
 export const sourceLabel = (s: NormalizedSkill): string => {
   const base =
@@ -680,6 +678,8 @@ export const sourceLabel = (s: NormalizedSkill): string => {
   return `${base}${s.subdir ? `#${s.subdir}` : ""}${s.ref ? `@${s.ref}` : ""}`
 }
 
+// The skills a workspace lists as its own: the bundled self-skill (unless opted out),
+// then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
 export const workspaceSkills = (ws: Workspace): { name: string; skill?: NormalizedSkill }[] => [
   ...(ws.selfSkill === false ? [] : [{ name: SELF_SKILL_NAME }]),
   ...(ws.skills ?? []).map((spec) => {

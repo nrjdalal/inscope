@@ -19,6 +19,8 @@ import {
   applySkills,
   discoverSkills,
   foreignSkillAt,
+  otherSkillLabel,
+  otherSkillsIn,
   resolveSkillDir,
   SELF_SKILL_NAME,
   selfSkillProvidedElsewhere,
@@ -28,8 +30,6 @@ import {
   skillsDir,
   sourceLabel,
   unlinkSkillLink,
-  otherSkillLabel,
-  otherSkillsIn,
   workspaceSkills,
 } from "@/generators/skills"
 import { defaultRunner } from "@/secrets"
