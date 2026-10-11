@@ -699,6 +699,13 @@ export type OtherSkill =
   | { name: string; kind: "own"; target?: string }
   | { name: string; kind: "synced" }
 
+export const OTHER_SKILL_KINDS = [
+  "own",
+  "stale",
+  "synced",
+  "workspace",
+] as const satisfies readonly OtherSkill["kind"][]
+
 const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 
 // The `.claude.json` Claude Code reads for a workspace's login: the one in

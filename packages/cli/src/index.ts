@@ -3,7 +3,7 @@ export * from "@/apply"
 export * from "@/doctor"
 export * from "@/drift"
 export * from "@/secrets"
-export { resolveStatus } from "@/status"
+export { GIT_SOURCES, resolveStatus } from "@/status"
 export { configPath, contractTilde, resolveAbsolute } from "@/env"
 export { renderHook } from "@/generators/hook"
 export {
@@ -23,6 +23,7 @@ export {
   renderServers,
 } from "@/generators/mcp"
 export {
+  OTHER_SKILL_KINDS,
   otherSkillLabel,
   otherSkillsIn,
   skillLinked,

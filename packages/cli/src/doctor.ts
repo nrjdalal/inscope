@@ -32,7 +32,9 @@ import {
   type Runner,
 } from "@/secrets"
 
-export type CheckStatus = "ok" | "warn" | "fail"
+export const CHECK_STATUSES = ["fail", "ok", "warn"] as const
+
+export type CheckStatus = (typeof CHECK_STATUSES)[number]
 export type Check = { status: CheckStatus; label: string; detail?: string }
 
 // The prefix every check about one workspace carries in its label.

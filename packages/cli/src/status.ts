@@ -18,12 +18,14 @@ export type StatusClaude = {
   org?: string
 }
 
+export const GIT_SOURCES = ["global", "workspace"] as const
+
 export type StatusSnapshot = {
   workspace: string | null
   path: string
   claude: StatusClaude
   github: { account: string; token: boolean } | null
-  git: { email: string | null; source: "workspace" | "global" }
+  git: { email: string | null; source: (typeof GIT_SOURCES)[number] }
   servers: string[]
   skills: string[]
 }
