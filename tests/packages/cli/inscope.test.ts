@@ -1726,10 +1726,12 @@ test("validateConfig refuses a config newer than it understands, tolerates older
 test("validateConfig rejects a hand-written workspace shape that would crash a command", () => {
   const cfg = (extra: Record<string, unknown>) =>
     ({ version: 1, workspaces: [{ name: "w", path: "~/w", ...extra }] }) as unknown as Config
-  // left out or null means none
+  // left out, null, or false means none
   expect(() => validateConfig(cfg({}))).not.toThrow()
-  expect(() => validateConfig(cfg({ servers: null, git: null }))).not.toThrow()
-  for (const servers of ["github", ["github"], 1])
+  expect(() => validateConfig(cfg({ servers: null, git: null, gh: null }))).not.toThrow()
+  expect(() => validateConfig(cfg({ servers: false, git: false, gh: false }))).not.toThrow()
+  expect(() => validateConfig(cfg({ git: { email: false, name: null } }))).not.toThrow()
+  for (const servers of ["github", ["github"], 1, true])
     expect(() => validateConfig(cfg({ servers }))).toThrow(
       /workspace "w" servers must be an object/,
     )
@@ -1737,17 +1739,9 @@ test("validateConfig rejects a hand-written workspace shape that would crash a c
     expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
       /workspace "w" git must be an object/,
     )
-  const one = (ws: Record<string, unknown>) =>
-    ({ version: 1, workspaces: [{ servers: {}, ...ws }] }) as unknown as Config
-  expect(() => validateConfig(one({ name: 7, path: "~/w" }))).toThrow(
-    /workspace name 7 must be a string/,
-  )
-  expect(() => validateConfig(one({ name: "w", path: 123 }))).toThrow(
-    /workspace "w" path must be a string/,
-  )
-  expect(() => validateConfig(one({ name: "w", path: "~/w", gh: true }))).toThrow(
-    /workspace "w" gh must be a string/,
-  )
+  expect(() => validateConfig(cfg({ name: 7 }))).toThrow(/workspace name 7 must be a string/)
+  expect(() => validateConfig(cfg({ path: 123 }))).toThrow(/workspace "w" path must be a string/)
+  expect(() => validateConfig(cfg({ gh: true }))).toThrow(/workspace "w" gh must be a string/)
   for (const git of [{ email: {} }, { name: 5 }])
     expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
       /workspace "w" git (email|name) must be a string/,
@@ -1773,6 +1767,16 @@ test("loadConfig reads a workspace without servers as one with no MCP servers", 
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, JSON.stringify({ version: 1, workspaces: [{ name: "w", path: "~/w" }] }))
     expect(loadConfig().workspaces[0].servers).toEqual({})
+    // null and false settle to the same shape as left out
+    const unset = {
+      name: "w",
+      path: "~/w",
+      servers: false,
+      gh: false,
+      git: { email: false, name: null },
+    }
+    fs.writeFileSync(file, JSON.stringify({ version: 1, workspaces: [unset] }))
+    expect(loadConfig().workspaces[0]).toEqual({ name: "w", path: "~/w", servers: {}, git: {} })
     fs.writeFileSync(file, "null")
     expect(() => loadConfig()).toThrow(/must hold a JSON object/)
   } finally {
