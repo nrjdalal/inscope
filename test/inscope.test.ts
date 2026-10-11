@@ -591,6 +591,74 @@ test("CLI: skill add refuses a name held by the user's own link, before saving a
   })
 })
 
+test("CLI: skill list aligns long names and lists every skill Claude loads, --all every workspace", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    const skill = (dir: string, name: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: d\n---\n`)
+    }
+    const long = "improve-codebase-architecture"
+    skill(path.join(sb, "src", long), long)
+    skill(path.join(sb, "src", "tdd"), "tdd")
+    for (const d of ["a", "b", "iso"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {} },
+        { name: "b", path: path.join(sb, "b"), servers: {}, selfSkill: false },
+        { isolate: true, name: "iso", path: path.join(sb, "iso"), servers: {} },
+      ],
+    })
+    expect(cli(["skill", "add", path.join(sb, "src", long), "-w", "a"]).status).toBe(0)
+    expect(cli(["skill", "add", path.join(sb, "src", "tdd"), "-w", "b"]).status).toBe(0)
+    // the user's own skills next to inscope's: a dir, a link, and claude.ai's synced ones
+    const shared = path.join(sb, ".claude", "skills")
+    skill(path.join(shared, "mine"), "mine")
+    skill(path.join(sb, ".agents", "skills", "linked"), "linked")
+    fs.symlinkSync(path.join(sb, ".agents", "skills", "linked"), path.join(shared, "linked"))
+    skill(path.join(shared, "synced", "org_acct", "docs"), "docs")
+    skill(path.join(shared, "synced", "org_acct", "pdf"), "pdf")
+    fs.writeFileSync(path.join(shared, "synced", "org_acct", "manifest.json"), "{}")
+    fs.writeFileSync(path.join(shared, ".DS_Store"), "")
+    skill(path.join(sb, "iso", ".inscope", "skills", "private"), "private")
+
+    const a = cli(["skill", "list", "-w", "a"])
+    expect(a.status).toBe(0)
+    const lines = a.stdout.split("\n")
+    // one column for the workspace: every label starts two spaces past the longest name
+    const col = 2 + long.length + 2
+    const rows = lines.filter((l) => l.startsWith("  ") && !l.startsWith("  also"))
+    expect(rows.length).toBe(6) // inscope, the long one, then linked, mine, synced, tdd
+    for (const r of rows) {
+      const name = r.slice(2).split(" ")[0]
+      expect(r.slice(2 + name.length, col).trim()).toBe("")
+      expect(r[col]).not.toBe(" ")
+    }
+    expect(a.stdout).toContain("also in this folder, not added by inscope here:")
+    expect(a.stdout).toMatch(/\n {2}linked {2,}yours, -> ~\/\.agents\/skills\/linked\n/)
+    expect(a.stdout).toMatch(/\n {2}mine {2,}yours\n/)
+    expect(a.stdout).toMatch(/\n {2}synced {2,}2 skills synced from your claude\.ai account\n/)
+    expect(a.stdout).toMatch(/\n {2}tdd {2,}from workspace "b"\n/)
+    expect(a.stdout).not.toContain(".DS_Store")
+    // only workspace a: b and iso are not listed
+    expect(a.stdout).not.toContain("\nb  (")
+    expect(a.stdout).not.toContain("private")
+
+    // --all lists every workspace, from inside one too; b opted out of the self-skill,
+    // so the inscope link a keeps in the shared dir shows as a's
+    const all = cli(["skill", "list", "--all", "-w", "a"])
+    expect(all.status).toBe(0)
+    for (const ws of ["a", "b", "iso"]) expect(all.stdout).toContain(`\n${ws}  (`)
+    const b = all.stdout.slice(all.stdout.indexOf("\nb  ("), all.stdout.indexOf("\niso  ("))
+    expect(b).toMatch(/\n {2}inscope {2,}from workspace "a"\n/)
+    expect(b).toMatch(new RegExp(`\\n {2}${long} {2,}from workspace "a"\\n`))
+    const iso = all.stdout.slice(all.stdout.indexOf("\niso  ("))
+    expect(iso).toMatch(/\n {2}private {2,}yours\n/)
+    expect(iso).not.toContain("mine")
+  })
+})
+
 test("persist refuses a malformed ~/.gitconfig before saving the config or writing anything", () => {
   withSandbox((sb) => {
     fs.writeFileSync(

@@ -664,3 +664,65 @@ export const removeSkills = (ws: Workspace) => {
   if (!ws.isolate) return
   pruneOwned(skillsDir(ws), new Set())
 }
+
+// A skill Claude loads from a workspace's skills dir that the workspace itself does not
+// declare: one another workspace sharing the dir declares, one of your own (a dir or a
+// link inscope did not create), or the skills Claude Code syncs from your claude.ai
+// account into `synced/`. The CLI listing shows these so it lists everything Claude
+// loads there, not only what inscope added.
+export type OtherSkill =
+  | { name: string; kind: "workspace"; workspace: string }
+  | { name: string; kind: "own"; target?: string }
+  | { name: string; kind: "synced"; count: number }
+
+const declaredNames = (ws: Workspace): Set<string> =>
+  new Set([
+    ...(ws.selfSkill === false ? [] : [SELF_SKILL_NAME]),
+    ...(ws.skills ?? []).map((s) => normalizeSkill(s).name),
+  ])
+
+// Skill dirs (holding a SKILL.md) one level below each account folder in `synced/`.
+const countSynced = (dir: string): number => {
+  let n = 0
+  for (const account of safeReaddir(dir))
+    for (const skill of safeReaddir(path.join(dir, account)))
+      if (fs.existsSync(path.join(dir, account, skill, "SKILL.md"))) n++
+  return n
+}
+
+const safeReaddir = (dir: string): string[] => {
+  try {
+    return fs.readdirSync(dir).sort()
+  } catch {
+    return []
+  }
+}
+
+export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
+  const dir = skillsDir(ws)
+  const mine = declaredNames(ws)
+  const out: OtherSkill[] = []
+  for (const name of safeReaddir(dir)) {
+    if (name.startsWith(".") || mine.has(name)) continue
+    const entry = path.join(dir, name)
+    if (name === "synced") {
+      out.push({ name, kind: "synced", count: countSynced(entry) })
+      continue
+    }
+    // only a non-isolated workspace shares its dir with others
+    const other = ws.isolate
+      ? undefined
+      : cfg.workspaces.find((o) => o !== ws && !o.isolate && declaredNames(o).has(name))
+    if (other) {
+      out.push({ name, kind: "workspace", workspace: other.name })
+      continue
+    }
+    let target: string | undefined
+    try {
+      if (fs.lstatSync(entry).isSymbolicLink())
+        target = contractTilde(path.resolve(dir, fs.readlinkSync(entry)))
+    } catch {}
+    out.push({ name, kind: "own", ...(target ? { target } : {}) })
+  }
+  return out
+}
