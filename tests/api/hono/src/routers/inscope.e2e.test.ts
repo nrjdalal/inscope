@@ -60,6 +60,13 @@ describe.skipIf(!enabled || !SANDBOX)("api/hono/src/routers/inscope.ts", () => {
     async () => {
       expect((await get("/api/inscope", {}, `http://${lanAddress}:4000`)).status).toBe(403)
       expect((await get("/api/inscope", {}, `http://${lanAddress}:3000`)).status).toBe(403)
+      // a LAN client cannot pass by forging the Host the forwarding passes along
+      const forged = await get(
+        "/api/inscope",
+        { host: "localhost:3000" },
+        `http://${lanAddress}:3000`,
+      )
+      expect(forged.status).toBe(403)
     },
   )
 
