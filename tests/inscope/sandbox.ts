@@ -6,8 +6,14 @@ import path from "node:path"
 // The fake credentials the stubs hand out: a test asserts none of them ever reaches a response.
 export const SECRETS = [
   "bearer-should-be-redacted",
+  "conn-should-be-redacted",
   "default-token-should-be-redacted",
+  "docker-env-should-be-redacted",
+  "fragment-should-be-redacted",
   "gho_demo_token",
+  "header-bearer-should-be-redacted",
+  "helper-bearer-should-be-redacted",
+  "pg-pass-should-be-redacted",
   "query-token-should-be-redacted",
   "sk-should-be-redacted",
   "xoxp-demo-secret",
@@ -168,7 +174,20 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
   mcp.mcpServers["linear-work"].url = "https://mcp.linear.app/sse-old"
   mcp.mcpServers.mine = {
     command: "npx",
-    args: ["-y", "my-mcp", "--api-key", "sk-should-be-redacted"],
+    args: [
+      "-y",
+      "my-mcp",
+      "--api-key",
+      "sk-should-be-redacted",
+      "postgresql://user:pg-pass-should-be-redacted@localhost/db",
+      "--header",
+      "Authorization: Bearer header-bearer-should-be-redacted",
+      "-e",
+      "GITHUB_PERSONAL_ACCESS_TOKEN=docker-env-should-be-redacted",
+      "--connectionString",
+      "Server=db;Password=conn-should-be-redacted",
+      "https://mcp.example.com/cb#access_token=fragment-should-be-redacted",
+    ],
     env: {
       MY_API_KEY: "sk-should-be-redacted",
       MY_TOKEN: "${MY_TOKEN:-default-token-should-be-redacted}",
@@ -178,6 +197,7 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     type: "http",
     url: "https://mcp.example.com/sse?token=query-token-should-be-redacted",
     headers: { Authorization: "Bearer bearer-should-be-redacted" },
+    headersHelper: `echo '{"Authorization":"Bearer helper-bearer-should-be-redacted"}'`,
   }
   await write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
 

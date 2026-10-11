@@ -145,8 +145,7 @@ describe("GET /api/inscope", () => {
     expect(personal).toMatchObject({
       gh: "demo-personal",
       isolated: false,
-      mcp: { error: null, path: "~/personal/.mcp.json", state: "in-sync" },
-      servers: ["github"],
+      mcp: { error: null, path: "~/personal/.mcp.json", state: "in-sync", types: ["github"] },
       skills: {
         dir: "~/.claude/skills",
         other: [],
@@ -155,7 +154,7 @@ describe("GET /api/inscope", () => {
     })
     expect(work.isolated).toBe(true)
     expect(work.mcp.state).toBe("drifted")
-    expect(work.servers).toEqual(["github", "linear", "slack"])
+    expect(work.mcp.types).toEqual(["github", "linear", "slack"])
     expect(work.skills.own).toEqual([
       { linked: true, name: "inscope", source: null },
       { linked: true, name: "readme-audit", source: path.join(sb.root, "skills", "readme-audit") },

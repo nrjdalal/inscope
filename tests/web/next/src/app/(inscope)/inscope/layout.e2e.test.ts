@@ -1,23 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import path from "node:path"
 
+import { PAGES } from "../../../../../../inscope/pages"
 import { SECRETS } from "../../../../../../inscope/sandbox"
 import { enabled, WEB } from "../../../../../../stack"
 
 // web/next/src/app/(inscope)/inscope and its pages on the stack tests/inscope/serve.ts starts on a sealed sandbox: the shell over HTTP, then, where agent-browser is installed, each page as a browser renders it, since every page fetches its data client-side.
 const SANDBOX = process.env.E2E_INSCOPE_SANDBOX ?? ""
 const SHOTS = process.env.E2E_SCREENSHOT_DIR ?? ""
-const PAGES = [
-  "/inscope",
-  "/inscope/skills",
-  "/inscope/doctor",
-  "/inscope/diff",
-  "/inscope/workspaces/work",
-]
 
 describe.skipIf(!enabled || !SANDBOX)("web/next/src/app/(inscope)/inscope over HTTP", () => {
   test("every page renders inside the dashboard shell, with no marketing navbar", async () => {
-    for (const page of PAGES) {
+    for (const { path: page } of PAGES) {
       const res = await fetch(`${WEB}${page}`)
       expect(`${page} ${res.status}`).toBe(`${page} 200`)
       const html = await res.text()
@@ -118,13 +112,8 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
     })
 
     test("no rendered page carries a credential from the sandbox", () => {
-      for (const [page, waitFor] of [
-        ["/inscope", "MCP drifted"],
-        ["/inscope/workspaces/work", "Claude login"],
-        ["/inscope/doctor", "[acme] gh"],
-        ["/inscope/diff", "mcp:work"],
-      ]) {
-        visit(page, waitFor)
+      for (const { loaded, path: page } of PAGES) {
+        visit(page, loaded)
         const dom = ab("eval", "document.documentElement.outerHTML")
         for (const secret of SECRETS)
           expect(`${page}: ${dom.includes(secret)}`).toBe(`${page}: false`)

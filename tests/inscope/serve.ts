@@ -4,11 +4,12 @@ import path from "node:path"
 
 import type { Subprocess } from "bun"
 
+import { PAGES } from "./pages"
 import { seedSandbox } from "./sandbox"
 
 const REPO = path.resolve(import.meta.dir, "..", "..")
-export const API_URL = "http://localhost:4000"
-export const WEB_URL = "http://localhost:3000"
+const API_URL = "http://localhost:4000"
+const WEB_URL = "http://localhost:3000"
 
 const flag = (name: string) => process.argv.indexOf(name)
 const dirAt = flag("--dir")
@@ -89,14 +90,7 @@ try {
   start("web/next", ["bun", "run", "dev:app"], webEnv, "web.log")
   await waitFor(`${API_URL}/api/health`, 60)
   // the first request compiles each route under next dev, so warm them before a test or a browser times out on it
-  for (const route of [
-    "/inscope",
-    "/inscope/skills",
-    "/inscope/doctor",
-    "/inscope/diff",
-    "/inscope/workspaces/work",
-  ])
-    await waitFor(`${WEB_URL}${route}`, 240)
+  for (const page of PAGES) await waitFor(`${WEB_URL}${page.path}`, 240)
 
   if (keep) {
     console.log(`sandbox ${sb.root}\napi ${API_URL}\nweb ${WEB_URL}/inscope\nCtrl-C to stop`)
