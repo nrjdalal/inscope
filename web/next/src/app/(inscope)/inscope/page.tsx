@@ -3,12 +3,12 @@
 import { RiArrowRightSLine } from "@remixicon/react"
 import Link from "next/link"
 
+import { NoWorkspaces } from "@/components/inscope/no-workspaces"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { WorkspaceBadges } from "@/components/inscope/workspace-badges"
 import { PageHeader } from "@/components/shell/page-header"
 import { PageShell } from "@/components/shell/page-shell"
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import {
   Item,
   ItemActions,
@@ -33,17 +33,7 @@ export default function Page() {
       <QueryState query={overview}>
         {(data) =>
           data.workspaces.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>
-                  {data.config.exists ? "No workspaces yet" : "No inscope config yet"}
-                </EmptyTitle>
-                <EmptyDescription>
-                  Map a directory from a terminal with <code>inscope add &lt;path&gt;</code>, then
-                  refresh.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <NoWorkspaces configExists={data.config.exists} />
           ) : (
             <div className="space-y-4">
               <p className="text-muted-foreground text-sm">

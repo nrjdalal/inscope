@@ -2,6 +2,8 @@ import { StatusBadge, type Tone } from "@/components/inscope/status-badge"
 import { Spinner } from "@/components/ui/spinner"
 import type { InscopeIdentity, InscopeWorkspace } from "@/lib/inscope"
 
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
 const mcpBadge: Record<InscopeWorkspace["mcp"]["state"], { label: string; tone: Tone }> = {
   drifted: { label: "MCP drifted", tone: "warn" },
   "in-sync": { label: "MCP in sync", tone: "ok" },
@@ -50,13 +52,9 @@ export function WorkspaceBadges({
       )}
       <StatusBadge tone={mcp.tone}>{mcp.label}</StatusBadge>
       {unlinked > 0 ? (
-        <StatusBadge tone="warn">
-          {unlinked} skill{unlinked === 1 ? "" : "s"} not linked
-        </StatusBadge>
+        <StatusBadge tone="warn">{plural(unlinked, "skill")} not linked</StatusBadge>
       ) : (
-        <StatusBadge tone="ok">
-          {workspace.skills.own.length} skill{workspace.skills.own.length === 1 ? "" : "s"} linked
-        </StatusBadge>
+        <StatusBadge tone="ok">{plural(workspace.skills.own.length, "skill")} linked</StatusBadge>
       )}
     </div>
   )

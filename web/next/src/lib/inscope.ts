@@ -45,7 +45,7 @@ export const useInscopeWorkspace = (name: string) =>
     unwrap(apiClient.inscope.workspaces[":name"].$get({ param: { name } })),
   )
 
-export const useRefreshInscope = () => {
+export const useInscopeRefresh = () => {
   const client = useQueryClient()
   return () => client.invalidateQueries({ queryKey: inscopeKeys.all })
 }

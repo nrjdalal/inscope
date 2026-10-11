@@ -1,6 +1,7 @@
 "use client"
 
 import { DriftDiff } from "@/components/inscope/drift-diff"
+import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { PageHeader } from "@/components/shell/page-header"
@@ -30,10 +31,7 @@ export default function Page() {
           ) : (
             <div className="space-y-8">
               {data.adoptable.length > 0 && (
-                <section aria-labelledby="adoptable" className="space-y-2">
-                  <h2 id="adoptable" className="font-semibold">
-                    Hand edits apply would undo
-                  </h2>
+                <PageSection id="adoptable" title="Hand edits apply would undo">
                   <p className="text-muted-foreground text-sm">
                     <code>inscope diff --adopt</code> pulls these back into the config instead.
                   </p>
@@ -42,22 +40,17 @@ export default function Page() {
                       <li key={change}>{change}</li>
                     ))}
                   </ul>
-                </section>
+                </PageSection>
               )}
               {data.drifts.map((drift) => (
-                <section
+                <PageSection
                   key={drift.label}
-                  aria-labelledby={`drift-${drift.label}`}
-                  className="space-y-2"
+                  id={`drift-${drift.label}`}
+                  title={<span className="font-mono">{drift.label}</span>}
                 >
-                  <div className="space-y-1">
-                    <h2 id={`drift-${drift.label}`} className="font-mono font-semibold">
-                      {drift.label}
-                    </h2>
-                    <p className="text-muted-foreground font-mono text-sm">{drift.path}</p>
-                  </div>
+                  <p className="text-muted-foreground font-mono text-sm">{drift.path}</p>
                   <DriftDiff drift={drift} />
-                </section>
+                </PageSection>
               ))}
             </div>
           )

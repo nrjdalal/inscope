@@ -1,11 +1,12 @@
 "use client"
 
+import { NoWorkspaces } from "@/components/inscope/no-workspaces"
+import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { SkillList } from "@/components/inscope/skill-list"
 import { PageHeader } from "@/components/shell/page-header"
 import { PageShell } from "@/components/shell/page-shell"
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { useInscopeOverview } from "@/lib/inscope"
 
 export default function Page() {
@@ -21,32 +22,18 @@ export default function Page() {
       <QueryState query={overview}>
         {(data) =>
           data.workspaces.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>No workspaces yet</EmptyTitle>
-                <EmptyDescription>
-                  Map a directory with <code>inscope add &lt;path&gt;</code>, then refresh.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <NoWorkspaces configExists={data.config.exists} />
           ) : (
             <div className="space-y-8">
               {data.workspaces.map((workspace) => (
-                <section
+                <PageSection
                   key={workspace.name}
-                  aria-labelledby={`skills-${workspace.name}`}
-                  className="space-y-3"
+                  id={`skills-${workspace.name}`}
+                  title={workspace.name}
                 >
-                  <div className="space-y-1">
-                    <h2 id={`skills-${workspace.name}`} className="font-semibold">
-                      {workspace.name}
-                    </h2>
-                    <p className="text-muted-foreground font-mono text-sm">
-                      {workspace.skills.dir}
-                    </p>
-                  </div>
+                  <p className="text-muted-foreground font-mono text-sm">{workspace.skills.dir}</p>
                   <SkillList skills={workspace.skills} />
-                </section>
+                </PageSection>
               ))}
             </div>
           )
