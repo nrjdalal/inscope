@@ -153,9 +153,15 @@ Releases follow zerostarter's flow. A push to `canary` that touches
 neither the version nor the changelog is hand-written.
 `.github/workflows/release.yml` then publishes that version to npm as `latest`
 (`packages/cli/package.json` holds a `0.0.0` placeholder that the workflow
-stamps). A maintainer comment starting with `/release` on a PR publishes a
-throwaway test version for that PR's head. Keep `release.yml` under that name:
-npm Trusted Publishing for `inscope` is bound to it.
+stamps). Keep `release.yml` under that name: npm Trusted Publishing for
+`inscope` is bound to it.
+
+`gh workflow run release.yml -f pr=<n>` publishes a same-repo PR's head as a
+throwaway test version (`0.0.0-<sha>` on the npm `test` dist-tag) and links it
+on the PR. It stands in for zerostarter's `/release` comment: tried on #69, that
+comment's publish got `E404` on PUT from npm (run 38151080146) while
+push-triggered publishes go through, so npm appears to refuse Trusted
+Publishing from `issue_comment` runs.
 
 ### Repository settings
 
