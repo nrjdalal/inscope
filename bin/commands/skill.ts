@@ -28,7 +28,9 @@ import {
   skillLinked,
   skillsDir,
   unlinkSkillLink,
+  type OtherSkill,
   otherSkillsIn,
+  workspaceSkills,
 } from "@/generators/skills"
 import { defaultRunner } from "@/secrets"
 import { requireConfigExists } from "~/bin/commands/_config"
@@ -47,8 +49,8 @@ Usage:
 
 Commands:
   add <source>        Add a skill (owner/repo#subdir, a git URL, or a local path)
-  list                List a workspace's skills and whether they are linked, and
-                      every other skill Claude loads from its skills dir (alias: ls)
+  list                Every skill in each workspace's skills dir, the current
+                      workspace first; -w lists one (alias: ls)
   rename <old> <new>  Rename a skill (and its /command) in a workspace (alias: mv)
   rm <name>           Remove a skill from a workspace (alias: remove)
   update              Pull the latest for a workspace's floating git skills
@@ -59,7 +61,7 @@ Options:
   -w, --workspace <label>  Target workspace (default: inferred from the current dir)
   -s, --skill <name>       (add) a specific skill from the source; repeatable, '*' for all
   -l, --list               (add) list the skills in the source without installing
-      --all                (add) install every skill in the source; (list) every workspace
+      --all                (add) install every skill in the source
   -n, --name <name>        (add) install a single skill under a custom name (also its /command)
       --ref <ref>          (add) pin a branch, tag, or sha
   -y, --yes                (add) non-interactive: skip the skill picker
@@ -330,6 +332,21 @@ const skillAdd = async (args: string[]) => {
   )
 }
 
+type Row = { name: string; label: string; mark?: string }
+
+const otherLabel = (o: OtherSkill): string => {
+  switch (o.kind) {
+    case "workspace":
+      return `from workspace "${o.workspace}"`
+    case "stale":
+      return "inscope link no workspace declares (the next apply removes it)"
+    case "synced":
+      return "synced from your claude.ai account"
+    case "own":
+      return o.target ? `yours, -> ${o.target}` : "yours"
+  }
+}
+
 const skillList = (args: string[]) => {
   const { values } = parse(args)
   if (values.help) {
@@ -337,45 +354,29 @@ const skillList = (args: string[]) => {
     process.exit(0)
   }
   const cfg = loadConfig()
-  const here = values.all
-    ? undefined
-    : values.workspace
-      ? resolveWorkspace(cfg, values.workspace)
-      : currentWorkspace(cfg)
-  const targets = here ? [here] : cfg.workspaces
-
-  if (!targets.length) {
+  if (!cfg.workspaces.length) {
     console.log(`No workspaces yet. Add one with \`${name} add <path>\`.`)
     process.exit(0)
   }
+  // -w lists one workspace; otherwise every workspace, the one you are in first
+  const here = currentWorkspace(cfg)
+  const targets = values.workspace
+    ? [resolveWorkspace(cfg, values.workspace)]
+    : [...(here ? [here] : []), ...cfg.workspaces.filter((ws) => ws !== here)]
+
   for (const ws of targets) {
-    const mark = (n: string) => (skillLinked(ws, n) ? green("✓ linked") : yellow("⚠ missing"))
-    const rows: { name: string; label: string; mark?: string }[] = []
-    if (ws.selfSkill !== false)
-      rows.push({
-        name: SELF_SKILL_NAME,
-        label: orange("(bundled self-skill)"),
-        mark: mark(SELF_SKILL_NAME),
-      })
-    for (const spec of ws.skills ?? []) {
-      const s = normalizeSkill(spec)
-      rows.push({ name: s.name, label: orange(sourceLabel(s)), mark: mark(s.name) })
-    }
-    const others = otherSkillsIn(cfg, ws).map((o) => ({
+    const rows: Row[] = workspaceSkills(ws).map(({ name: n, skill }) => ({
+      name: n,
+      label: orange(skill ? sourceLabel(skill) : "(bundled self-skill)"),
+      mark: skillLinked(ws, n) ? green("✓ linked") : yellow("⚠ missing"),
+    }))
+    const others: Row[] = otherSkillsIn(cfg, ws).map((o) => ({
       name: o.name,
-      label: dim(
-        o.kind === "workspace"
-          ? `from workspace "${o.workspace}"`
-          : o.kind === "synced"
-            ? `${o.count} skill${o.count === 1 ? "" : "s"} synced from your claude.ai account`
-            : o.target
-              ? `yours, -> ${o.target}`
-              : "yours",
-      ),
+      label: dim(otherLabel(o)),
     }))
     // one column for the whole workspace, sized to its longest name
     const width = Math.max(...[...rows, ...others].map((r) => r.name.length), 0) + 2
-    const line = (r: { name: string; label: string; mark?: string }) =>
+    const line = (r: Row) =>
       console.log(`  ${r.name.padEnd(width)}${r.label}${r.mark ? `  ${r.mark}` : ""}`)
 
     console.log(`\n${ws.name}  (${contractTilde(skillsDir(ws))})`)

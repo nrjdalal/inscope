@@ -488,8 +488,8 @@ const sandboxCli = (sb: string) => {
   }
   delete env.GH_TOKEN
   delete env.GITHUB_TOKEN
-  const cli = (args: string[], input = "") =>
-    spawnSync("bun", [entry, ...args], { encoding: "utf8", env, input })
+  const cli = (args: string[], input = "", cwd?: string) =>
+    spawnSync("bun", [entry, ...args], { encoding: "utf8", env, input, cwd })
   const cfgFile = path.join(sb, ".config", "inscope", "inscope.json")
   const writeCfg = (cfg: Config) => {
     fs.mkdirSync(path.dirname(cfgFile), { recursive: true })
@@ -591,7 +591,7 @@ test("CLI: skill add refuses a name held by the user's own link, before saving a
   })
 })
 
-test("CLI: skill list aligns long names and lists every skill Claude loads, --all every workspace", () => {
+test("CLI: skill list lists every skill in each workspace's skills dir, aligned, current first", () => {
   withSandbox((sb) => {
     const { cli, writeCfg } = sandboxCli(sb)
     const skill = (dir: string, name: string) => {
@@ -601,61 +601,117 @@ test("CLI: skill list aligns long names and lists every skill Claude loads, --al
     const long = "improve-codebase-architecture"
     skill(path.join(sb, "src", long), long)
     skill(path.join(sb, "src", "tdd"), "tdd")
+    // workspace paths as the shell reports them (macOS resolves /var to /private/var), so
+    // running from inside one finds it as the current workspace
+    const ws = (d: string) => path.join(fs.realpathSync(sb), d)
     for (const d of ["a", "b", "iso"]) fs.mkdirSync(path.join(sb, d))
     writeCfg({
       version: 1,
       workspaces: [
-        { name: "a", path: path.join(sb, "a"), servers: {} },
-        { name: "b", path: path.join(sb, "b"), servers: {}, selfSkill: false },
-        { isolate: true, name: "iso", path: path.join(sb, "iso"), servers: {} },
+        { name: "a", path: ws("a"), servers: {} },
+        { name: "b", path: ws("b"), servers: {}, selfSkill: false },
+        { isolate: true, name: "iso", path: ws("iso"), servers: {} },
       ],
     })
     expect(cli(["skill", "add", path.join(sb, "src", long), "-w", "a"]).status).toBe(0)
     expect(cli(["skill", "add", path.join(sb, "src", "tdd"), "-w", "b"]).status).toBe(0)
-    // the user's own skills next to inscope's: a dir, a link, and claude.ai's synced ones
+
     const shared = path.join(sb, ".claude", "skills")
+    // the user's own: a dir, and a relative link
     skill(path.join(shared, "mine"), "mine")
     skill(path.join(sb, ".agents", "skills", "linked"), "linked")
-    fs.symlinkSync(path.join(sb, ".agents", "skills", "linked"), path.join(shared, "linked"))
-    skill(path.join(shared, "synced", "org_acct", "docs"), "docs")
-    skill(path.join(shared, "synced", "org_acct", "pdf"), "pdf")
-    fs.writeFileSync(path.join(shared, "synced", "org_acct", "manifest.json"), "{}")
+    fs.symlinkSync("../../.agents/skills/linked", path.join(shared, "linked"))
+    // an inscope link no workspace declares any more
+    skill(path.join(sb, ".config", "inscope", "skills-cache", "gone"), "gone")
+    fs.symlinkSync(
+      path.join(sb, ".config", "inscope", "skills-cache", "gone"),
+      path.join(shared, "gone"),
+    )
+    // not skills: a file, a broken link, a dir without SKILL.md, a dot-entry
+    fs.writeFileSync(path.join(shared, "README.md"), "")
+    fs.symlinkSync(path.join(sb, "nowhere"), path.join(shared, "broken"))
+    fs.mkdirSync(path.join(shared, "empty"))
     fs.writeFileSync(path.join(shared, ".DS_Store"), "")
-    skill(path.join(sb, "iso", ".inscope", "skills", "private"), "private")
+    // claude.ai syncs per account; only the signed-in account's folder counts
+    skill(path.join(shared, "synced", "org1_acct1", "docs"), "docs")
+    skill(path.join(shared, "synced", "org1_acct1", "pdf"), "pdf")
+    fs.writeFileSync(path.join(shared, "synced", "org1_acct1", "manifest.json"), "{}")
+    skill(path.join(shared, "synced", "org2_acct2", "other-account"), "other-account")
+    fs.writeFileSync(
+      path.join(sb, ".claude", ".claude.json"),
+      JSON.stringify({ oauthAccount: { organizationUuid: "org1", accountUuid: "acct1" } }),
+    )
+    skill(path.join(ws("iso"), ".inscope", "skills", "private"), "private")
 
+    // -w: one workspace, one column sized to its longest name
     const a = cli(["skill", "list", "-w", "a"])
     expect(a.status).toBe(0)
-    const lines = a.stdout.split("\n")
-    // one column for the workspace: every label starts two spaces past the longest name
     const col = 2 + long.length + 2
-    const rows = lines.filter((l) => l.startsWith("  ") && !l.startsWith("  also"))
-    expect(rows.length).toBe(6) // inscope, the long one, then linked, mine, synced, tdd
+    const rows = a.stdout.split("\n").filter((l) => l.startsWith("  ") && !l.startsWith("  also"))
+    // its own skills, then the rest of the folder, claude.ai's synced ones last
+    expect(rows.map((r) => r.slice(2).split(" ")[0])).toEqual([
+      "inscope",
+      long,
+      "gone",
+      "linked",
+      "mine",
+      "tdd",
+      "docs",
+      "pdf",
+    ])
     for (const r of rows) {
       const name = r.slice(2).split(" ")[0]
       expect(r.slice(2 + name.length, col).trim()).toBe("")
       expect(r[col]).not.toBe(" ")
     }
+    const label = (out: string, n: string) =>
+      out.match(new RegExp(`\\n {2}${n} +(.*)\\n`))?.[1].trim()
     expect(a.stdout).toContain("also in this folder, not added by inscope here:")
-    expect(a.stdout).toMatch(/\n {2}linked {2,}yours, -> ~\/\.agents\/skills\/linked\n/)
-    expect(a.stdout).toMatch(/\n {2}mine {2,}yours\n/)
-    expect(a.stdout).toMatch(/\n {2}synced {2,}2 skills synced from your claude\.ai account\n/)
-    expect(a.stdout).toMatch(/\n {2}tdd {2,}from workspace "b"\n/)
-    expect(a.stdout).not.toContain(".DS_Store")
-    // only workspace a: b and iso are not listed
+    expect(label(a.stdout, "mine")).toBe("yours")
+    expect(label(a.stdout, "linked")).toBe("yours, -> ~/.agents/skills/linked")
+    expect(label(a.stdout, "gone")).toBe(
+      "inscope link no workspace declares (the next apply removes it)",
+    )
+    expect(label(a.stdout, "tdd")).toBe('from workspace "b"')
+    expect(label(a.stdout, "docs")).toBe("synced from your claude.ai account")
+    for (const n of ["README.md", "broken", "empty", ".DS_Store", "other-account", "manifest"])
+      expect(a.stdout).not.toContain(n)
     expect(a.stdout).not.toContain("\nb  (")
-    expect(a.stdout).not.toContain("private")
 
-    // --all lists every workspace, from inside one too; b opted out of the self-skill,
-    // so the inscope link a keeps in the shared dir shows as a's
-    const all = cli(["skill", "list", "--all", "-w", "a"])
+    // bare (here through the `skills` alias): every workspace, the current one first.
+    // b opted out of the self-skill, so the inscope link a keeps there reads as a's.
+    const all = cli(["skills", "list"], "", ws("b"))
     expect(all.status).toBe(0)
-    for (const ws of ["a", "b", "iso"]) expect(all.stdout).toContain(`\n${ws}  (`)
-    const b = all.stdout.slice(all.stdout.indexOf("\nb  ("), all.stdout.indexOf("\niso  ("))
-    expect(b).toMatch(/\n {2}inscope {2,}from workspace "a"\n/)
-    expect(b).toMatch(new RegExp(`\\n {2}${long} {2,}from workspace "a"\\n`))
+    const order = [...all.stdout.matchAll(/^(\w+) {2}\(/gm)].map((m) => m[1])
+    expect(order).toEqual(["b", "a", "iso"])
+    const b = all.stdout.slice(all.stdout.indexOf("\nb  ("), all.stdout.indexOf("\na  ("))
+    expect(label(b, "inscope")).toBe('from workspace "a"')
+    expect(label(b, long)).toBe('from workspace "a"')
     const iso = all.stdout.slice(all.stdout.indexOf("\niso  ("))
-    expect(iso).toMatch(/\n {2}private {2,}yours\n/)
+    expect(label(iso, "private")).toBe("yours")
     expect(iso).not.toContain("mine")
+  })
+})
+
+test("CLI: skill list credits the user's own inscope install to the user, not a workspace", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    // installed another way (e.g. `npx skills add nrjdalal/inscope`): a real dir
+    const own = path.join(sb, ".claude", "skills", "inscope")
+    fs.mkdirSync(own, { recursive: true })
+    fs.writeFileSync(path.join(own, "SKILL.md"), "---\nname: inscope\ndescription: d\n---\n")
+    for (const d of ["a", "b"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {} },
+        { name: "b", path: path.join(sb, "b"), servers: {}, selfSkill: false },
+      ],
+    })
+    const r = cli(["skill", "list", "-w", "b"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toMatch(/\n {2}inscope {2,}yours\n/)
+    expect(r.stdout).not.toContain("from workspace")
   })
 })
 

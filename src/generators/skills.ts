@@ -10,7 +10,7 @@ import {
   type SkillSpec,
   type Workspace,
 } from "@/config"
-import { contractTilde, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
+import { contractTilde, home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
 import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
@@ -488,16 +488,18 @@ export const selfSkillProvidedElsewhere = (dir: string): boolean => {
   return !isOwnedLink(entry) && readFrontmatterName(entry) === SELF_SKILL_NAME
 }
 
-// The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
-export const ownedSkillNames = (dir: string): string[] => {
-  let entries: string[]
+// A dir's entries, sorted; none when it does not exist.
+const safeReaddir = (dir: string): string[] => {
   try {
-    entries = fs.readdirSync(dir)
+    return fs.readdirSync(dir).sort()
   } catch {
     return []
   }
-  return entries.filter((n) => isOwnedLink(path.join(dir, n)))
 }
+
+// The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
+export const ownedSkillNames = (dir: string): string[] =>
+  safeReaddir(dir).filter((n) => isOwnedLink(path.join(dir, n)))
 
 // Remove every inscope-owned link in `dir` whose name is not in `keep`. Only cache
 // -backed symlinks are candidates, so a user-authored dir/skill sharing the same
@@ -665,64 +667,77 @@ export const removeSkills = (ws: Workspace) => {
   pruneOwned(skillsDir(ws), new Set())
 }
 
-// A skill Claude loads from a workspace's skills dir that the workspace itself does not
-// declare: one another workspace sharing the dir declares, one of your own (a dir or a
-// link inscope did not create), or the skills Claude Code syncs from your claude.ai
-// account into `synced/`. The CLI listing shows these so it lists everything Claude
-// loads there, not only what inscope added.
+// The skills a workspace lists as its own: the bundled self-skill (unless opted out),
+// then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
+export const workspaceSkills = (ws: Workspace): { name: string; skill?: NormalizedSkill }[] => [
+  ...(ws.selfSkill === false ? [] : [{ name: SELF_SKILL_NAME }]),
+  ...(ws.skills ?? []).map((spec) => {
+    const skill = normalizeSkill(spec)
+    return { name: skill.name, skill }
+  }),
+]
+
+// Everything else Claude loads from a workspace's skills dir: a skill another workspace
+// sharing the dir links there, an inscope link no workspace declares any more (the next
+// apply removes it), the user's own skill (a dir, or a link inscope did not create), and
+// the skills Claude Code syncs from the login's claude.ai account into `synced/`. Only
+// entries holding a SKILL.md count: Claude loads nothing else.
 export type OtherSkill =
   | { name: string; kind: "workspace"; workspace: string }
+  | { name: string; kind: "stale" }
   | { name: string; kind: "own"; target?: string }
-  | { name: string; kind: "synced"; count: number }
+  | { name: string; kind: "synced" }
 
-const declaredNames = (ws: Workspace): Set<string> =>
-  new Set([
-    ...(ws.selfSkill === false ? [] : [SELF_SKILL_NAME]),
-    ...(ws.skills ?? []).map((s) => normalizeSkill(s).name),
-  ])
+const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 
-// Skill dirs (holding a SKILL.md) one level below each account folder in `synced/`.
-const countSynced = (dir: string): number => {
-  let n = 0
-  for (const account of safeReaddir(dir))
-    for (const skill of safeReaddir(path.join(dir, account)))
-      if (fs.existsSync(path.join(dir, account, skill, "SKILL.md"))) n++
-  return n
-}
-
-const safeReaddir = (dir: string): string[] => {
-  try {
-    return fs.readdirSync(dir).sort()
-  } catch {
-    return []
+// Claude Code keeps each claude.ai account's synced skills under
+// `synced/<organizationUuid>_<accountUuid>` and loads only the signed-in account's folder,
+// so the login's `.claude.json` (in its config dir; `~/.claude.json` for a ~/.claude used
+// without CLAUDE_CONFIG_DIR) names the one that counts.
+const syncedAccountDir = (loginDir: string): string | null => {
+  const files = [path.join(loginDir, ".claude.json")]
+  if (loginDir === path.join(home(), ".claude")) files.push(path.join(home(), ".claude.json"))
+  for (const file of files) {
+    try {
+      const o = JSON.parse(fs.readFileSync(file, "utf8"))?.oauthAccount
+      if (o?.organizationUuid && o?.accountUuid) return `${o.organizationUuid}_${o.accountUuid}`
+    } catch {}
   }
+  return null
 }
 
 export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
   const dir = skillsDir(ws)
-  const mine = declaredNames(ws)
+  const own = new Set(workspaceSkills(ws).map((s) => s.name))
   const out: OtherSkill[] = []
+  // claude.ai's synced skills come last, as a group
+  const synced: OtherSkill[] = []
   for (const name of safeReaddir(dir)) {
-    if (name.startsWith(".") || mine.has(name)) continue
+    if (name.startsWith(".") || own.has(name)) continue
     const entry = path.join(dir, name)
     if (name === "synced") {
-      out.push({ name, kind: "synced", count: countSynced(entry) })
+      const account = syncedAccountDir(path.dirname(dir))
+      const from = account ? path.join(entry, account) : null
+      if (from)
+        for (const s of safeReaddir(from))
+          if (hasSkillMd(path.join(from, s))) synced.push({ name: s, kind: "synced" })
       continue
     }
-    // only a non-isolated workspace shares its dir with others
-    const other = ws.isolate
-      ? undefined
-      : cfg.workspaces.find((o) => o !== ws && !o.isolate && declaredNames(o).has(name))
-    if (other) {
-      out.push({ name, kind: "workspace", workspace: other.name })
-      continue
-    }
+    if (!hasSkillMd(entry)) continue
+    // where a link points, resolved (a link the user made may be relative); none for a dir
     let target: string | undefined
     try {
-      if (fs.lstatSync(entry).isSymbolicLink())
-        target = contractTilde(path.resolve(dir, fs.readlinkSync(entry)))
+      if (fs.lstatSync(entry).isSymbolicLink()) target = path.resolve(dir, fs.readlinkSync(entry))
     } catch {}
-    out.push({ name, kind: "own", ...(target ? { target } : {}) })
+    const other = cfg.workspaces.find(
+      (o) =>
+        o.name !== ws.name &&
+        skillsDir(o) === dir &&
+        desiredSkillLinks(o).some((d) => d.name === name && path.resolve(d.target) === target),
+    )
+    if (other) out.push({ name, kind: "workspace", workspace: other.name })
+    else if (isOwnedLink(entry)) out.push({ name, kind: "stale" })
+    else out.push({ name, kind: "own", ...(target ? { target: contractTilde(target) } : {}) })
   }
-  return out
+  return [...out, ...synced]
 }

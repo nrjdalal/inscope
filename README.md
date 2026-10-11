@@ -112,7 +112,7 @@ Give a workspace its own `/` menu. `inscope skill add owner/repo#skills/the-skil
 
 ```sh
 npx inscope skill add owner/repo         # pick from a repo's skills
-npx inscope skill list                   # every skill Claude loads here (--all: every workspace)
+npx inscope skill list                   # every skill in each workspace's skills dir
 npx inscope skill update                 # refresh floating git sources
 ```
 
