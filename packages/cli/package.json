@@ -1,0 +1,52 @@
+{
+  "name": "inscope",
+  "version": "0.0.0",
+  "description": "Per-workspace identity for Claude Code: each directory auto-resolves its own login/subscription, MCP servers, GitHub account, and skills.",
+  "keywords": [
+    "chpwd",
+    "claude",
+    "claude-code",
+    "cli",
+    "git",
+    "github",
+    "identity",
+    "isolation",
+    "mcp",
+    "skills",
+    "subscription",
+    "workspace",
+    "zsh"
+  ],
+  "homepage": "https://github.com/nrjdalal/inscope#readme",
+  "bugs": "https://github.com/nrjdalal/inscope/issues",
+  "license": "MIT",
+  "author": {
+    "name": "Neeraj Dalal",
+    "email": "admin@nrjdalal.com",
+    "url": "https://nrjdalal.com"
+  },
+  "repository": "nrjdalal/inscope",
+  "funding": "https://github.com/sponsors/nrjdalal",
+  "bin": {
+    "inscope": "dist/bin/index.mjs"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.mts",
+  "exports": "./dist/index.mjs",
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc --noEmit",
+    "dev": "tsdown --watch"
+  },
+  "devDependencies": {
+    "@packages/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
+}

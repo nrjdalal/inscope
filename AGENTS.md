@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository, a Bun monorepo: the `web/next` app, the `api/hono` service, and shared `packages/*` (auth, config, db, env), with build-only tooling in `packages/scripts`. The canonical starter also carries the `packages/cli` npm binary and the `tests/` suite, neither of which a fork takes; this guide and every skill ship to a fork whole, rebranded to its name. Start each task with the `codebase-map` skill to orient, then load the task skill that fits (see [Skills](#skills)).
+Guidance for AI coding agents working in this repository, a Bun monorepo: the `web/next` app, the `api/hono` service, and shared `packages/*` (auth, config, db, env), with build-only tooling in `packages/scripts`. The product here is inscope's own CLI in `packages/cli` (the `inscope` npm package) with its suite in `tests/packages/cli`; both are fork-owned paths a zerostarter sync never touches. Start each task with the `codebase-map` skill to orient, then load the task skill that fits (see [Skills](#skills)).
 
 ## Workflow
 
@@ -21,6 +21,14 @@ Guidance for AI coding agents working in this repository, a Bun monorepo: the `w
 - Do not comment unnecessarily. Only comment if it is absolutely necessary.
 - Keep comments on a single line; do not split one across multiple `//` lines or use multi-line `/* */` blocks.
 - NEVER: Use em-dashes (the long dash, U+2014) in code, comments, docs, or copy. Regular hyphens are fine; for a pause or aside, use a comma, colon, or period.
+
+## inscope CLI
+
+- ALWAYS: Keep `packages/cli` at zero runtime dependencies; hand-roll validation rather than add a library. Logic lives in `src/`; `bin/` is the CLI surface (arg parsing, prompts, output). Inside the package, `@/` is `src/` and `~/` is the package root.
+- ALWAYS: After changing a snapshot-pinned generator (`packages/cli/src/generators/{hook,mcp,gitconfig}.ts`), run `bun test tests/packages/cli --update-snapshots` and review the snapshot diff: it is the review surface, so a moved snapshot is a change to decide on, never noise to silence.
+- ALWAYS: Pair a generator's pure render function (config in, text out, snapshot-pinned) with its side-effecting apply; write every file through the atomic writer in `src/io.ts`, and edit shared dotfiles (`~/.zshrc`, `~/.gitconfig`) only inside a marked managed block (`src/managed-block.ts`).
+- ALWAYS: When a command, flag, field, or behavior changes, update `README.md` and the bundled self-skill `packages/cli/skills/inscope/SKILL.md` in the same change, and run the `ship` skill before committing.
+- ALWAYS: Keep `.github/workflows/release.yml` under that name: npm Trusted Publishing for `inscope` is bound to it. It publishes a canary on each push to `canary` and `latest` once auto-release tags a version.
 
 ## UI
 
@@ -76,6 +84,7 @@ Skills live in `.agents/skills` (symlinked to `.claude/skills` and `.github/skil
 | [release](.agents/skills/release/SKILL.md)               | Cut a production release by promoting canary to main.                                                                                                                           |
 | [runtime-apis](.agents/skills/runtime-apis/SKILL.md)     | Prefer Bun-native APIs, else Node built-ins with the node: prefix.                                                                                                              |
 | [shadcn-sync](.agents/skills/shadcn-sync/SKILL.md)       | Run and reconcile the shadcn component sync (`bun run shadcn:update`).                                                                                                          |
+| [ship](.agents/skills/ship/SKILL.md)                     | Prepare a change to the inscope CLI for a PR.                                                                                                                                   |
 | [skills-manager](.agents/skills/skills-manager/SKILL.md) | Keep the AGENTS.md skills tables generated from skill descriptions, and understand how a fork syncs its skills from upstream.                                                   |
 | [ui-verify](.agents/skills/ui-verify/SKILL.md)           | Verify a frontend or UI change in a real browser.                                                                                                                               |
 

@@ -74,6 +74,20 @@
         "typescript": "catalog:",
       },
     },
+    "packages/cli": {
+      "name": "inscope",
+      "version": "0.0.0",
+      "bin": {
+        "inscope": "dist/bin/index.mjs",
+      },
+      "devDependencies": {
+        "@packages/config": "workspace:*",
+        "@types/bun": "catalog:",
+        "@types/node": "catalog:",
+        "tsdown": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/config": {
       "name": "@packages/config",
       "version": "0.0.0",
@@ -1679,6 +1693,8 @@
     "inline-style-parser": ["inline-style-parser@0.2.7", "", {}, "sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA=="],
 
     "input-otp": ["input-otp@1.5.0", "", { "peerDependencies": { "react": "^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc", "react-dom": "^16.8 || ^17.0 || ^18.0 || ^19.0.0 || ^19.0.0-rc" } }, "sha512-3AcfdW1sNG0FmSA5hHMBXG7jNW5CdcdKs8ln8JOmn6S2SRkoXoJx+2UwC+ZvjflfnOdHJx0SfQ9/YjlxVYLtGQ=="],
+
+    "inscope": ["inscope@workspace:packages/cli"],
 
     "internmap": ["internmap@2.0.3", "", {}, "sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg=="],
 

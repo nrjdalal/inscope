@@ -1,6 +1,6 @@
 {
   "name": "inscope",
-  "version": "0.0.0",
+  "version": "0.17.0",
   "private": true,
   "workspaces": [
     "api/*",
