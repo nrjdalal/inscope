@@ -1,0 +1,41 @@
+name: auto-check-build
+
+on:
+  # no pull_request_review trigger: the result cannot change because someone reviewed, and a
+  # second run on the same commit only cancels the first through the concurrency group below,
+  # which surfaces on the PR as a cancelled check
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: ["canary", "main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-check-build:
+    name: Audit, Lint, and Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install dependencies
+        run: bun install --ignore-scripts
+
+      - name: Audit, Format, Lint, Check-types, Test, and Build
+        run: |
+          bun audit --audit-level high
+          bun run format:check
+          bun run lint
+          bun run check-types
+          bun run test
+          bun run build
+        env:
+          NODE_ENV: production
+          SKIP_ENV_VALIDATION: true

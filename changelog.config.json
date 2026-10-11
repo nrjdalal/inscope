@@ -1,9 +1,5 @@
 {
   "types": {
-    "ci": false,
-    "revert": {
-      "title": "⏪ Reverts",
-      "semver": "patch"
-    }
+    "ci": false
   }
 }
