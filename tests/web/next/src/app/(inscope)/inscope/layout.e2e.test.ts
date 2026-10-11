@@ -87,7 +87,8 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
       visit("/inscope", "MCP drifted")
       ab("find", "text", "~/work", "click")
       ab("wait", "--url", "**/inscope/workspaces/work")
-      ab("wait", "--text", "Pending changes")
+      // a label only the loaded page has; "Pending changes" is also in the sidebar
+      ab("wait", "--text", "Claude login")
       const text = ab("get", "text", "main")
       for (const part of [
         "Identity",
@@ -119,7 +120,7 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
     test("no rendered page carries a credential from the sandbox", () => {
       for (const [page, waitFor] of [
         ["/inscope", "MCP drifted"],
-        ["/inscope/workspaces/work", "Pending changes"],
+        ["/inscope/workspaces/work", "Claude login"],
         ["/inscope/doctor", "[acme] gh"],
         ["/inscope/diff", "mcp:work"],
       ]) {
