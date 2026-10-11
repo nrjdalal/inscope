@@ -1,0 +1,25 @@
+import { StatusBadge } from "@/components/inscope/status-badge"
+import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item"
+import type { InscopeCheck } from "@/lib/inscope"
+
+const statusLabel = { fail: "Fail", ok: "OK", warn: "Warn" } as const
+
+export function CheckList({ checks }: { checks: InscopeCheck[] }) {
+  return (
+    <ItemGroup className="gap-2">
+      {checks.map((check, index) => (
+        <Item key={`${check.label}-${index}`} variant="outline" size="sm">
+          <ItemContent>
+            <ItemTitle>
+              <StatusBadge tone={check.status}>{statusLabel[check.status]}</StatusBadge>
+              <span className="font-mono">{check.label}</span>
+            </ItemTitle>
+            {check.detail && (
+              <ItemDescription className="font-mono">{check.detail}</ItemDescription>
+            )}
+          </ItemContent>
+        </Item>
+      ))}
+    </ItemGroup>
+  )
+}

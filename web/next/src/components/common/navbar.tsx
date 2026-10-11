@@ -79,7 +79,12 @@ export function Navbar() {
     setToDashboard(false)
   }, [pathname])
 
-  if (pathname?.startsWith("/console") || pathname?.startsWith("/dashboard")) return null
+  if (
+    pathname?.startsWith("/console") ||
+    pathname?.startsWith("/dashboard") ||
+    pathname?.startsWith("/inscope")
+  )
+    return null
 
   // A link with a `feature` is shown only when that feature is enabled; /hire has none, so it always shows (and is stripped from forks by the CLI).
   const allNavLinks: { href: string; label: string; external?: boolean; feature?: Feature }[] = [
