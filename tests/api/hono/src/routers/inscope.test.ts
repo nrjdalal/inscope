@@ -2,10 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"
 
-import {
-  isLoopbackAddress,
-  isLoopbackHost,
-} from "../../../../../api/hono/src/middlewares/local-only"
 import { createInscopeRouter } from "../../../../../api/hono/src/routers/inscope"
 import { SECRETS, type Sandbox, seedSandbox } from "../../../../inscope/sandbox"
 
@@ -15,8 +11,8 @@ let sb: Sandbox
 const saved: Record<string, string | undefined> = {}
 
 // the library reads HOME, XDG_CONFIG_HOME and PATH at call time, so the sealed env goes on this process for the file and comes off after
-beforeAll(() => {
-  sb = seedSandbox()
+beforeAll(async () => {
+  sb = await seedSandbox()
   for (const [key, value] of Object.entries(sb.env)) {
     saved[key] = process.env[key]
     process.env[key] = value
@@ -105,25 +101,35 @@ describe("the local-only gate", () => {
     expect((await send("/", { method: "POST", headers: { origin: TRUSTED } })).status).toBe(404)
   })
 
-  test("never caches a response", async () => {
-    expect((await send("/")).headers.get("cache-control")).toBe("no-store")
+  test("refuses a request a proxy on this machine relayed for another host or client", async () => {
+    // next dev forwards /api to the API from loopback with the Host rewritten, so the hop it came from is only in these headers
+    for (const headers of [
+      { "x-forwarded-host": "rebind.attacker.test:3000" },
+      { "x-forwarded-host": "localhost:3000", "x-forwarded-for": "192.168.68.105" },
+      { "x-forwarded-for": "127.0.0.1, 10.0.0.9" },
+      { "x-real-ip": "10.0.0.9" },
+      { forwarded: 'for="[2001:db8::1]:4711";host=localhost:3000' },
+      { forwarded: "for=127.0.0.1;host=evil.example" },
+      { forwarded: "for=unknown" },
+    ] as Record<string, string>[]) {
+      const res = await send("/", { headers })
+      expect(`${JSON.stringify(headers)} ${res.status}`).toBe(`${JSON.stringify(headers)} 403`)
+    }
   })
 
-  test("isLoopbackHost and isLoopbackAddress accept only loopback", () => {
-    for (const host of [
-      "localhost",
-      "127.0.0.1",
-      "[::1]",
-      "inscope.localhost",
-      "api.inscope.localhost",
-    ])
-      expect(isLoopbackHost(host)).toBe(true)
-    for (const host of ["localhost.evil.example", "evil.example", "0.0.0.0", "192.168.1.2"])
-      expect(isLoopbackHost(host)).toBe(false)
-    for (const address of ["127.0.0.1", "127.0.1.1", "::1", "::ffff:127.0.0.1"])
-      expect(isLoopbackAddress(address)).toBe(true)
-    for (const address of [undefined, "", "0.0.0.0", "10.0.0.1", "::ffff:10.0.0.1", "fe80::1"])
-      expect(isLoopbackAddress(address)).toBe(false)
+  test("admits a proxy on this machine relaying a loopback request (portless, next dev)", async () => {
+    for (const headers of [
+      { "x-forwarded-host": "api.inscope.localhost:1355", "x-forwarded-for": "127.0.0.1" },
+      { "x-forwarded-host": "localhost:3000", "x-forwarded-for": "::1" },
+      { forwarded: 'for="[::1]:51234";host=localhost:3000;proto=http' },
+    ] as Record<string, string>[])
+      expect((await send("/", { headers })).status).toBe(200)
+  })
+
+  test("never caches a response, the gate's own refusals included", async () => {
+    expect((await send("/")).headers.get("cache-control")).toBe("no-store")
+    expect((await send("/", {}, "evil.example:4000")).headers.get("cache-control")).toBe("no-store")
+    expect((await send("/", { stage: "production" })).headers.get("cache-control")).toBe("no-store")
   })
 })
 
@@ -162,6 +168,19 @@ describe("GET /api/inscope", () => {
       },
     ])
     expect(acme.mcp.state).toBe("missing")
+    // server names only: inscope's own for the workspace, the user's hand-added ones, and whether each is written yet
+    expect(work.mcp.servers).toEqual([
+      { managed: true, name: "github-work", written: true },
+      { managed: true, name: "linear-work", written: true },
+      { managed: false, name: "mine", written: true },
+      { managed: false, name: "remote", written: true },
+      { managed: true, name: "slack-work", written: true },
+    ])
+    expect(
+      acme.mcp.servers.every(
+        (s: { managed: boolean; written: boolean }) => s.managed && !s.written,
+      ),
+    ).toBe(true)
   })
 })
 
@@ -242,6 +261,10 @@ describe("GET /api/inscope/diff", () => {
     expect(work.diff).toContain('-       "url": "https://mcp.linear.app/sse-old"')
     expect(work.diff).toContain('+       "url": "https://mcp.linear.app/mcp"')
     expect(work.diff).toContain('"MY_API_KEY": "<redacted>"')
+    expect(work.diff).toContain('"MY_TOKEN": "<redacted>"')
+    expect(work.diff).toContain('"--api-key",')
+    expect(work.diff).toContain('"url": "https://mcp.example.com/sse?<redacted>"')
+    expect(work.diff).toContain('"Authorization": "<redacted>"')
     expect(work.diff).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
     expect(drifts[2].diff).toContain("- old-notes -> ")
   })

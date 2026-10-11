@@ -1,11 +1,17 @@
 // A sealed, deterministic inscope machine for the dashboard's tests and screenshots: its own HOME, stub gh/claude/security on PATH, three workspaces applied by the real CLI, then drifted on purpose. Run `bun tests/inscope/sandbox.ts [--dir <path>]` to seed one and print its env as KEY=VALUE lines.
-import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
 // The fake credentials the stubs hand out: a test asserts none of them ever reaches a response.
-export const SECRETS = ["gho_demo_token", "xoxp-demo-secret", "sk-should-be-redacted"] as const
+export const SECRETS = [
+  "bearer-should-be-redacted",
+  "default-token-should-be-redacted",
+  "gho_demo_token",
+  "query-token-should-be-redacted",
+  "sk-should-be-redacted",
+  "xoxp-demo-secret",
+] as const
 
 const REPO = path.resolve(import.meta.dir, "..", "..")
 const CLI = path.join(REPO, "packages", "cli", "bin", "index.ts")
@@ -75,13 +81,13 @@ const sealedEnv = (root: string): Record<string, string> => {
   }
 }
 
-const write = (file: string, content: string, mode?: number) => {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, content)
+// Bun.write creates the parent directories itself
+const write = async (file: string, content: string, mode?: number) => {
+  await Bun.write(file, content)
   if (mode) fs.chmodSync(file, mode)
 }
 
-export const seedSandbox = (dir?: string): Sandbox => {
+export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
   const target = dir ?? fs.mkdtempSync(path.join(os.tmpdir(), "inscope-dashboard-"))
   fs.rmSync(target, { recursive: true, force: true })
   fs.mkdirSync(target, { recursive: true })
@@ -90,21 +96,21 @@ export const seedSandbox = (dir?: string): Sandbox => {
   const home = path.join(root, "home")
   const env = sealedEnv(root)
 
-  write(path.join(root, "bin", "gh"), GH, 0o755)
-  write(path.join(root, "bin", "claude"), CLAUDE, 0o755)
-  write(path.join(root, "bin", "security"), SECURITY, 0o755)
+  await write(path.join(root, "bin", "gh"), GH, 0o755)
+  await write(path.join(root, "bin", "claude"), CLAUDE, 0o755)
+  await write(path.join(root, "bin", "security"), SECURITY, 0o755)
   fs.mkdirSync(path.join(root, "gh"), { recursive: true })
-  write(
+  await write(
     path.join(root, "skills", "readme-audit", "SKILL.md"),
     "---\nname: readme-audit\ndescription: Audit a README.\n---\n",
   )
 
   for (const ws of ["personal", "work", path.join("clients", "acme")]) {
     fs.mkdirSync(path.join(home, ws), { recursive: true })
-    spawnSync("git", ["init", "-q"], { cwd: path.join(home, ws), env })
+    Bun.spawnSync(["git", "init", "-q"], { cwd: path.join(home, ws), env })
   }
 
-  write(
+  await write(
     path.join(home, ".config", "inscope", "inscope.json"),
     `${JSON.stringify(
       {
@@ -149,23 +155,31 @@ export const seedSandbox = (dir?: string): Sandbox => {
     )}\n`,
   )
 
-  const applied = spawnSync("bun", [CLI, "apply"], { cwd: home, encoding: "utf8", env })
-  if (applied.status !== 0)
-    throw new Error(`inscope apply failed in the sandbox:\n${applied.stderr}`)
+  const applied = Bun.spawnSync(["bun", CLI, "apply"], { cwd: home, env })
+  if (applied.exitCode !== 0)
+    throw new Error(`inscope apply failed in the sandbox:\n${applied.stderr.toString()}`)
 
   // the work login is signed in: Claude leaves its state file in the login dir
-  write(path.join(home, "work", ".inscope", ".claude.json"), '{"oauthAccount":{}}\n')
+  await write(path.join(home, "work", ".inscope", ".claude.json"), '{"oauthAccount":{}}\n')
 
-  // drift work/.mcp.json by hand: a changed URL, plus a server of the user's own that carries a literal key
+  // drift work/.mcp.json by hand: a changed URL, plus two servers of the user's own that carry credentials in every shape the redaction covers
   const mcpFile = path.join(home, "work", ".mcp.json")
-  const mcp = JSON.parse(fs.readFileSync(mcpFile, "utf8"))
+  const mcp = await Bun.file(mcpFile).json()
   mcp.mcpServers["linear-work"].url = "https://mcp.linear.app/sse-old"
   mcp.mcpServers.mine = {
     command: "npx",
-    args: ["-y", "my-mcp"],
-    env: { MY_API_KEY: "sk-should-be-redacted" },
+    args: ["-y", "my-mcp", "--api-key", "sk-should-be-redacted"],
+    env: {
+      MY_API_KEY: "sk-should-be-redacted",
+      MY_TOKEN: "${MY_TOKEN:-default-token-should-be-redacted}",
+    },
   }
-  write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
+  mcp.mcpServers.remote = {
+    type: "http",
+    url: "https://mcp.example.com/sse?token=query-token-should-be-redacted",
+    headers: { Authorization: "Bearer bearer-should-be-redacted" },
+  }
+  await write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
 
   // acme's .mcp.json was never written (or was deleted)
   fs.rmSync(path.join(home, "clients", "acme", ".mcp.json"), { force: true })
@@ -173,9 +187,9 @@ export const seedSandbox = (dir?: string): Sandbox => {
   // an inscope link no workspace declares any more, and a skill folder of the user's own
   const workSkills = path.join(home, "work", ".inscope", "skills")
   const orphan = path.join(home, ".config", "inscope", "skills-cache", "local", "old-notes")
-  write(path.join(orphan, "SKILL.md"), "---\nname: old-notes\ndescription: Old notes.\n---\n")
+  await write(path.join(orphan, "SKILL.md"), "---\nname: old-notes\ndescription: Old notes.\n---\n")
   fs.symlinkSync(orphan, path.join(workSkills, "old-notes"))
-  write(
+  await write(
     path.join(workSkills, "my-notes", "SKILL.md"),
     "---\nname: my-notes\ndescription: Mine.\n---\n",
   )
@@ -185,7 +199,7 @@ export const seedSandbox = (dir?: string): Sandbox => {
 
 if (import.meta.main) {
   const flag = process.argv.indexOf("--dir")
-  const { env } = seedSandbox(flag === -1 ? undefined : process.argv[flag + 1])
+  const { env } = await seedSandbox(flag === -1 ? undefined : process.argv[flag + 1])
   for (const key of [
     "GH_CONFIG_DIR",
     "GIT_CONFIG_NOSYSTEM",

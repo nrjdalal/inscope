@@ -1,7 +1,8 @@
-// Runs the dashboard end to end against a sealed sandbox: seeds one (tests/inscope/sandbox.ts), starts the API on it at :4000 and `next dev` at :3000, then runs the dashboard's e2e suite, or with --keep leaves both up for a browser. `bun tests/inscope/stack.ts [--dir <path>] [--keep]`.
-import { type ChildProcess, spawn } from "node:child_process"
+// Runs the dashboard end to end against a sealed sandbox: seeds one (tests/inscope/sandbox.ts), starts the API on it at :4000 and `next dev` at :3000, then runs the dashboard's e2e suites, or with --keep leaves both up for a browser. `bun tests/inscope/serve.ts [--dir <path>] [--keep]`; E2E_SCREENSHOT_DIR makes the browser suite save its screenshots there.
 import fs from "node:fs"
 import path from "node:path"
+
+import type { Subprocess } from "bun"
 
 import { seedSandbox } from "./sandbox"
 
@@ -12,7 +13,7 @@ export const WEB_URL = "http://localhost:3000"
 const flag = (name: string) => process.argv.indexOf(name)
 const dirAt = flag("--dir")
 const keep = flag("--keep") !== -1
-const sb = seedSandbox(dirAt === -1 ? undefined : process.argv[dirAt + 1])
+const sb = await seedSandbox(dirAt === -1 ? undefined : process.argv[dirAt + 1])
 
 // Only what the API needs to boot; Bun's SQL client connects lazily and no dashboard route reaches the database, so a dummy URL is enough.
 const apiEnv = {
@@ -35,11 +36,11 @@ const webEnv = {
 }
 
 // each server runs in its own process group, so stopping it also stops what it spawned (`bun run dev:app` reaches `next dev` through two wrappers)
-const children: ChildProcess[] = []
+const children: Subprocess[] = []
 const stop = () => {
   for (const child of children) {
     try {
-      if (child.pid) process.kill(-child.pid, "SIGTERM")
+      process.kill(-child.pid, "SIGTERM")
     } catch {
       // already gone
     }
@@ -57,12 +58,13 @@ const start = (
   env: Record<string, string | undefined>,
   log: string,
 ) => {
-  const out = fs.openSync(path.join(sb.root, log), "a")
-  const child = spawn(cmd[0], cmd.slice(1), {
+  const out = Bun.file(path.join(sb.root, log))
+  const child = Bun.spawn(cmd, {
     cwd: path.join(REPO, cwd),
     detached: true,
     env,
-    stdio: ["ignore", out, out],
+    stderr: out,
+    stdout: out,
   })
   children.push(child)
   return child
@@ -101,13 +103,17 @@ try {
     await new Promise(() => {})
   }
 
-  const suite = Bun.spawn(["bun", "test", "tests/inscope", "--timeout", "30000"], {
+  const suites = [
+    "tests/api/hono/src/routers/inscope.e2e.test.ts",
+    "tests/web/next/src/app/(inscope)/inscope/layout.e2e.test.ts",
+  ]
+  const suite = Bun.spawn(["bun", "test", ...suites, "--timeout", "60000"], {
     cwd: REPO,
     env: {
       ...process.env,
-      E2E_INSCOPE_API_URL: API_URL,
+      E2E_API_URL: API_URL,
       E2E_INSCOPE_SANDBOX: sb.root,
-      E2E_INSCOPE_WEB_URL: WEB_URL,
+      E2E_WEB_URL: WEB_URL,
     },
     stdout: "inherit",
     stderr: "inherit",
