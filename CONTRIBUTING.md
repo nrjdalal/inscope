@@ -153,9 +153,12 @@ Releases follow zerostarter's flow. A push to `canary` that touches
 neither the version nor the changelog is hand-written.
 `.github/workflows/release.yml` then publishes that version to npm as `latest`
 (`packages/cli/package.json` holds a `0.0.0` placeholder that the workflow
-stamps). A maintainer comment starting with `/release` on a PR publishes a
-throwaway test version for that PR's head. Keep `release.yml` under that name:
-npm Trusted Publishing for `inscope` is bound to it.
+stamps). `gh workflow run release.yml -f pr=<n>` publishes a same-repo PR's
+head as a throwaway test version (`0.0.0-<sha>` on the `test` tag) and links it
+on the PR. It replaces zerostarter's `/release` comment, which cannot publish
+here: npm refuses Trusted Publishing from comment-triggered runs. Keep
+`release.yml` under that name: npm Trusted Publishing for `inscope` is bound to
+it.
 
 ### Repository settings
 

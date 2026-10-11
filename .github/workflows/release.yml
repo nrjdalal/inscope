@@ -18,15 +18,20 @@ on:
   release:
     types: [published]
   # a manual run on canary publishes the latest tag's release version: the way back when a release's publish leg failed, since a re-run replays that run's own workflow file. canary only, because the tag is found by what the checkout can reach, and an older ref reaches an older release
+  # with `pr` set it publishes that PR's head as a throwaway test version instead; this replaces upstream's `/release` comment, since npm refuses Trusted Publishing from issue_comment runs
   workflow_dispatch:
-  issue_comment:
-    types: [created]
+    inputs:
+      pr:
+        description: "Publish this PR's head as 0.0.0-<sha> on the test tag (empty: republish the latest release tag)"
+        required: false
+        type: string
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   test:
-    if: github.event_name == 'push' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/canary') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    # a test publish skips the matrix, as upstream's `/release` did: it would test canary rather than the PR's head, which the PR's own CI already covers
+    if: github.event_name == 'push' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/canary' && inputs.pr == '') || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     # the publish scopes live on the release job alone; a test matrix needs none of them
     permissions:
       contents: read
@@ -65,8 +70,7 @@ jobs:
         github.event_name == 'push' ||
         github.event_name == 'release' ||
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/canary') ||
-        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-        github.event_name == 'issue_comment' && github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '/release')
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
       )
     needs: [test]
     runs-on: ubuntu-latest
@@ -104,12 +108,12 @@ jobs:
           VERSIONS=$(npm view $PACKAGE_NAME dist-tags --json)
           LATEST_VERSION=$(echo $VERSIONS | bunx json latest)
           # the CLI has no version of its own (package.json is a 0.0.0 placeholder CI stamps): it ships the repo's release version, read from the tag auto-release created
-          if [[ $GITHUB_EVENT_NAME == 'issue_comment' ]]; then
-            PR_NUMBER=$(echo "$PR_URL" | grep -o '[0-9]*$')
+          if [[ -n $PR_NUMBER ]]; then
+            [[ $PR_NUMBER =~ ^[0-9]+$ ]] || { echo "::error::pr takes a PR number, got: $PR_NUMBER"; exit 1; }
             PR=$(curl -fsSL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
             HEAD_REPO=$(echo "$PR" | bunx json head.repo.full_name)
             # same-repo only: this builds and publishes the PR's own code with the job able to publish, so a fork's install scripts and build must never run here (a fork head is not even fetched today, but the gate must not rest on that)
-            [[ $HEAD_REPO == "$GITHUB_REPOSITORY" ]] || { echo "::error::/release publishes same-repo PRs only; #$PR_NUMBER comes from $HEAD_REPO"; exit 1; }
+            [[ $HEAD_REPO == "$GITHUB_REPOSITORY" ]] || { echo "::error::a test publish takes same-repo PRs only; #$PR_NUMBER comes from $HEAD_REPO"; exit 1; }
             LATEST_COMMIT_SHA=$(echo "$PR" | bunx json head.sha)
             git checkout $LATEST_COMMIT_SHA
             TAG="test"
@@ -149,9 +153,7 @@ jobs:
           npm publish --access public --no-git-checks --tag $TAG
 
           PACKAGE_URL="https://www.npmjs.com/package/$PACKAGE_NAME/v/$RELEASE_VERSION"
-          if [[ $GITHUB_EVENT_NAME == 'issue_comment' ]]; then
-            curl -fsSL -X DELETE -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" >/dev/null \
-              && echo "🟢 Releasing comment deleted!" || echo "🔴 Failed to delete releasing comment."
+          if [[ -n $PR_NUMBER ]]; then
             curl -fsSL -X POST -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
               -d "{\"body\": \"Test package released - [\`$PACKAGE_NAME@$RELEASE_VERSION\`]($PACKAGE_URL)\"}" >/dev/null \
               && echo "🟢 Release comment to PR added!" || echo "🔴 Failed to add release comment to PR."
@@ -165,5 +167,4 @@ jobs:
           fi
         # event values reach the script through env, never inline in run, so a payload field is data rather than shell
         env:
-          COMMENT_ID: ${{ github.event.comment.id }}
-          PR_URL: ${{ github.event.issue.pull_request.url }}
+          PR_NUMBER: ${{ inputs.pr }}
