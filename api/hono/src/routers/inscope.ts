@@ -1,7 +1,14 @@
 import { env } from "@packages/env/api-hono"
 import { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
-import { defaultRunner, type Runner, workspaceNameError } from "inscope"
+import {
+  CHECK_STATUSES,
+  defaultRunner,
+  GIT_SOURCES,
+  OTHER_SKILL_KINDS,
+  type Runner,
+  workspaceNameError,
+} from "inscope"
 import { z } from "zod"
 
 import {
@@ -29,7 +36,7 @@ const skillsSchema = z.object({
   dir: z.string().meta({ example: "~/work/.inscope/skills" }),
   other: z.array(
     z.object({
-      kind: z.enum(["own", "stale", "synced", "workspace"]),
+      kind: z.enum(OTHER_SKILL_KINDS),
       label: z.string().meta({ example: "yours" }),
       name: z.string().meta({ example: "my-notes" }),
       target: z.string().nullable(),
@@ -60,10 +67,10 @@ const workspaceSchema = z.object({
       }),
     ),
     state: z.enum(MCP_STATES),
+    types: z.array(z.string()).meta({ example: ["github", "linear"] }),
   }),
   name: z.string().meta({ example: "work" }),
   path: z.string().meta({ example: "~/work" }),
-  servers: z.array(z.string()).meta({ example: ["github", "linear"] }),
   skills: skillsSchema,
 })
 
@@ -76,7 +83,7 @@ const identitySchema = z.object({
     signedIn: z.boolean(),
     subscription: z.string().nullable().meta({ example: "team" }),
   }),
-  git: z.object({ email: z.string().nullable(), source: z.enum(["global", "workspace"]) }),
+  git: z.object({ email: z.string().nullable(), source: z.enum(GIT_SOURCES) }),
   github: z.object({ account: z.string(), token: z.boolean() }).nullable(),
   name: z.string().meta({ example: "work" }),
 })
@@ -84,7 +91,7 @@ const identitySchema = z.object({
 const checkSchema = z.object({
   detail: z.string().nullable(),
   label: z.string().meta({ example: "[work] mcp" }),
-  status: z.enum(["fail", "ok", "warn"]),
+  status: z.enum(CHECK_STATUSES),
 })
 
 const driftSchema = z.object({

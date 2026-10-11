@@ -63,17 +63,27 @@ export const findWorkspaceOrThrow = (
 
 const REDACTED = "<redacted>"
 
-// a key or flag whose name says it holds a credential
-const CREDENTIAL_NAME = /auth|cookie|credential|key|pass|pwd|secret|token|(^|[-_])pat($|[-_])/i
+// a key, flag, or variable whose name says it holds a credential
+const CREDENTIAL_NAME =
+  /auth|connection|cookie|credential|dsn|key|pass|pwd|secret|token|(^|[-_])pat($|[-_])/i
 
 // only names an environment variable, with at most an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), so it holds no secret
 const ENV_REFERENCE = /^\$\{\w+(:-)?\}$/
 
-// the query and the user info of every URL inside a string
-export const redactUrls = (value: string): string =>
+const URL_START = String.raw`\b[a-z][a-z0-9+.-]*:\/\/`
+
+// Every credential a free string can carry by its shape: the user info, query, and fragment of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=), an HTTP auth scheme's token, and the value of a `name=value` or `Name: value` pair whose name says credential.
+export const redactStrings = (value: string): string =>
   value
-    .replace(/\b(https?:\/\/)[^/\s@"']*@/gi, `$1${REDACTED}@`)
-    .replace(/(\bhttps?:\/\/[^\s?#"']*\?)[^\s#"']+/gi, `$1${REDACTED}`)
+    .replace(new RegExp(`(${URL_START})[^/\\s@"']*@`, "gi"), `$1${REDACTED}@`)
+    .replace(new RegExp(`(${URL_START}[^\\s?#"']*\\?)[^\\s#"']+`, "gi"), `$1${REDACTED}`)
+    .replace(new RegExp(`(${URL_START}[^\\s#"']*#)[^\\s"']+`, "gi"), `$1${REDACTED}`)
+    .replace(/\b(Basic|Bearer|Token)\s+[\w.~+/=-]{8,}/g, `$1 ${REDACTED}`)
+    .replace(
+      /\b([A-Za-z_][\w.-]*)(\s*=\s*|\s*:\s+)(?!(?:Basic|Bearer|Token)\b)([^\s,;&"']+)/g,
+      (pair: string, name: string, separator: string) =>
+        CREDENTIAL_NAME.test(name) ? `${name}${separator}${REDACTED}` : pair,
+    )
 
 const secret = (value: unknown): unknown =>
   typeof value === "string" && ENV_REFERENCE.test(value) ? value : REDACTED
@@ -85,23 +95,20 @@ const redactAll = (value: unknown): unknown => {
   return secret(value)
 }
 
+// A command line: the value after a credential flag (`--api-key x`), and the value of a `KEY=value` passed to `-e`/`--env` (docker), whatever its name; every other argument goes through redactStrings.
 const redactArgs = (args: unknown[]): unknown[] =>
   args.map((arg, index) => {
     const previous = args[index - 1]
-    if (
-      typeof previous === "string" &&
-      /^--?[\w-]+$/.test(previous) &&
-      CREDENTIAL_NAME.test(previous)
-    )
-      return secret(arg)
+    const flag = typeof previous === "string" && /^--?[\w-]+$/.test(previous) ? previous : ""
+    if (flag && CREDENTIAL_NAME.test(flag)) return secret(arg)
     if (typeof arg !== "string") return redactValue(arg)
-    const flag = arg.match(/^(--?[\w-]+)=/)
-    if (flag && CREDENTIAL_NAME.test(flag[1])) return `${flag[0]}${REDACTED}`
-    return redactUrls(arg)
+    const variable = arg.match(/^([\w.-]+)=/)
+    if (variable && (flag === "-e" || flag === "--env")) return `${variable[0]}${REDACTED}`
+    return redactStrings(arg)
   })
 
 const redactValue = (value: unknown): unknown => {
-  if (typeof value === "string") return redactUrls(value)
+  if (typeof value === "string") return redactStrings(value)
   if (Array.isArray(value)) return redactArgs(value)
   if (value === null || typeof value !== "object") return value
   return Object.fromEntries(
@@ -141,22 +148,33 @@ const checkRow = (c: Check) => ({ detail: c.detail ?? null, label: c.label, stat
 
 export const MCP_STATES = ["drifted", "in-sync", "invalid", "missing"] as const
 
-const mcpState = (ws: Workspace, drifts: Drift[]): (typeof MCP_STATES)[number] => {
-  if (mcpError(ws)) return "invalid"
-  if (!fs.existsSync(mcpFilePath(ws))) return "missing"
-  return drifts.some((d) => d.path === mcpFilePath(ws)) ? "drifted" : "in-sync"
-}
-
-// Server names only: the ones inscope writes for this workspace and any the user added by hand, and whether each is in the file yet.
-const mcpServers = (ws: Workspace) => {
-  if (mcpError(ws)) return []
+// A workspace's .mcp.json as the dashboard shows it, read and parsed once: whether it is in sync, the server names in it (inscope's own and any added by hand, and whether each is written yet), and the server types the config enables.
+const mcpBlock = (ws: Workspace, drifts: Drift[]) => {
+  const file = mcpFilePath(ws)
+  const error = mcpError(ws)
+  const exists = fs.existsSync(file)
   const managed = Object.keys(renderServers(ws))
-  const onDisk = Object.keys(readMcp(ws)?.mcpServers ?? {})
-  return [...new Set([...managed, ...onDisk])].sort().map((name) => ({
-    managed: managed.includes(name),
-    name,
-    written: onDisk.includes(name),
-  }))
+  const onDisk = error || !exists ? [] : Object.keys(readMcp(ws)?.mcpServers ?? {})
+  const state: (typeof MCP_STATES)[number] = error
+    ? "invalid"
+    : !exists
+      ? "missing"
+      : drifts.some((d) => d.path === file)
+        ? "drifted"
+        : "in-sync"
+  return {
+    error,
+    path: contractTilde(file),
+    servers: error
+      ? []
+      : [...new Set([...managed, ...onDisk])].sort().map((name) => ({
+          managed: managed.includes(name),
+          name,
+          written: onDisk.includes(name),
+        })),
+    state,
+    types: SERVER_TYPES.filter((t) => Boolean(ws.servers[t])),
+  }
 }
 
 const skillRows = (cfg: Config, ws: Workspace) => ({
@@ -179,15 +197,9 @@ const workspaceSummary = (cfg: Config, ws: Workspace, drifts: Drift[]) => ({
   gh: ws.gh ?? null,
   git: { email: ws.git?.email ?? null, name: ws.git?.name ?? null },
   isolated: ws.isolate === true,
-  mcp: {
-    error: mcpError(ws),
-    path: contractTilde(mcpFilePath(ws)),
-    servers: mcpServers(ws),
-    state: mcpState(ws, drifts),
-  },
+  mcp: mcpBlock(ws, drifts),
   name: ws.name,
   path: ws.path,
-  servers: SERVER_TYPES.filter((t) => Boolean((ws.servers as Record<string, unknown>)[t])),
   skills: skillRows(cfg, ws),
 })
 
@@ -237,12 +249,12 @@ export const doctor = (cfg: Config | null, run: Runner = defaultRunner) => {
   return { checks: checks.map(checkRow), summary: summarize(checks) }
 }
 
-// What `inscope apply` would change, and what `inscope diff --adopt` would pull back into the config; an adopted value can be a URL, so its query and user info are redacted too.
+// What `inscope apply` would change, and what `inscope diff --adopt` would pull back into the config; an adopted value can be a URL or a credential, so it goes through redactStrings too.
 export const diff = (cfg: Config | null) => {
   if (!cfg) return { drifts: [], adoptable: [] }
   return {
     drifts: computeDrift(cfg).map((d) => driftRow(cfg, d)),
-    adoptable: adoptable(cfg).changes.map(redactUrls),
+    adoptable: adoptable(cfg).changes.map(redactStrings),
   }
 }
 
