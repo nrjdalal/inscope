@@ -9,12 +9,15 @@ import {
   configPath,
   contractTilde,
   defaultRunner,
+  type Drift,
   diffLines,
   loadConfig,
   mcpError,
   mcpFilePath,
   otherSkillLabel,
   otherSkillsIn,
+  readMcp,
+  renderServers,
   resolveAbsolute,
   resolveStatus,
   type Runner,
@@ -24,12 +27,14 @@ import {
   skillsDir,
   sourceLabel,
   type Workspace,
+  workspaceChecks,
+  workspaceDrifts,
   workspaceSkills,
 } from "inscope"
 
 import { ApiError } from "@/lib/error"
 
-// Every shape below is mapped field by field, so a field the library adds later never reaches the page unreviewed, and a token can only ever leave as a boolean.
+// Every shape below is mapped field by field, rows A to Z and each response's subject first, so a field the library adds later never reaches the page unreviewed, and a token can only ever leave as a boolean.
 
 // The config on disk, or null before the first `inscope add`; an invalid file is the user's to fix, so it surfaces as its own error rather than a 500.
 export const readConfig = (): Config | null => {
@@ -45,21 +50,113 @@ export const readConfig = (): Config | null => {
   }
 }
 
-export const findWorkspaceOrThrow = (cfg: Config | null, name: string): Workspace => {
+export const findWorkspaceOrThrow = (
+  cfg: Config | null,
+  name: string,
+): { cfg: Config; ws: Workspace } => {
   const ws = cfg?.workspaces.find((w) => w.name === name)
-  if (!ws) throw new ApiError(404, "NOT_FOUND", `No workspace named "${name}"`)
-  return ws
+  if (!cfg || !ws) throw new ApiError(404, "NOT_FOUND", `No workspace named "${name}"`)
+  return { cfg, ws }
 }
 
-const enabledServers = (ws: Workspace): string[] =>
-  SERVER_TYPES.filter((t) => Boolean((ws.servers as Record<string, unknown>)[t]))
+// Redaction runs before the diff, on the parsed .mcp.json, so a credential is caught by where it sits rather than by how its line happens to look.
 
-export type McpState = "drifted" | "in-sync" | "invalid" | "missing"
+const REDACTED = "<redacted>"
 
-const mcpState = (ws: Workspace, drifted: Set<string>): McpState => {
+// a key or flag whose name says it holds a credential
+const CREDENTIAL_NAME = /auth|cookie|credential|key|pass|pwd|secret|token|(^|[-_])pat($|[-_])/i
+
+// only names an environment variable, with at most an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), so it holds no secret
+const ENV_REFERENCE = /^\$\{\w+(:-)?\}$/
+
+// the query and the user info of every URL inside a string
+export const redactUrls = (value: string): string =>
+  value
+    .replace(/\b(https?:\/\/)[^/\s@"']*@/gi, `$1${REDACTED}@`)
+    .replace(/(\bhttps?:\/\/[^\s?#"']*\?)[^\s#"']+/gi, `$1${REDACTED}`)
+
+const secret = (value: unknown): unknown =>
+  typeof value === "string" && ENV_REFERENCE.test(value) ? value : REDACTED
+
+const redactAll = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(redactAll)
+  if (value !== null && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, redactAll(child)]))
+  return secret(value)
+}
+
+const redactArgs = (args: unknown[]): unknown[] =>
+  args.map((arg, index) => {
+    const previous = args[index - 1]
+    if (
+      typeof previous === "string" &&
+      /^--?[\w-]+$/.test(previous) &&
+      CREDENTIAL_NAME.test(previous)
+    )
+      return secret(arg)
+    if (typeof arg !== "string") return redactValue(arg)
+    const flag = arg.match(/^(--?[\w-]+)=/)
+    if (flag && CREDENTIAL_NAME.test(flag[1])) return `${flag[0]}${REDACTED}`
+    return redactUrls(arg)
+  })
+
+const redactValue = (value: unknown): unknown => {
+  if (typeof value === "string") return redactUrls(value)
+  if (Array.isArray(value)) return redactArgs(value)
+  if (value === null || typeof value !== "object") return value
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      // every value under env or headers is a credential until it only names a variable
+      key === "env" || key === "headers" || CREDENTIAL_NAME.test(key)
+        ? redactAll(child)
+        : redactValue(child),
+    ]),
+  )
+}
+
+// A .mcp.json's text with every credential replaced, re-serialized the way apply writes it; text that does not parse is withheld whole.
+export const redactMcpText = (text: string): string => {
+  if (!text) return text
+  try {
+    return `${JSON.stringify(redactValue(JSON.parse(text)), null, 2)}\n`
+  } catch {
+    return REDACTED
+  }
+}
+
+// the hook, git includes, and skill links hold no credential, only account names, emails, and paths
+const driftRow = (cfg: Config, d: Drift) => {
+  const isMcp = cfg.workspaces.some((ws) => mcpFilePath(ws) === d.path)
+  const text = (value: string) => (isMcp ? redactMcpText(value) : value)
+  return {
+    diff: d.error ? null : diffLines(text(d.current), text(d.next)),
+    error: d.error ?? null,
+    label: d.label,
+    path: contractTilde(d.path),
+  }
+}
+
+const checkRow = (c: Check) => ({ detail: c.detail ?? null, label: c.label, status: c.status })
+
+export const MCP_STATES = ["drifted", "in-sync", "invalid", "missing"] as const
+
+const mcpState = (ws: Workspace, drifts: Drift[]): (typeof MCP_STATES)[number] => {
   if (mcpError(ws)) return "invalid"
   if (!fs.existsSync(mcpFilePath(ws))) return "missing"
-  return drifted.has(`mcp:${ws.name}`) ? "drifted" : "in-sync"
+  return drifts.some((d) => d.path === mcpFilePath(ws)) ? "drifted" : "in-sync"
+}
+
+// Server names only: the ones inscope writes for this workspace and any the user added by hand, and whether each is in the file yet.
+const mcpServers = (ws: Workspace) => {
+  if (mcpError(ws)) return []
+  const managed = Object.keys(renderServers(ws))
+  const onDisk = Object.keys(readMcp(ws)?.mcpServers ?? {})
+  return [...new Set([...managed, ...onDisk])].sort().map((name) => ({
+    managed: managed.includes(name),
+    name,
+    written: onDisk.includes(name),
+  }))
 }
 
 const skillRows = (cfg: Config, ws: Workspace) => ({
@@ -78,37 +175,38 @@ const skillRows = (cfg: Config, ws: Workspace) => ({
   })),
 })
 
-const workspaceSummary = (cfg: Config, ws: Workspace, drifted: Set<string>) => ({
-  name: ws.name,
+const workspaceSummary = (cfg: Config, ws: Workspace, drifts: Drift[]) => ({
   gh: ws.gh ?? null,
   git: { email: ws.git?.email ?? null, name: ws.git?.name ?? null },
   isolated: ws.isolate === true,
-  mcp: { error: mcpError(ws), path: contractTilde(mcpFilePath(ws)), state: mcpState(ws, drifted) },
+  mcp: {
+    error: mcpError(ws),
+    path: contractTilde(mcpFilePath(ws)),
+    servers: mcpServers(ws),
+    state: mcpState(ws, drifts),
+  },
+  name: ws.name,
   path: ws.path,
-  servers: enabledServers(ws),
+  servers: SERVER_TYPES.filter((t) => Boolean((ws.servers as Record<string, unknown>)[t])),
   skills: skillRows(cfg, ws),
 })
 
-const driftLabels = (cfg: Config) => new Set(computeDrift(cfg).map((d) => d.label))
-
 // What the config says and what is on disk; reads files only, never spawns a process.
 export const overview = (cfg: Config | null) => {
-  const drifted = cfg ? driftLabels(cfg) : new Set<string>()
-  return {
-    config: {
-      bypass: cfg?.bypass === true,
-      exists: cfg !== null,
-      path: contractTilde(configPath()),
-    },
-    workspaces: (cfg?.workspaces ?? []).map((ws) => workspaceSummary(cfg as Config, ws, drifted)),
+  const config = {
+    bypass: cfg?.bypass === true,
+    exists: cfg !== null,
+    path: contractTilde(configPath()),
   }
+  if (!cfg) return { workspaces: [], config }
+  const drifts = computeDrift(cfg)
+  return { workspaces: cfg.workspaces.map((ws) => workspaceSummary(cfg, ws, drifts)), config }
 }
 
 // The identity each workspace resolves to, as `inscope status` run inside it would show; spawns claude, gh, and git through `run`.
 const identity = (cfg: Config, ws: Workspace, run: Runner) => {
   const s = resolveStatus(cfg, { cwd: resolveAbsolute(ws.path), run })
   return {
-    name: ws.name,
     claude: {
       configDir: s.claude.configDir,
       email: s.claude.email ?? null,
@@ -119,14 +217,13 @@ const identity = (cfg: Config, ws: Workspace, run: Runner) => {
     },
     git: { email: s.git.email, source: s.git.source },
     github: s.github ? { account: s.github.account, token: s.github.token } : null,
+    name: ws.name,
   }
 }
 
 export const status = (cfg: Config | null, run: Runner = defaultRunner) => ({
-  workspaces: (cfg?.workspaces ?? []).map((ws) => identity(cfg as Config, ws, run)),
+  workspaces: cfg ? cfg.workspaces.map((ws) => identity(cfg, ws, run)) : [],
 })
-
-const checkRow = (c: Check) => ({ detail: c.detail ?? null, label: c.label, status: c.status })
 
 const summarize = (checks: Check[]) => ({
   fail: checks.filter((c) => c.status === "fail").length,
@@ -140,51 +237,22 @@ export const doctor = (cfg: Config | null, run: Runner = defaultRunner) => {
   return { checks: checks.map(checkRow), summary: summarize(checks) }
 }
 
-// A value whose key names a credential, on a JSON or KEY=VALUE line; a hand-written server in .mcp.json can hold a literal key, and the page must not.
-const SECRET_LINE =
-  /^([-+ ] *"?[\w.-]*(?:authorization|key|password|secret|token)[\w.-]*"?\s*[:=]\s*)(.+?)(,?)$/i
+// What `inscope apply` would change, and what `inscope diff --adopt` would pull back into the config; an adopted value can be a URL, so its query and user info are redacted too.
+export const diff = (cfg: Config | null) => {
+  if (!cfg) return { drifts: [], adoptable: [] }
+  return {
+    drifts: computeDrift(cfg).map((d) => driftRow(cfg, d)),
+    adoptable: adoptable(cfg).changes.map(redactUrls),
+  }
+}
 
-// a value that only names an environment variable (`${SLACK_MCP_XOXP_TOKEN:-}`) holds no secret, so it stays readable
-const ENV_REFERENCE = /^"\$\{\w+(:-[^}]*)?\}"$/
-
-export const redact = (diff: string): string =>
-  diff
-    .split("\n")
-    .map((line) =>
-      line.replace(SECRET_LINE, (whole: string, head: string, value: string, comma: string) =>
-        ENV_REFERENCE.test(value) ? whole : `${head}"<redacted>"${comma}`,
-      ),
-    )
-    .join("\n")
-
-const driftRow = (d: ReturnType<typeof computeDrift>[number]) => ({
-  label: d.label,
-  diff: d.error ? null : redact(diffLines(d.current, d.next)),
-  error: d.error ?? null,
-  path: contractTilde(d.path),
-})
-
-// What `inscope apply` would change, and what `inscope diff --adopt` would pull back into the config.
-export const diff = (cfg: Config | null) => ({
-  adoptable: cfg ? adoptable(cfg).changes : [],
-  drifts: cfg ? computeDrift(cfg).map(driftRow) : [],
-})
-
-// One workspace: its summary, the identity it resolves to, and the doctor checks and drifts tagged with its name.
+// One workspace: its summary, the identity it resolves to, and the doctor checks and pending changes that belong to it.
 export const workspaceDetail = (cfg: Config, ws: Workspace, run: Runner = defaultRunner) => {
   const drifts = computeDrift(cfg)
-  // the shared ~/.claude/skills drift is labelled "personal" and belongs to every workspace that is not isolated
-  const labels = new Set([
-    `gitconfig:${ws.name}`,
-    `mcp:${ws.name}`,
-    `skills:${ws.isolate ? ws.name : "personal"}`,
-  ])
-  const mine = (label: string) => labels.has(label)
-  const checks = runDoctor(cfg, run).filter((c) => c.label.startsWith(`[${ws.name}] `))
   return {
-    workspace: workspaceSummary(cfg, ws, new Set(drifts.map((d) => d.label))),
-    checks: checks.map(checkRow),
-    drifts: drifts.filter((d) => mine(d.label)).map(driftRow),
+    workspace: workspaceSummary(cfg, ws, drifts),
+    checks: workspaceChecks(runDoctor(cfg, run), ws).map(checkRow),
+    drifts: workspaceDrifts(drifts, ws).map((d) => driftRow(cfg, d)),
     identity: identity(cfg, ws, run),
   }
 }

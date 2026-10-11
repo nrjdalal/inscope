@@ -16,12 +16,13 @@ import {
   diff,
   doctor,
   findWorkspaceOrThrow,
+  MCP_STATES,
   overview,
   readConfig,
   status,
   workspaceDetail,
 } from "@/lib/inscope"
-import { createLocalOnly } from "@/middlewares/local-only"
+import { requireLocal } from "@/middlewares"
 
 const skillsSchema = z.object({
   dir: z.string().meta({ example: "~/work/.inscope/skills" }),
@@ -44,22 +45,28 @@ const skillsSchema = z.object({
 })
 
 const workspaceSchema = z.object({
-  name: z.string().meta({ example: "work" }),
   gh: z.string().nullable().meta({ example: "neeraj-work" }),
   git: z.object({ email: z.string().nullable(), name: z.string().nullable() }),
   isolated: z.boolean(),
   mcp: z.object({
     error: z.string().nullable(),
     path: z.string().meta({ example: "~/work/.mcp.json" }),
-    state: z.enum(["drifted", "in-sync", "invalid", "missing"]),
+    servers: z.array(
+      z.object({
+        managed: z.boolean(),
+        name: z.string().meta({ example: "github-work" }),
+        written: z.boolean(),
+      }),
+    ),
+    state: z.enum(MCP_STATES),
   }),
+  name: z.string().meta({ example: "work" }),
   path: z.string().meta({ example: "~/work" }),
   servers: z.array(z.string()).meta({ example: ["github", "linear"] }),
   skills: skillsSchema,
 })
 
 const identitySchema = z.object({
-  name: z.string().meta({ example: "work" }),
   claude: z.object({
     configDir: z.string().meta({ example: "~/work/.inscope" }),
     email: z.string().nullable(),
@@ -70,6 +77,7 @@ const identitySchema = z.object({
   }),
   git: z.object({ email: z.string().nullable(), source: z.enum(["global", "workspace"]) }),
   github: z.object({ account: z.string(), token: z.boolean() }).nullable(),
+  name: z.string().meta({ example: "work" }),
 })
 
 const checkSchema = z.object({
@@ -79,14 +87,14 @@ const checkSchema = z.object({
 })
 
 const driftSchema = z.object({
-  label: z.string().meta({ example: "mcp:work" }),
   diff: z.string().nullable(),
   error: z.string().nullable(),
+  label: z.string().meta({ example: "mcp:work" }),
   path: z.string().meta({ example: "~/work/.mcp.json" }),
 })
 
-// One documented GET: the { data } schema, the gate's 403, and the 422 every route can return for an invalid config.
-const route = (description: string, client: string, data: z.ZodType, extra = {}) =>
+// One documented GET: its { data } schema, plus the gate's 403 and the 422 every route returns for an invalid config.
+const documentedGet = (description: string, client: string, data: z.ZodType, extra = {}) =>
   describeRoute({
     tags: ["inscope"],
     description,
@@ -113,13 +121,13 @@ const { data, error } = await unwrap(${client})`,
   })
 
 type InscopeRouterOptions = {
-  peer?: Parameters<typeof createLocalOnly>[0]["peer"]
+  peer?: Parameters<typeof requireLocal>[0]["peer"]
   run?: Runner
   stage?: string
   trustedOrigins?: string[]
 }
 
-// The read-only inscope dashboard API: this machine's ~/.config/inscope, answered only on the local stage and only to loopback (see createLocalOnly). Options exist so tests can pin the stage, the socket peer, and the commands it runs.
+// The read-only inscope dashboard API: this machine's ~/.config/inscope, answered only on the local stage and only to loopback (see requireLocal). Options exist so tests can pin the stage, the socket peer, and the commands it runs.
 export const createInscopeRouter = ({
   peer,
   run = defaultRunner,
@@ -129,39 +137,40 @@ export const createInscopeRouter = ({
   new Hono()
     // its own handler, so the { error } envelope holds when the router is exercised on its own as well as mounted
     .onError(errorHandler)
-    .use(createLocalOnly({ peer, stage, trustedOrigins }))
+    // ahead of the gate, so its 403 and 404 are never cached either
     .use(async (c, next) => {
       await next()
       c.header("Cache-Control", "no-store")
     })
+    .use(requireLocal({ peer, stage, trustedOrigins }))
     .get(
       "/",
-      route(
+      documentedGet(
         "Every workspace in the inscope config, with its MCP file and skill links as they are on disk. Reads files only.",
         "apiClient.inscope.$get()",
         z.object({
+          workspaces: z.array(workspaceSchema),
           config: z.object({
             bypass: z.boolean(),
             exists: z.boolean(),
             path: z.string().meta({ example: "~/.config/inscope/inscope.json" }),
           }),
-          workspaces: z.array(workspaceSchema),
         }),
       ),
       (c) => c.json({ data: overview(readConfig()) }),
     )
     .get(
       "/diff",
-      route(
+      documentedGet(
         "What `inscope apply` would change, with credential values redacted, and what `inscope diff --adopt` would pull back into the config.",
         "apiClient.inscope.diff.$get()",
-        z.object({ adoptable: z.array(z.string()), drifts: z.array(driftSchema) }),
+        z.object({ drifts: z.array(driftSchema), adoptable: z.array(z.string()) }),
       ),
       (c) => c.json({ data: diff(readConfig()) }),
     )
     .get(
       "/doctor",
-      route(
+      documentedGet(
         "The checks `inscope doctor` runs, without its section about the calling shell.",
         "apiClient.inscope.doctor.$get()",
         z.object({
@@ -173,7 +182,7 @@ export const createInscopeRouter = ({
     )
     .get(
       "/status",
-      route(
+      documentedGet(
         "The identity each workspace resolves to: its Claude login, GitHub account (token presence only), and git email.",
         "apiClient.inscope.status.$get()",
         z.object({ workspaces: z.array(identitySchema) }),
@@ -182,14 +191,14 @@ export const createInscopeRouter = ({
     )
     .get(
       "/workspaces/:name",
-      route(
+      documentedGet(
         "One workspace: its summary, the identity it resolves to, and the doctor checks and pending changes that belong to it.",
         'apiClient.inscope.workspaces[":name"].$get({ param: { name: "work" } })',
         z.object({
+          workspace: workspaceSchema,
           checks: z.array(checkSchema),
           drifts: z.array(driftSchema),
           identity: identitySchema,
-          workspace: workspaceSchema,
         }),
         { ...notFoundErrorResponses, ...validationErrorResponses },
       ),
@@ -202,9 +211,8 @@ export const createInscopeRouter = ({
             "VALIDATION_ERROR",
             `workspace name "${name}" is invalid: ${nameErr}`,
           )
-        const cfg = readConfig()
-        const ws = findWorkspaceOrThrow(cfg, name)
-        return c.json({ data: workspaceDetail(cfg!, ws, run) })
+        const { cfg, ws } = findWorkspaceOrThrow(readConfig(), name)
+        return c.json({ data: workspaceDetail(cfg, ws, run) })
       },
     )
 
