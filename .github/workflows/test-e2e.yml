@@ -1,6 +1,6 @@
 name: test-e2e
 
-# The dashboard end to end: tests/inscope/stack.ts seeds a sealed sandbox, starts the API and `next dev` on it, and runs tests/inscope/dashboard.e2e.test.ts against them.
+# The dashboard end to end: tests/inscope/serve.ts seeds a sealed sandbox, starts the API and `next dev` on it, and runs the dashboard's e2e suites against them, the browser half through agent-browser.
 on:
   pull_request:
     branches: [canary, main]
@@ -34,5 +34,11 @@ jobs:
           NODE_ENV: production
           SKIP_ENV_VALIDATION: true
 
+      - name: Install agent-browser
+        # the browser suite drives each page as a browser renders it; pinned so a release cannot change what CI checks
+        run: |
+          npm install --global agent-browser@0.38.1
+          agent-browser install --with-deps
+
       - name: Run the dashboard end to end
-        run: bun tests/inscope/stack.ts
+        run: bun tests/inscope/serve.ts
