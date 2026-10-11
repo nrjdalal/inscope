@@ -50,7 +50,9 @@ describe.skipIf(!enabled || !SANDBOX)("api/hono/src/routers/inscope.ts", () => {
     // next dev relays /api from loopback with the Host rewritten; the hop it came from rides in x-forwarded-host
     const res = await get("/api/inscope", { host: "rebind.attacker.test:3000" }, WEB)
     expect(res.status).toBe(403)
-    expect((await get("/api/inscope", {}, WEB)).status).toBe(200)
+    // it names no client, so even a loopback caller is refused through it, and a LAN caller cannot pass by forging Host
+    expect((await get("/api/inscope", {}, WEB)).status).toBe(403)
+    expect((await get("/api/inscope", { host: "localhost:3000" }, WEB)).status).toBe(403)
   })
 
   test.skipIf(!lanAddress)(

@@ -111,6 +111,9 @@ describe("the local-only gate", () => {
       { forwarded: 'for="[2001:db8::1]:4711";host=localhost:3000' },
       { forwarded: "for=127.0.0.1;host=evil.example" },
       { forwarded: "for=unknown" },
+      // next dev's /api forwarding names no client and passes the caller's own Host along
+      { "x-forwarded-host": "localhost:3000", "x-forwarded-proto": "http" },
+      { via: "1.1 proxy" },
     ] as Record<string, string>[]) {
       const res = await send("/", { headers })
       expect(`${JSON.stringify(headers)} ${res.status}`).toBe(`${JSON.stringify(headers)} 403`)
