@@ -7,7 +7,6 @@ import {
   currentWorkspace,
   findWorkspace,
   loadConfig,
-  type NormalizedSkill,
   normalizeSkill,
   renameSkillSpec,
   skillNameError,
@@ -27,8 +26,9 @@ import {
   skillHasSkillMd,
   skillLinked,
   skillsDir,
+  sourceLabel,
   unlinkSkillLink,
-  type OtherSkill,
+  otherSkillLabel,
   otherSkillsIn,
   workspaceSkills,
 } from "@/generators/skills"
@@ -84,17 +84,6 @@ const resolveWorkspace = (cfg: Config, flag?: string): Workspace => {
   if (cfg.workspaces.length === 1) return cfg.workspaces[0]
   console.error(`Run this inside a workspace, or pass --workspace <label>.`)
   process.exit(1)
-}
-
-// The compact "owner/repo#subdir@ref" source label shown in listings.
-const sourceLabel = (s: NormalizedSkill): string => {
-  const base =
-    s.source.kind === "github"
-      ? s.source.repo
-      : s.source.kind === "git"
-        ? s.source.url
-        : s.source.path
-  return `${base}${s.subdir ? `#${s.subdir}` : ""}${s.ref ? `@${s.ref}` : ""}`
 }
 
 const parse = (args: string[]) =>
@@ -334,19 +323,6 @@ const skillAdd = async (args: string[]) => {
 
 type Row = { name: string; label: string; mark?: string }
 
-const otherLabel = (o: OtherSkill): string => {
-  switch (o.kind) {
-    case "workspace":
-      return `from workspace "${o.workspace}"`
-    case "stale":
-      return "inscope link no workspace declares (the next apply removes it)"
-    case "synced":
-      return "synced from your claude.ai account"
-    case "own":
-      return o.target ? `yours, -> ${o.target}` : "yours"
-  }
-}
-
 const skillList = (args: string[]) => {
   const { values } = parse(args)
   if (values.help) {
@@ -372,7 +348,7 @@ const skillList = (args: string[]) => {
     }))
     const others: Row[] = otherSkillsIn(cfg, ws).map((o) => ({
       name: o.name,
-      label: dim(otherLabel(o)),
+      label: dim(otherSkillLabel(o)),
     }))
     // one column for the whole workspace, sized to its longest name
     const width = Math.max(...[...rows, ...others].map((r) => r.name.length), 0) + 2

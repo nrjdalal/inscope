@@ -669,6 +669,17 @@ export const removeSkills = (ws: Workspace) => {
 
 // The skills a workspace lists as its own: the bundled self-skill (unless opted out),
 // then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
+// The compact "owner/repo#subdir@ref" source label shown in listings.
+export const sourceLabel = (s: NormalizedSkill): string => {
+  const base =
+    s.source.kind === "github"
+      ? s.source.repo
+      : s.source.kind === "git"
+        ? s.source.url
+        : s.source.path
+  return `${base}${s.subdir ? `#${s.subdir}` : ""}${s.ref ? `@${s.ref}` : ""}`
+}
+
 export const workspaceSkills = (ws: Workspace): { name: string; skill?: NormalizedSkill }[] => [
   ...(ws.selfSkill === false ? [] : [{ name: SELF_SKILL_NAME }]),
   ...(ws.skills ?? []).map((spec) => {
@@ -711,6 +722,20 @@ const syncedAccountDir = (stateFile: string): string | null => {
       return `${o.organizationUuid}_${o.accountUuid}`.toLowerCase()
   } catch {}
   return null
+}
+
+// How a listing describes a skill inscope did not add to this workspace.
+export const otherSkillLabel = (o: OtherSkill): string => {
+  switch (o.kind) {
+    case "workspace":
+      return `from workspace "${o.workspace}"`
+    case "stale":
+      return "inscope link no workspace declares (the next apply removes it)"
+    case "synced":
+      return "synced from your claude.ai account"
+    case "own":
+      return o.target ? `yours, -> ${o.target}` : "yours"
+  }
 }
 
 export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
