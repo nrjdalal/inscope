@@ -29,7 +29,7 @@ GH
 chmod +x "$SB/bin/gh"
 export PATH="$SB/bin:$PATH"
 
-INSCOPE_BIN="$PWD/dist/bin/index.mjs"
+INSCOPE_BIN="$PWD/packages/cli/dist/bin/index.mjs"
 inscope() { node "$INSCOPE_BIN" "$@"; }
 
 inscope add ~/personal --gh neeraj-personal --email neeraj@personal.com --servers github -y >/dev/null

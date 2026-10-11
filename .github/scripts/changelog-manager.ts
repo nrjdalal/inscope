@@ -1,108 +1,165 @@
-// Ported from zerostarter's .github/scripts/changelog-manager.ts.
-// After changelogen writes a release section, resolve contributor emails to
-// GitHub @handles and normalize each version's compare link. Uses Bun's built-in
-// fetch instead of @octokit/rest so this single-package CLI stays dependency-free.
+import { Octokit } from "@octokit/rest"
 
 const CHANGELOG_PATH = "CHANGELOG.md"
 
-const [owner, repo] = (process.env.GITHUB_REPOSITORY || "nrjdalal/inscope").split("/")
-const token = process.env.GITHUB_TOKEN
+function extractEmailAndUsername(contributorLine: string): {
+  email: string | null
+  username: string | null
+} {
+  const content = contributorLine.replace(/^-\s+/, "").trim()
 
-const gh = async (path: string): Promise<any> => {
-  if (!token) return null
-  const res = await fetch(`https://api.github.com${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": `${owner}-${repo}-changelog`,
-    },
-  })
-  return res.ok ? res.json() : null
-}
-
-const extractEmailAndUsername = (
-  line: string,
-): { email: string | null; username: string | null } => {
-  const content = line.replace(/^-\s+/, "").trim()
-
-  const linked = content.match(/@(\w[\w-]*)\]\(https?:\/\/github\.com\/[\w-]+\/?\)/)
-  if (linked) return { email: null, username: linked[1] }
+  const markdownLinkMatch = content.match(/\(\[@(\w+)\]\(https?:\/\/github\.com\/[\w-]+\/?\)\)/)
+  if (markdownLinkMatch) {
+    return { email: null, username: markdownLinkMatch[1] }
+  }
 
   const emailMatch = content.match(/<([^>]+)>/)
   if (emailMatch) {
     const email = emailMatch[1]
-    const noreply = email.match(/^(?:\d+\+)?([\w-]+)@users\.noreply\.github\.com$/)
-    if (noreply) return { email: null, username: noreply[1] }
+    const githubEmailMatch = email.match(/^(\d+\+)?(\w+)@users\.noreply\.github\.com$/)
+    if (githubEmailMatch) {
+      return { email: null, username: githubEmailMatch[2] }
+    }
     return { email, username: null }
   }
 
-  const direct = content.match(/(?:^|\s)@(\w[\w-]*)/)
-  if (direct) return { email: null, username: direct[1] }
+  const directMatch = content.match(/@(\w+)/)
+  if (directMatch) {
+    return { email: null, username: directMatch[1] }
+  }
 
   return { email: null, username: null }
 }
 
-const findUsernameByEmail = async (email: string): Promise<string | null> => {
-  const commits = await gh(
-    `/repos/${owner}/${repo}/commits?author=${encodeURIComponent(email)}&per_page=1`,
-  )
-  return Array.isArray(commits) ? (commits[0]?.author?.login ?? null) : null
+async function findUsernameByEmail(
+  octokit: Octokit,
+  email: string,
+  repoOwner: string,
+  repoName: string,
+): Promise<string | null> {
+  try {
+    const { data: commits } = await octokit.rest.repos.listCommits({
+      owner: repoOwner,
+      repo: repoName,
+      author: email,
+      per_page: 1,
+    })
+
+    return commits[0]?.author?.login ?? null
+  } catch {
+    return null
+  }
 }
 
-const getFullNameByUsername = async (username: string): Promise<string | null> => {
-  const user = await gh(`/users/${username}`)
-  return user?.name ?? null
+async function getFullNameByUsername(octokit: Octokit, username: string): Promise<string | null> {
+  try {
+    const { data: user } = await octokit.rest.users.getByUsername({ username })
+    return user.name
+  } catch {
+    return null
+  }
 }
 
-const updateCompareLinks = (lines: string[]): void => {
-  const sections: number[] = []
+function updateCompareLinks(lines: string[], repoOwner: string, repoName: string): void {
+  const versionSections: number[] = []
   for (let i = 0; i < lines.length; i++) {
-    if (/^## v\d+\.\d+\.\d+/.test(lines[i].trim())) sections.push(i)
-  }
-  for (let i = 0; i < sections.length; i++) {
-    const cur = lines[sections[i]].trim().match(/^## (v\d+\.\d+\.\d+)/)?.[1]
-    const cmpIdx = sections[i] + 2
-    if (!cur || cmpIdx >= lines.length) continue
-    if (!/\[compare changes\]/.test(lines[cmpIdx])) continue
-    const prev =
-      i + 1 < sections.length
-        ? lines[sections[i + 1]].trim().match(/^## (v\d+\.\d+\.\d+)/)?.[1]
-        : null
-    if (prev) {
-      lines[cmpIdx] =
-        `[compare changes](https://github.com/${owner}/${repo}/compare/${prev}...${cur})`
+    if (lines[i].trim().match(/^## v\d+\.\d+\.\d+/)) {
+      versionSections.push(i)
     }
   }
-}
 
-const run = async (): Promise<void> => {
-  const content = await Bun.file(CHANGELOG_PATH).text()
-  const lines = content.split("\n")
+  for (let i = 0; i < versionSections.length; i++) {
+    const versionSectionIndex = versionSections[i]
+    const currentVersionMatch = lines[versionSectionIndex].trim().match(/^## (v\d+\.\d+\.\d+)/)
+    if (!currentVersionMatch) continue
 
-  updateCompareLinks(lines)
+    const currentVersion = currentVersionMatch[1]
+    const compareLineIndex = versionSectionIndex + 2
 
-  const start = lines.findIndex((l) => l.trim() === "### ❤️ Contributors")
-  if (start !== -1 && token) {
-    const indices: number[] = []
-    for (let i = start + 1; i < lines.length; i++) {
-      const t = lines[i].trim()
-      if (t.startsWith("##")) break
-      if (t.startsWith("- ")) indices.push(i)
-    }
-    for (const i of indices) {
-      const entry = lines[i].trim()
-      const fallback = entry.match(/^-\s+(.+?)(?:\s+[@<]|$)/)?.[1]?.trim() ?? ""
-      const { email, username: extracted } = extractEmailAndUsername(entry)
-      let username = extracted
-      if (!username && email) username = await findUsernameByEmail(email)
-      if (username) {
-        const full = await getFullNameByUsername(username)
-        lines[i] = `- ${full || fallback} @${username}`
+    if (compareLineIndex >= lines.length) continue
+
+    const compareLine = lines[compareLineIndex].trim()
+    const compareMatch = compareLine.match(
+      /\[compare changes\]\(https:\/\/github\.com\/[\w-]+\/[\w-]+\/compare\/([\da-f]+)\.\.\.([\w.-]+)\)/,
+    )
+
+    if (!compareMatch) continue
+
+    if (i + 1 < versionSections.length) {
+      const nextVersionSectionIndex = versionSections[i + 1]
+      const prevVersionMatch = lines[nextVersionSectionIndex].trim().match(/^## (v\d+\.\d+\.\d+)/)
+      if (prevVersionMatch) {
+        const prevVersion = prevVersionMatch[1]
+        const newCompareLink = `[compare changes](https://github.com/${repoOwner}/${repoName}/compare/${prevVersion}...${currentVersion})`
+        lines[compareLineIndex] = newCompareLink
       }
     }
   }
+}
+
+async function processChangelog() {
+  const [repoOwner, repoName] = process.env.GITHUB_REPOSITORY!.split("/")
+
+  const content = await Bun.file(CHANGELOG_PATH).text()
+  const lines = content.split("\n")
+
+  updateCompareLinks(lines, repoOwner, repoName)
+
+  const token = process.env.GITHUB_TOKEN
+  if (!token) {
+    await Bun.write(CHANGELOG_PATH, lines.join("\n"))
+    return
+  }
+
+  const octokit = new Octokit({ auth: token })
+
+  const firstContributorSection = lines.findIndex((line) => line.trim() === "### ❤️ Contributors")
+
+  if (firstContributorSection === -1) {
+    console.log("No contributors section found")
+    return
+  }
+
+  const contributorIndices: number[] = []
+  const contributorEntries: string[] = []
+
+  for (let i = firstContributorSection + 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line.startsWith("##")) {
+      break
+    }
+    if (line.startsWith("- ")) {
+      contributorIndices.push(i)
+      contributorEntries.push(line)
+    }
+  }
+
+  const formattedContributors = await Promise.all(
+    contributorEntries.map(async (entry) => {
+      const nameMatch = entry.match(/^-\s+(.+?)(?:\s+[@<]|$)/)
+      const fallbackName = nameMatch ? nameMatch[1].trim() : ""
+
+      const { email, username: extractedUsername } = extractEmailAndUsername(entry)
+
+      let username = extractedUsername
+      if (!username && email) {
+        username = await findUsernameByEmail(octokit, email, repoOwner, repoName)
+      }
+
+      if (username) {
+        const fullName = await getFullNameByUsername(octokit, username)
+        return `- ${fullName || fallbackName} @${username}`
+      }
+
+      return entry
+    }),
+  )
+
+  formattedContributors.forEach((formatted, index) => {
+    lines[contributorIndices[index]] = formatted
+  })
 
   await Bun.write(CHANGELOG_PATH, lines.join("\n"))
 }
 
-run()
+processChangelog()

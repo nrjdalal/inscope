@@ -1,19 +1,31 @@
 pre-commit:
   piped: true
   commands:
+    skills-manager:
+      priority: 1
+      glob:
+        - ".agents/skills/**/*.md"
+        - ".github/scripts/skills-manager.ts"
+      run: bun .github/scripts/skills-manager.ts && git add AGENTS.md
     lint-staged:
+      priority: 2
       run: bunx lint-staged --verbose
       stage_fixed: true
     build:
       run: bun run build
       use_stdin: true
 
-pre-push:
-  commands:
-    audit:
-      run: bun audit --audit-level high
-
 commit-msg:
   commands:
     commitlint:
       run: bunx commitlint --edit {1}
+
+pre-push:
+  commands:
+    audit:
+      # GHSA-vfj7-8cjw-p6xm: braces has no patched release, and only dev tooling (shadcn, globby) reaches it
+      run: bun audit --audit-level high --ignore GHSA-vfj7-8cjw-p6xm
+      only:
+        - ref: canary
+    ensure-branches:
+      run: bun .github/scripts/ensure-remote-branches.ts {1}

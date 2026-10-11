@@ -1,0 +1,28 @@
+{
+  "name": "@packages/db",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.mts",
+  "exports": "./dist/index.mjs",
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@packages/env": "workspace:*",
+    "drizzle-orm": "catalog:"
+  },
+  "devDependencies": {
+    "@packages/config": "workspace:*",
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "drizzle-kit": "catalog:",
+    "postgres": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
+}

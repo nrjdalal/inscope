@@ -21,7 +21,7 @@ The README GIFs and the [vhs](https://github.com/charmbracelet/vhs) tapes that g
 
 ```sh
 brew install vhs        # one-time (pulls ttyd)
-bun run build           # tapes run dist/bin/index.mjs
+bun run build           # tapes run packages/cli/dist/bin/index.mjs
 # from the repo root, render any (or all):
 for t in add edit rm list status apply diff doctor; do vhs ".github/assets/$t.tape"; done
 ```

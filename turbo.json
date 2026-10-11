@@ -1,0 +1,65 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  // turbo 2.11.5 writes a managed block into AGENTS.md when it detects an agent; this repo generates that file and forks inherit it whole, so a second writer would fight both. Off here, as Next's writer is in web/next/next.config.ts
+  "agentGuidance": false,
+  "tasks": {
+    // the root version is baked into this build (BUILD_VERSION), so a version-only commit must miss its cache; the apps rebuild behind it through their dependency hashes
+    "@packages/env#build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/package.json"],
+      "outputs": ["dist/**"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", ".source/**", "bundle/**", "dist/**"]
+    },
+    "build:vercel": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", ".source/**", "dist/**", "vercel-bundle/**"]
+    },
+    "check-types": {
+      "dependsOn": ["^build"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "persistent": true,
+      "cache": false
+    },
+    "start": {
+      "persistent": true,
+      "cache": false
+    }
+  },
+  "globalDependencies": [
+    ".env*",
+    // build-time generators (font metrics, env derivation): a build cached before an edit here would ship their stale output
+    "packages/scripts/src/**"
+  ],
+  "globalEnv": [
+    // CI variables
+    "SKIP_ENV_VALIDATION",
+    "SKIP_ENV_VALIDATION_SERVER",
+    // Server variables
+    "NODE_ENV",
+    "BETTER_AUTH_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "HONO_APP_URL",
+    "HONO_PORT",
+    "HONO_RATE_LIMIT",
+    "HONO_RATE_LIMIT_WINDOW_MS",
+    "HONO_TRUSTED_ORIGINS",
+    "HONO_WEB_URL",
+    "INTERNAL_API_URL",
+    "POSTGRES_URL",
+    // Client variables
+    "NEXT_PUBLIC_API_URL",
+    "NEXT_PUBLIC_APP_URL",
+    "NEXT_PUBLIC_POSTHOG_HOST",
+    "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
+    "NEXT_PUBLIC_USERJOT_URL"
+  ],
+  "globalPassThroughEnv": ["PORTLESS", "PORTLESS_HTTPS", "PORTLESS_PORT", "PORTLESS_SYNC_HOSTS"]
+}

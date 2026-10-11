@@ -1,0 +1,31 @@
+{
+  "name": "@packages/config",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "tsconfig.json",
+    "tsdown.ts"
+  ],
+  "type": "module",
+  "exports": {
+    "./console": {
+      "types": "./dist/console.d.mts",
+      "default": "./dist/console.mjs"
+    },
+    "./site": {
+      "types": "./dist/site.d.mts",
+      "default": "./dist/site.mjs"
+    },
+    "./tsconfig.json": "./tsconfig.json",
+    "./tsdown": "./tsdown.ts"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
+}
