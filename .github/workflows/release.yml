@@ -18,11 +18,11 @@ on:
   release:
     types: [published]
   # a manual run on canary publishes the latest tag's release version: the way back when a release's publish leg failed, since a re-run replays that run's own workflow file. canary only, because the tag is found by what the checkout can reach, and an older ref reaches an older release
-  # with `pr` set it publishes that PR's head as a throwaway test version instead; this replaces upstream's `/release` comment, since npm refuses Trusted Publishing from issue_comment runs
+  # the `pr` input stands in for upstream's `/release` comment trigger (see CONTRIBUTING.md, Releasing)
   workflow_dispatch:
     inputs:
       pr:
-        description: "Publish this PR's head as 0.0.0-<sha> on the test tag (empty: republish the latest release tag)"
+        description: "Publish this PR's head as 0.0.0-<sha> on the npm test dist-tag (empty: publish the latest release tag's version if npm lacks it)"
         required: false
         type: string
 
