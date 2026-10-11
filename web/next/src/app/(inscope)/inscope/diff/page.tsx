@@ -1,12 +1,12 @@
 "use client"
 
 import { DriftDiff } from "@/components/inscope/drift-diff"
+import { InSync } from "@/components/inscope/in-sync"
 import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { PageHeader } from "@/components/shell/page-header"
 import { PageShell } from "@/components/shell/page-shell"
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { useInscopeDiff } from "@/lib/inscope"
 
 export default function Page() {
@@ -22,12 +22,7 @@ export default function Page() {
       <QueryState query={diff}>
         {(data) =>
           data.drifts.length === 0 && data.adoptable.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>In sync</EmptyTitle>
-                <EmptyDescription>Every file inscope manages matches the config.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <InSync />
           ) : (
             <div className="space-y-8">
               {data.adoptable.length > 0 && (

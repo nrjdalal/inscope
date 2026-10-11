@@ -4,6 +4,7 @@ import { notFound, useParams } from "next/navigation"
 
 import { CheckList } from "@/components/inscope/check-list"
 import { DriftDiff } from "@/components/inscope/drift-diff"
+import { InSync } from "@/components/inscope/in-sync"
 import { McpServerList } from "@/components/inscope/mcp-server-list"
 import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
@@ -27,7 +28,8 @@ export default function Page() {
   const detail = useInscopeWorkspace(name)
   if (
     detail.isError &&
-    (detail.error.code === "NOT_FOUND" || detail.error.code === "VALIDATION_ERROR")
+    (detail.error.code === "INSCOPE_WORKSPACE_NOT_FOUND" ||
+      detail.error.code === "VALIDATION_ERROR")
   )
     notFound()
 
@@ -91,22 +93,18 @@ export default function Page() {
             <PageSection id="changes" title="Pending changes">
               {drifts.length ? (
                 drifts.map((drift) => (
-                  <div key={drift.label} className="space-y-2">
-                    <p className="font-mono text-sm">
-                      {drift.label} <span className="text-muted-foreground">{drift.path}</span>
-                    </p>
+                  <PageSection
+                    key={drift.label}
+                    id={`change-${drift.label}`}
+                    level={3}
+                    title={<span className="font-mono">{drift.label}</span>}
+                    description={drift.path}
+                  >
                     <DriftDiff drift={drift} />
-                  </div>
+                  </PageSection>
                 ))
               ) : (
-                <Empty>
-                  <EmptyHeader>
-                    <EmptyTitle>In sync</EmptyTitle>
-                    <EmptyDescription>
-                      Every file inscope manages for this workspace matches the config.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
+                <InSync workspace={workspace.name} />
               )}
             </PageSection>
           </div>
