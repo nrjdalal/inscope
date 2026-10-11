@@ -24,9 +24,9 @@ export type Site = typeof site
 export const features = {
   allowlist: false,
   apiDocs: true,
-  blog: true,
-  docs: true,
-  internalDocs: true,
+  blog: false,
+  docs: false,
+  internalDocs: false,
   waitlist: false,
 }
 

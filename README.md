@@ -161,7 +161,7 @@ macOS, zsh, and [Claude Code](https://claude.com/claude-code). [`gh`](https://cl
 
 ## Contributing
 
-Issues and PRs welcome. `bun test` and `bun run typecheck` before opening one; see [CONTRIBUTING.md](./CONTRIBUTING.md).
+Issues and PRs welcome; see [CONTRIBUTING.md](./CONTRIBUTING.md) for the gates to run first.
 
 ## More tools
 

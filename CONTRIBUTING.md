@@ -118,6 +118,21 @@ from the root `catalog` (`"catalog:"`), which `bunx zerostarter sync` keeps on
 upstream's versions. `bun audit --audit-level high` runs on pre-push and in CI
 and must stay clean.
 
+## Syncing with zerostarter
+
+`bunx zerostarter sync` (clean tree) overlays the latest zerostarter release and
+leaves a diff to review; it never touches `packages/cli/`, `tests/`, or the
+inscope docs and workflows, and keeps `AGENTS.md` once edited. It does reset a
+few shared files to upstream, so re-apply these before committing:
+
+- `changelog.config.json`: the `revert` type (`"⏪ Reverts"`, semver patch), so a
+  revert reaches the release notes.
+- `.github/workflows/auto-check-build.yml` and `lefthook.yml`: the
+  `--ignore GHSA-vfj7-8cjw-p6xm` braces audit ignore, until a zerostarter release
+  carries it (its canary already does).
+- The root `catalog`: run `bun update` (within the ranges) and check that
+  `bun audit --audit-level high` is clean.
+
 ## Releasing
 
 Releases follow zerostarter's flow. Each push to `canary` publishes a canary
