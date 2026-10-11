@@ -117,7 +117,8 @@ Synced from zerostarter's PR practices:
 The inscope CLI has **zero runtime dependencies** by design; validation is
 hand-rolled rather than pulling in a schema library. Its devDependencies come
 from the root `catalog` (`"catalog:"`), which `bunx zerostarter sync` keeps on
-upstream's versions. `bun audit --audit-level high` runs on pre-push and in CI
+upstream's versions; no bot opens update PRs, so the catalog moves with each
+sync and the `bun update` that follows it (see below). `bun audit --audit-level high` runs on pre-push and in CI
 and must stay clean, with one recorded exception: `braces`
 (GHSA-vfj7-8cjw-p6xm) has no patched release and only dev tooling reaches it, so
 both ignore it, as zerostarter's canary does.
@@ -144,11 +145,30 @@ before committing:
 Releases follow zerostarter's flow. A push to `canary` that touches
 `packages/cli`, `packages/scripts`, or `tests` publishes a canary build to npm
 (`inscope@<next>-canary.<n>`), and every push to `canary` keeps a draft
-`canary -> main` PR up to date. Merging that PR runs `auto-release.yml`: it picks the version
-the window earned, writes the `CHANGELOG.md` section, tags `vX.Y.Z`, and creates
-the GitHub release, so neither the version nor the changelog is hand-written.
+`canary -> main` PR up to date. Merging that PR with a merge commit runs
+`auto-release.yml`: it picks the version the window earned, writes the
+`CHANGELOG.md` section, tags `vX.Y.Z`, and creates the GitHub release, so
+neither the version nor the changelog is hand-written.
 `.github/workflows/release.yml` then publishes that version to npm as `latest`
 (`packages/cli/package.json` holds a `0.0.0` placeholder that the workflow
 stamps). A maintainer comment starting with `/release` on a PR publishes a
 throwaway test version for that PR's head. Keep `release.yml` under that name:
 npm Trusted Publishing for `inscope` is bound to it.
+
+### Repository settings
+
+zerostarter does not ship its GitHub settings to forks, so these were applied
+by hand, and the flow above depends on them:
+
+- `canary` is the default branch, and merged PR branches are deleted.
+- Actions keep read-only workflow permissions (each workflow asks for the scopes
+  it needs), with "Allow GitHub Actions to create and approve pull requests" on
+  so `auto-canary-into-main.yml` can open the release PR.
+- The rulesets in `.github/rulesets/`. `main` takes changes only through a PR
+  merged with a merge commit. `canary` blocks deletion and force pushes but has
+  no PR rule: the release workflows push their `ci(version)` and
+  `ci(changelog)` commits to it directly, and a personal repo cannot list
+  GitHub Actions as a bypass actor. Admins bypass both. After editing one,
+  apply it with
+  `gh api -X PUT repos/nrjdalal/inscope/rulesets/<id> --input .github/rulesets/<name>.json`
+  (`gh api repos/nrjdalal/inscope/rulesets` lists the ids).
