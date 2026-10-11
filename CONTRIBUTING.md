@@ -91,10 +91,12 @@ decide whether the move was intended. Never update snapshots blindly to silence 
 
 Synced from zerostarter's PR practices:
 
-- **Conventional, scoped titles.** `feat(doctor): ...`, `fix(mcp): ...`,
-  `docs: ...`, `ci: ...`, `chore: ...`. The PR title becomes a changelog line,
-  so write it for the reader of the release notes. commitlint enforces this on
-  every commit. No `Co-authored-by` trailer, and no em-dashes in prose.
+- **Conventional, scoped titles,** following the `gh-commit` skill:
+  `feat(doctor): ...`, `fix(mcp): ...`, `docs: ...`, `fix(ci): ...`,
+  `build(deps): ...` (`ci` is reserved for pipeline commits). PRs are
+  squash-merged, so the PR title becomes the changelog line: write it for the
+  reader of the release notes. commitlint enforces the format on every commit.
+  No `Co-authored-by` trailer, and no em-dashes in prose.
 - **Branch from `canary`, PR into `canary`.** `main` only moves when canary is
   released (see Releasing).
 - **Green before review.** `bun run lint`, `bun run format:check`,
@@ -123,11 +125,11 @@ both ignore it, as zerostarter's canary does.
 ## Syncing with zerostarter
 
 `bunx zerostarter sync` (clean tree) overlays the latest zerostarter release and
-leaves a diff to review; it never touches `packages/cli/`, `tests/`, or the
-inscope docs and workflows. It keeps `AGENTS.md` because it is edited here, which
-also means upstream's guide updates stop arriving: compare it with zerostarter's
-by hand now and then. It does reset a
-few shared files to upstream, so re-apply these before committing:
+leaves a diff to review. It never touches `packages/cli/`, `tests/`, or the
+inscope docs and workflows. It keeps `AGENTS.md` because it is edited here, so
+upstream's guide updates stop arriving: compare it with zerostarter's by hand
+now and then. It does reset a few shared files to upstream, so re-apply these
+before committing:
 
 - `changelog.config.json`: the `revert` type (`"⏪ Reverts"`, semver patch), so a
   revert reaches the release notes.

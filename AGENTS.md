@@ -30,6 +30,7 @@ Guidance for AI coding agents working in this repository, a Bun monorepo: the `w
 - ALWAYS: When a command, flag, field, or behavior changes, update `README.md` and the bundled self-skill `packages/cli/skills/inscope/SKILL.md` in the same change, and run the `ship` skill before committing.
 - ALWAYS: Read the inherited skills with this fork in mind: here `packages/cli` is inscope's CLI, not zerostarter's scaffolding CLI, `tests/` is kept, and the CLI publishes from `release.yml`, not `cli-release.yml` (`codebase-map`, `release`, and `runtime-apis` describe the canonical starter).
 - ALWAYS: Apply the single-line comment rule to new code; the CLI's existing multi-line comment blocks predate the fork and change only when the code around them does.
+- ALWAYS: Load the bundled `inscope` self-skill from `.agents/skills/inscope`, a link to `packages/cli/skills/inscope` (the skills tables below skip links, so it is not listed there).
 - ALWAYS: Keep `.github/workflows/release.yml` under that name: npm Trusted Publishing for `inscope` is bound to it. It publishes a canary when a push to `canary` touches `packages/cli`, `packages/scripts`, or `tests`, and `latest` once auto-release tags a version.
 
 ## UI
