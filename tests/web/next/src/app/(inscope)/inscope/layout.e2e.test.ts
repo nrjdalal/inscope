@@ -21,14 +21,7 @@ describe.skipIf(!enabled || !SANDBOX)("web/next/src/app/(inscope)/inscope over H
       const res = await fetch(`${WEB}${page}`)
       expect(`${page} ${res.status}`).toBe(`${page} 200`)
       const html = await res.text()
-      for (const label of [
-        "Workspaces",
-        "Skills",
-        "Doctor",
-        "Pending changes",
-        "Local",
-        "Read-only",
-      ])
+      for (const label of ["Workspaces", "Skills", "Doctor", "Pending changes", "Local, read-only"])
         expect(html).toContain(label)
       expect(html).toContain('data-sidebar="sidebar"')
     }

@@ -16,7 +16,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   if (process.env.NODE_ENV !== "development") notFound()
 
   return (
-    <SidebarShell badge="Local" homeHref="/inscope" nav={<InscopeNav />} footer={<InscopeFooter />}>
+    <SidebarShell
+      badge="Local, read-only"
+      homeHref="/inscope"
+      nav={<InscopeNav />}
+      footer={<InscopeFooter />}
+    >
       {children}
     </SidebarShell>
   )

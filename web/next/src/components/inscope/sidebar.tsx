@@ -86,7 +86,7 @@ export function InscopeNav() {
 export function InscopeFooter() {
   return (
     <div className="flex items-center justify-end gap-2 px-1.5 group-data-[collapsible=icon]:hidden">
-      <span className="text-muted-foreground text-xs">Read-only, v{config.app.version}</span>
+      <span className="text-muted-foreground text-xs">v{config.app.version}</span>
       <ModeToggle />
     </div>
   )
