@@ -22,7 +22,8 @@ import {
   status,
   workspaceDetail,
 } from "@/lib/inscope"
-import { requireLocal } from "@/middlewares"
+// not the barrel: it also loads the auth middleware, which starts better-auth, and the dashboard reads nothing behind a session
+import { requireLocal } from "@/middlewares/local"
 
 const skillsSchema = z.object({
   dir: z.string().meta({ example: "~/work/.inscope/skills" }),
