@@ -755,6 +755,29 @@ test("CLI: skill list keeps a re-pointed skill with its workspace until apply re
   })
 })
 
+test("CLI: skill list credits a pre-#59 direct link to the local source a workspace declares", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    const src = path.join(sb, "src", "old")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: old\n---\n")
+    for (const d of ["a", "b"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {} },
+        { name: "b", path: path.join(sb, "b"), servers: {}, skills: [src] },
+      ],
+    })
+    // linked straight to the source, as inscope did before #59 (apply re-links it)
+    const shared = path.join(sb, ".claude", "skills")
+    fs.mkdirSync(shared, { recursive: true })
+    fs.symlinkSync(src, path.join(shared, "old"))
+    const r = cli(["skill", "list", "-w", "a"])
+    expect(r.stdout).toMatch(/\n {2}old {2,}from workspace "b"\n/)
+  })
+})
+
 test("CLI: skill list credits the user's own inscope install to the user, not a workspace", () => {
   withSandbox((sb) => {
     const { cli, writeCfg } = sandboxCli(sb)

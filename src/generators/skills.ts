@@ -11,7 +11,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
+import { baseClaudeDir, INSCOPE_DIR, inscopeDirPath } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
 
@@ -697,8 +697,11 @@ const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 const loginStateFile = (cfg: Config, ws: Workspace): string => {
   if (ws.isolate) return path.join(inscopeDirPath(ws), ".claude.json")
   if (cfg.workspaces.some((w) => w.isolate)) return path.join(baseClaudeDir(), ".claude.json")
+  // an isolated login inherited from a shell that had isolation is not the user's own
   const own = process.env.CLAUDE_CONFIG_DIR?.trim()
-  return own ? path.join(own, ".claude.json") : path.join(home(), ".claude.json")
+  return own && path.basename(own) !== INSCOPE_DIR
+    ? path.join(own, ".claude.json")
+    : path.join(home(), ".claude.json")
 }
 
 // Claude Code keeps each claude.ai account's synced skills under
@@ -716,13 +719,22 @@ const syncedAccountDir = (stateFile: string): string | null => {
 export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
   const dir = skillsDir(ws)
   const own = new Set(workspaceSkills(ws).map((s) => s.name))
-  // the other workspaces linking into this same dir, and where each wants its links
+  // the other workspaces linking into this same dir: the names each declares, and the
+  // path of each local source (a link made before #59 points straight at it)
   const sharers = cfg.workspaces
     .filter((o) => o.name !== ws.name && skillsDir(o) === dir)
-    .map((o) => ({
-      name: o.name,
-      links: new Map(desiredSkillLinks(o).map((d) => [d.name, path.resolve(d.target)])),
-    }))
+    .map((o) => {
+      const skills = workspaceSkills(o)
+      return {
+        name: o.name,
+        declared: new Set(skills.map((s) => s.name)),
+        local: new Map(
+          skills.flatMap(({ name: n, skill }) =>
+            skill?.source.kind === "local" ? [[n, originalTarget(skill)] as const] : [],
+          ),
+        ),
+      }
+    })
   const out: OtherSkill[] = []
   // claude.ai's synced skills come last, as a group
   const synced: OtherSkill[] = []
@@ -745,8 +757,10 @@ export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
     } catch {}
     const owned = isOwnedLink(entry)
     // an inscope link is the declaring workspace's even before apply re-points it; a
-    // link outside the cache (a local source) only when it is exactly the one declared
-    const other = sharers.find((o) => o.links.has(name) && (owned || o.links.get(name) === target))
+    // direct link to a declared local source is too (the rule unlinkSkillLink uses)
+    const other = sharers.find(
+      (o) => o.declared.has(name) && (owned || (!!target && o.local.get(name) === target)),
+    )
     if (other) out.push({ name, kind: "workspace", workspace: other.name })
     else if (owned) out.push({ name, kind: "stale" })
     else out.push({ name, kind: "own", ...(target ? { target: contractTilde(target) } : {}) })
