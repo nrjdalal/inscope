@@ -1,7 +1,6 @@
 ---
 name: inscope
 description: Manage per-workspace Claude Code identity with inscope (the GitHub account, git commit email, MCP servers, an isolated Claude login, or skills for a directory). Use when the user wants to add, edit, remove, or inspect a workspace or its skills.
-source: local
 ---
 
 # inscope

@@ -25,10 +25,12 @@ Guidance for AI coding agents working in this repository, a Bun monorepo: the `w
 ## inscope CLI
 
 - ALWAYS: Keep `packages/cli` at zero runtime dependencies; hand-roll validation rather than add a library. Logic lives in `src/`; `bin/` is the CLI surface (arg parsing, prompts, output). Inside the package, `@/` is `src/` and `~/` is the package root.
-- ALWAYS: After changing a snapshot-pinned generator (`packages/cli/src/generators/{hook,mcp,gitconfig}.ts`), run `bun test tests/packages/cli --update-snapshots` and review the snapshot diff: it is the review surface, so a moved snapshot is a change to decide on, never noise to silence.
+- ALWAYS: After changing a snapshot-pinned generator (`packages/cli/src/generators/{gitconfig,hook,mcp}.ts`), run `bun test tests/packages/cli --update-snapshots` and review the snapshot diff: it is the review surface, so a moved snapshot is a change to decide on, never noise to silence.
 - ALWAYS: Pair a generator's pure render function (config in, text out, snapshot-pinned) with its side-effecting apply; write every file through the atomic writer in `src/io.ts`, and edit shared dotfiles (`~/.zshrc`, `~/.gitconfig`) only inside a marked managed block (`src/managed-block.ts`).
 - ALWAYS: When a command, flag, field, or behavior changes, update `README.md` and the bundled self-skill `packages/cli/skills/inscope/SKILL.md` in the same change, and run the `ship` skill before committing.
-- ALWAYS: Keep `.github/workflows/release.yml` under that name: npm Trusted Publishing for `inscope` is bound to it. It publishes a canary on each push to `canary` and `latest` once auto-release tags a version.
+- ALWAYS: Read the inherited skills with this fork in mind: here `packages/cli` is inscope's CLI, not zerostarter's scaffolding CLI, `tests/` is kept, and the CLI publishes from `release.yml`, not `cli-release.yml` (`codebase-map`, `release`, and `runtime-apis` describe the canonical starter).
+- ALWAYS: Apply the single-line comment rule to new code; the CLI's existing multi-line comment blocks predate the fork and change only when the code around them does.
+- ALWAYS: Keep `.github/workflows/release.yml` under that name: npm Trusted Publishing for `inscope` is bound to it. It publishes a canary when a push to `canary` touches `packages/cli`, `packages/scripts`, or `tests`, and `latest` once auto-release tags a version.
 
 ## UI
 

@@ -98,6 +98,9 @@ import {
 } from "~/bin/commands/_workspace"
 import { parseAddSource } from "~/bin/commands/skill"
 
+// The CLI under test, run from source.
+const entry = path.join(import.meta.dir, "..", "..", "..", "packages", "cli", "bin", "index.ts")
+
 // Hermetic by construction: the developer's shell (and inscope's own hook) exports
 // CLAUDE_CONFIG_DIR, and an isolated hook also INSCOPE_CCD / INSCOPE_BASE_CCD. Left in
 // process.env, any test (or spawned CLI) that applies a non-isolated workspace would
@@ -479,7 +482,6 @@ test.skipIf(!hasZsh)(
 
 // The real CLI, hermetic: sandbox HOME/XDG/GH_CONFIG_DIR, no inherited gh tokens.
 const sandboxCli = (sb: string) => {
-  const entry = path.join(import.meta.dir, "..", "..", "..", "packages", "cli", "bin", "index.ts")
   const env: Record<string, string | undefined> = {
     ...process.env,
     HOME: sb,
@@ -2268,7 +2270,6 @@ test("applyAll bootstraps the shell: appends the ~/.zshrc source line (no separa
 // persist() (which would make configExists() always true and silence the nudge).
 test("add prints the first-run reload nudge on the first add only", () => {
   withSandbox((sb) => {
-    const entry = path.join(import.meta.dir, "..", "..", "..", "packages", "cli", "bin", "index.ts")
     const run = (name: string) =>
       spawnSync(
         "bun",
@@ -2300,7 +2301,6 @@ test("add prints the first-run reload nudge on the first add only", () => {
 
 test("list --json emits the workspaces as a JSON array", () => {
   withSandbox((sb) => {
-    const entry = path.join(import.meta.dir, "..", "..", "..", "packages", "cli", "bin", "index.ts")
     const env = { ...process.env, HOME: sb, XDG_CONFIG_HOME: path.join(sb, ".config") }
     const cli = (args: string[]) => spawnSync("bun", [entry, ...args], { encoding: "utf8", env })
     cli([
@@ -2330,7 +2330,6 @@ test("doctor --json emits the shell snapshot, ok/failed, and gates the exit code
     // HOME to the sandbox's real path so the stored path and the child cwd share
     // one namespace and currentWorkspace() can match to populate `shell`.
     const base = fs.realpathSync(sb)
-    const entry = path.join(import.meta.dir, "..", "..", "..", "packages", "cli", "bin", "index.ts")
 
     // `doctor` inside a workspace runs liveSnapshot()/runDoctor(), which shell out
     // to `gh` (resolved via PATH). Prepend a fast-failing stub `gh` so the test is

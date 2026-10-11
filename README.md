@@ -36,7 +36,7 @@
 Add the inscope skill and let your AI agent (Claude Code) do the whole setup, no CLI to learn:
 
 ```sh
-npx skills add nrjdalal/inscope
+npx skills add nrjdalal/inscope --full-depth --skill inscope
 ```
 
 Then just ask, e.g. _"map my ~/work and ~/personal directories with inscope, work on its own login."_ The agent runs the right commands and answers the prompts for you.
@@ -116,7 +116,7 @@ npx inscope skill list                   # what this workspace has
 npx inscope skill update                 # refresh floating git sources
 ```
 
-Every workspace also gets the bundled **inscope self-skill**, so you can just ask Claude to "isolate this workspace" or "add a skill here." Install it anywhere with the [`skills`](https://github.com/vercel-labs/skills) CLI: `npx skills add nrjdalal/inscope`.
+Every workspace also gets the bundled **inscope self-skill**, so you can just ask Claude to "isolate this workspace" or "add a skill here." Install it anywhere with the [`skills`](https://github.com/vercel-labs/skills) CLI: `npx skills add nrjdalal/inscope --full-depth --skill inscope`.
 
 ---
 

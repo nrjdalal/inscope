@@ -116,13 +116,17 @@ The inscope CLI has **zero runtime dependencies** by design; validation is
 hand-rolled rather than pulling in a schema library. Its devDependencies come
 from the root `catalog` (`"catalog:"`), which `bunx zerostarter sync` keeps on
 upstream's versions. `bun audit --audit-level high` runs on pre-push and in CI
-and must stay clean.
+and must stay clean, with one recorded exception: `braces`
+(GHSA-vfj7-8cjw-p6xm) has no patched release and only dev tooling reaches it, so
+both ignore it, as zerostarter's canary does.
 
 ## Syncing with zerostarter
 
 `bunx zerostarter sync` (clean tree) overlays the latest zerostarter release and
 leaves a diff to review; it never touches `packages/cli/`, `tests/`, or the
-inscope docs and workflows, and keeps `AGENTS.md` once edited. It does reset a
+inscope docs and workflows. It keeps `AGENTS.md` because it is edited here, which
+also means upstream's guide updates stop arriving: compare it with zerostarter's
+by hand now and then. It does reset a
 few shared files to upstream, so re-apply these before committing:
 
 - `changelog.config.json`: the `revert` type (`"⏪ Reverts"`, semver patch), so a
@@ -135,9 +139,10 @@ few shared files to upstream, so re-apply these before committing:
 
 ## Releasing
 
-Releases follow zerostarter's flow. Each push to `canary` publishes a canary
-build to npm (`inscope@<next>-canary.<n>`) and keeps a draft `canary -> main`
-PR up to date. Merging that PR runs `auto-release.yml`: it picks the version
+Releases follow zerostarter's flow. A push to `canary` that touches
+`packages/cli`, `packages/scripts`, or `tests` publishes a canary build to npm
+(`inscope@<next>-canary.<n>`), and every push to `canary` keeps a draft
+`canary -> main` PR up to date. Merging that PR runs `auto-release.yml`: it picks the version
 the window earned, writes the `CHANGELOG.md` section, tags `vX.Y.Z`, and creates
 the GitHub release, so neither the version nor the changelog is hand-written.
 `.github/workflows/release.yml` then publishes that version to npm as `latest`

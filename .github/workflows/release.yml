@@ -1,5 +1,4 @@
-# inscope's npm publish, ported from zerostarter's cli-release.yml. Keep this filename:
-# npm Trusted Publishing is bound to this repo and release.yml.
+# inscope's npm publish, ported from zerostarter's cli-release.yml; keep this filename, since npm Trusted Publishing is bound to it.
 name: Release Package
 
 on:

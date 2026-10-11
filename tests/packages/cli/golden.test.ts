@@ -14,8 +14,8 @@ import { slackKeychainFor } from "~/bin/commands/_workspace"
 // generators emit literal `$HOME` / `~` tokens, so output is independent of the
 // real home dir as long as XDG_CONFIG_HOME is unset.
 //
-// To intentionally change an artifact: run `bun test --update-snapshots` and
-// review the diff in test/__snapshots__/golden.test.ts.snap before committing.
+// To intentionally change an artifact: run `bun test tests/packages/cli --update-snapshots`
+// and review the diff in tests/packages/cli/__snapshots__/golden.test.ts.snap before committing.
 delete process.env.XDG_CONFIG_HOME
 
 const allServers: Workspace = {
