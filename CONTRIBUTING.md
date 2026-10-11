@@ -144,8 +144,9 @@ before committing:
 - The dashboard's hooks into upstream files: the `INSCOPE_CONFIG_INVALID` code and
   `inscopeConfigErrorResponses` in `api/hono/src/lib/error.ts`, the
   `.route("/inscope", inscopeRouter)` line in `api/hono/src/index.ts` and its
-  re-export in `api/hono/src/routers/index.ts`, the `local-only` re-export in
-  `api/hono/src/middlewares/index.ts`, and the `/inscope` case that hides the
+  re-export in `api/hono/src/routers/index.ts`, the `local` re-export in
+  `api/hono/src/middlewares/index.ts`, the `requireLocal` mention in the
+  `forbiddenErrorResponses` comment, and the `/inscope` case that hides the
   marketing navbar in `web/next/src/components/common/navbar.tsx`.
 
 ## Dashboard
@@ -154,28 +155,41 @@ A read-only web view of this machine's inscope state lives in the dev stack:
 `web/next/src/app/(inscope)` renders it at `/inscope`, and
 `api/hono/src/routers/inscope.ts` serves it at `/api/inscope` from the inscope
 library (`packages/cli/src`, imported as the `inscope` workspace package). It
-shows each workspace's identity, MCP file, skills, the doctor checks, and what
-`apply` would change.
+shows each workspace's identity, MCP servers, skills, the doctor checks, and
+what `apply` would change.
 
 - It is local by construction. The pages render only under `next dev`. The API
-  routes answer only on the `local` stage, only to a request addressed to a
-  loopback name from a loopback socket peer, never to a cross-site browser
-  request, and they set `Cache-Control: no-store`
-  (`api/hono/src/middlewares/local-only.ts`).
-- It shows booleans for tokens and keychain items, never values, and redacts
-  credential-looking values in the diffs.
+  routes (`requireLocal`, `api/hono/src/middlewares/local.ts`) answer only on
+  the `local` stage, and only to a request addressed to a loopback name from a
+  loopback socket peer. A proxy on this machine (`next dev`'s `/api`
+  forwarding, portless) is held to the same rule through the
+  `x-forwarded-host`, `x-forwarded-for`, `x-real-ip`, and `forwarded` headers
+  it adds, which can refuse a request but never admit one. A cross-site browser
+  request is refused, a write needs a trusted Origin, and every response,
+  refusals included, is `Cache-Control: no-store`.
+- It shows booleans for tokens and keychain items, never values. A `.mcp.json`
+  is redacted by structure before it is diffed: every `env` and `headers` value
+  that does more than name a variable, anything under a key that names a
+  credential, the value after a credential flag, and the query and user info of
+  any URL, in the diffs and in what `diff --adopt` would pull back.
 - `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
   your own logins, run it on a sealed sandbox instead:
 
 ```bash
-bun tests/inscope/stack.ts           # seed a sandbox, start the API and web, run the e2e suite
-bun tests/inscope/stack.ts --keep    # same, then leave http://localhost:3000/inscope up for a browser
+bun tests/inscope/serve.ts           # seed a sandbox, start the API and web, run the e2e suites
+bun tests/inscope/serve.ts --keep    # same, then leave http://localhost:3000/inscope up for a browser
 ```
 
 The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
 `claude`, and `security` on PATH, three workspaces applied by the real CLI, and
-deliberate drift. The router's own tests (`tests/api/hono/src/routers/inscope.test.ts`)
-run in `bun run test`; the e2e suite runs in CI through `test-e2e.yml`.
+deliberate drift, credentials included. The router, gate, and redaction tests
+(`tests/api/hono/src/{routers,middlewares,lib}/`) run in `bun run test`. The
+e2e suites mirror their subjects (`tests/api/hono/src/routers/inscope.e2e.test.ts`,
+`tests/web/next/src/app/(inscope)/inscope/layout.e2e.test.ts`), read the stack
+from `tests/stack.ts`, and also need `E2E_INSCOPE_SANDBOX`, which only
+`tests/inscope/serve.ts` sets, since their expectations are the sandbox's. The
+browser half runs where `agent-browser` is installed, as it is in CI
+(`test-e2e.yml`); `E2E_SCREENSHOT_DIR` keeps its screenshots.
 
 ## Releasing
 
