@@ -1723,6 +1723,71 @@ test("validateConfig refuses a config newer than it understands, tolerates older
   )
 })
 
+test("validateConfig rejects servers or git that is not an object, and allows servers left out", () => {
+  const cfg = (extra: Record<string, unknown>) =>
+    ({ version: 1, workspaces: [{ name: "w", path: "~/w", ...extra }] }) as unknown as Config
+  expect(() => validateConfig(cfg({}))).not.toThrow()
+  for (const servers of ["github", ["github"], null, 1])
+    expect(() => validateConfig(cfg({ servers }))).toThrow(
+      /workspace "w" servers must be an object/,
+    )
+  for (const git of ["me@example.com", ["me@example.com"], null])
+    expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
+      /workspace "w" git must be an object/,
+    )
+})
+
+test("loadConfig reads a workspace without servers as one with no MCP servers", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = tmpDir()
+  try {
+    const file = configPath()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ version: 1, workspaces: [{ name: "w", path: "~/w" }] }))
+    expect(loadConfig().workspaces[0].servers).toEqual({})
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
+})
+
+test("CLI: a hand-written config without servers applies, lists, reports status, and passes doctor", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    // stub gh and claude so status and doctor never reach the developer's real logins
+    const stubBin = path.join(sb, "stub-bin")
+    fs.mkdirSync(stubBin, { recursive: true })
+    for (const bin of ["gh", "claude"]) {
+      fs.writeFileSync(path.join(stubBin, bin), "#!/bin/sh\nexit 1\n")
+      fs.chmodSync(path.join(stubBin, bin), 0o755)
+    }
+    const PATH = `${stubBin}${path.delimiter}${process.env.PATH ?? ""}`
+    for (const dir of ["personal", "work"]) fs.mkdirSync(path.join(sb, dir), { recursive: true })
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "personal", path: "~/personal", git: { email: "me@example.com" } },
+        { isolate: true, name: "work", path: "~/work", git: { email: "me@work.example" } },
+      ],
+    } as unknown as Config)
+    const work = path.join(sb, "work")
+    for (const [args, cwd] of [
+      [["apply"], sb],
+      [["list"], sb],
+      [["status"], work],
+      [["doctor"], work],
+    ] as const) {
+      const r = cli([...args], "", cwd, { PATH })
+      expect(`${args[0]} ${r.status} ${r.stderr}`).toBe(`${args[0]} 0 `)
+      expect(r.stdout).not.toContain("Cannot read properties")
+    }
+    expect(cli(["list"], "", sb, { PATH }).stdout).toContain("servers  none")
+    expect(JSON.parse(fs.readFileSync(path.join(work, ".mcp.json"), "utf8"))).toEqual({
+      mcpServers: {},
+    })
+  })
+})
+
 test("loadConfig surfaces a too-new version on its own, not under 'fix it and re-run'", () => {
   const prev = process.env.XDG_CONFIG_HOME
   process.env.XDG_CONFIG_HOME = tmpDir()

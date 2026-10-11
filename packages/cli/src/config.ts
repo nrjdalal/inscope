@@ -167,6 +167,8 @@ export const loadConfig = (): Config => {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
   }
+  // a hand-written workspace may leave servers out, which means no MCP servers
+  for (const ws of parsed.workspaces) ws.servers ??= {}
   return parsed
 }
 
@@ -377,6 +379,9 @@ export const currentWorkspace = (
   return best
 }
 
+const isPlainObject = (v: unknown): boolean =>
+  typeof v === "object" && v !== null && !Array.isArray(v)
+
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)
@@ -392,6 +397,12 @@ export const validateConfig = (cfg: Config) => {
     if (!ws.path) throw new Error(`workspace "${ws.name}" is missing a path`)
     const pathErr = workspacePathError(ws.path)
     if (pathErr) throw new Error(`workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`)
+    if (ws.servers !== undefined && !isPlainObject(ws.servers))
+      throw new Error(`workspace "${ws.name}" servers must be an object, e.g. { "github": true }`)
+    if (ws.git !== undefined && !isPlainObject(ws.git))
+      throw new Error(
+        `workspace "${ws.name}" git must be an object, e.g. { "email": "you@example.com" }`,
+      )
     if (ws.gh) {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
