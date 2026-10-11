@@ -488,8 +488,8 @@ const sandboxCli = (sb: string) => {
   }
   delete env.GH_TOKEN
   delete env.GITHUB_TOKEN
-  const cli = (args: string[], input = "", cwd?: string) =>
-    spawnSync("bun", [entry, ...args], { encoding: "utf8", env, input, cwd })
+  const cli = (args: string[], input = "", cwd?: string, extra: Record<string, string> = {}) =>
+    spawnSync("bun", [entry, ...args], { encoding: "utf8", env: { ...env, ...extra }, input, cwd })
   const cfgFile = path.join(sb, ".config", "inscope", "inscope.json")
   const writeCfg = (cfg: Config) => {
     fs.mkdirSync(path.dirname(cfgFile), { recursive: true })
@@ -717,6 +717,25 @@ test("CLI: skill list reads the signed-in claude.ai account from the .claude.jso
     const plain = cli(["skill", "list", "-w", "a"]).stdout
     expect(plain).toContain("from-home-file")
     expect(plain).not.toContain("from-config-dir")
+
+    // a .inscope inherited from a shell that had isolation is not the user's own
+    const inherited = cli(["skill", "list", "-w", "a"], "", undefined, {
+      CLAUDE_CONFIG_DIR: path.join(sb, "a", ".inscope"),
+    }).stdout
+    expect(inherited).toContain("from-home-file")
+    // the user's own CLAUDE_CONFIG_DIR is the one Claude reads
+    const mine = path.join(sb, "mine")
+    fs.mkdirSync(path.join(mine, "skills", "synced", "org-m_acct-m", "own-dir"), {
+      recursive: true,
+    })
+    fs.writeFileSync(
+      path.join(mine, "skills", "synced", "org-m_acct-m", "own-dir", "SKILL.md"),
+      "---\nname: own-dir\n---\n",
+    )
+    fs.writeFileSync(path.join(mine, ".claude.json"), account("org-m", "acct-m"))
+    const own = cli(["skill", "list", "-w", "a"], "", undefined, { CLAUDE_CONFIG_DIR: mine }).stdout
+    expect(own).toContain("own-dir")
+    expect(own).not.toContain("from-home-file")
 
     // with a workspace isolated the hook exports ~/.claude, so Claude reads the one there
     writeCfg({

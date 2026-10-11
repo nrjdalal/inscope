@@ -11,7 +11,7 @@ import {
   type Workspace,
 } from "@/config"
 import { contractTilde, home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { baseClaudeDir, INSCOPE_DIR, inscopeDirPath } from "@/generators/isolate"
+import { baseClaudeDir, inscopeDirPath, ownConfigDir } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
 
@@ -697,11 +697,8 @@ const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 const loginStateFile = (cfg: Config, ws: Workspace): string => {
   if (ws.isolate) return path.join(inscopeDirPath(ws), ".claude.json")
   if (cfg.workspaces.some((w) => w.isolate)) return path.join(baseClaudeDir(), ".claude.json")
-  // an isolated login inherited from a shell that had isolation is not the user's own
-  const own = process.env.CLAUDE_CONFIG_DIR?.trim()
-  return own && path.basename(own) !== INSCOPE_DIR
-    ? path.join(own, ".claude.json")
-    : path.join(home(), ".claude.json")
+  const own = ownConfigDir()
+  return own ? path.join(own, ".claude.json") : path.join(home(), ".claude.json")
 }
 
 // Claude Code keeps each claude.ai account's synced skills under

@@ -27,8 +27,14 @@ export const baseClaudeDir = (): string => {
   // leftover from a shell that once had isolation must not outrank the live value.
   const base = process.env.INSCOPE_BASE_CCD
   if (base !== undefined && process.env.INSCOPE_CCD !== undefined) return base.trim() || fallback
+  return ownConfigDir() ?? fallback
+}
+
+// The CLAUDE_CONFIG_DIR the user set themselves, if any: an isolated login's `.inscope`
+// inherited from a shell that had isolation is inscope's, not theirs.
+export const ownConfigDir = (): string | undefined => {
   const env = process.env.CLAUDE_CONFIG_DIR?.trim()
-  return env && path.basename(env) !== INSCOPE_DIR ? env : fallback
+  return env && path.basename(env) !== INSCOPE_DIR ? env : undefined
 }
 
 const gitignorePath = (ws: Workspace) => path.join(resolveAbsolute(ws.path), ".gitignore")
