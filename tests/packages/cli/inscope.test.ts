@@ -1736,14 +1736,12 @@ test("validateConfig rejects a hand-written workspace shape that would crash a c
       /workspace "w" servers must be an object/,
     )
   for (const git of ["me@example.com", ["me@example.com"]])
-    expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
-      /workspace "w" git must be an object/,
-    )
+    expect(() => validateConfig(cfg({ git }))).toThrow(/workspace "w" git must be an object/)
   expect(() => validateConfig(cfg({ name: 7 }))).toThrow(/workspace name 7 must be a string/)
   expect(() => validateConfig(cfg({ path: 123 }))).toThrow(/workspace "w" path must be a string/)
   expect(() => validateConfig(cfg({ gh: true }))).toThrow(/workspace "w" gh must be a string/)
   for (const git of [{ email: {} }, { name: 5 }])
-    expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
+    expect(() => validateConfig(cfg({ git }))).toThrow(
       /workspace "w" git (email|name) must be a string/,
     )
   for (const ws of [null, 1, "w", []])
@@ -1759,7 +1757,7 @@ test("validateConfig rejects a hand-written workspace shape that would crash a c
   ).not.toThrow()
 })
 
-test("loadConfig reads a workspace without servers as one with no MCP servers", () => {
+test("loadConfig settles an unset servers, gh, or git and rejects a file that is not an object", () => {
   const prev = process.env.XDG_CONFIG_HOME
   process.env.XDG_CONFIG_HOME = tmpDir()
   try {

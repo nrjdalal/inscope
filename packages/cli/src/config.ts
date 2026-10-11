@@ -150,7 +150,9 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
 
 // left out, null, or false: the config uses false for "off" (e.g. "atlassian": false)
-const isUnset = (v: unknown): boolean => v == null || v === false
+const isUnset = (v: unknown): v is false | null | undefined => v == null || v === false
+
+const GIT_KEYS = ["email", "name"] as const
 
 export const loadConfig = (): Config => {
   const file = configPath()
@@ -175,13 +177,12 @@ export const loadConfig = (): Config => {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
   }
-  // settle every unset optional to one shape so no command sees a null or false
+  // settle an unset servers, gh, or git to one shape, so no command sees a null or false there
   for (const ws of parsed.workspaces) {
     if (isUnset(ws.servers)) ws.servers = {}
     if (isUnset(ws.gh)) delete ws.gh
     if (isUnset(ws.git)) delete ws.git
-    else if (ws.git)
-      for (const key of ["email", "name"] as const) if (isUnset(ws.git[key])) delete ws.git[key]
+    else for (const key of GIT_KEYS) if (isUnset(ws.git[key])) delete ws.git[key]
   }
   return parsed
 }
@@ -428,8 +429,8 @@ export const validateConfig = (cfg: Config) => {
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
-    for (const key of ["email", "name"] as const) {
-      const value: unknown = ws.git ? ws.git[key] : undefined
+    for (const key of GIT_KEYS) {
+      const value: unknown = ws.git?.[key]
       if (isUnset(value)) continue
       if (typeof value !== "string")
         throw new Error(`workspace "${ws.name}" git ${key} must be a string`)
