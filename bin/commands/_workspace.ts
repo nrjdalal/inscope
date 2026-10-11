@@ -1,4 +1,4 @@
-import { applyAll } from "@/apply"
+import { applyAll, preflightApply } from "@/apply"
 import {
   configExists,
   DATADOG_SITES,
@@ -17,8 +17,8 @@ import {
   upsertWorkspace,
   type Workspace,
 } from "@/config"
-import { resolveAbsolute } from "@/env"
-import { removeMcp, SERVER_TYPES } from "@/generators/mcp"
+import { removeMcp, sameMcpFile, SERVER_TYPES } from "@/generators/mcp"
+import { sharedNameClashes } from "@/generators/skills"
 import { keychainHas, keychainSet, keychainSetCommand } from "@/secrets"
 import { hyperlink, orange, promptHidden } from "~/bin/commands/_prompt"
 
@@ -40,16 +40,31 @@ export type ServerOptions = {
   nylas?: NylasServer | null
 }
 
+// `prev` is the workspace's stored servers when updating one: a server that stays
+// enabled keeps its stored per-server details (a custom `url` adopted from the
+// .mcp.json or set by hand) instead of being reset to `true`.
 export const buildServers = (
   list: string[],
   slack: { keychain: string; addMessageTool: boolean; package?: SlackPackage } | null,
   { datadogSite = DEFAULT_DATADOG_SITE, nylas = null }: ServerOptions = {},
+  prev?: Servers,
 ): Servers => {
   const out: Record<string, unknown> = {}
+  const stored = (t: string): Record<string, unknown> => {
+    const v = (prev as Record<string, unknown> | undefined)?.[t]
+    return v && typeof v === "object" ? { ...(v as Record<string, unknown>) } : {}
+  }
   for (const t of SERVER_TYPES) {
     if (t === "datadog") {
+      if (!list.includes(t)) {
+        out[t] = false
+        continue
+      }
       // Only persist a non-default site, so a US1 workspace stays `datadog: true`.
-      out[t] = list.includes(t) && (datadogSite === DEFAULT_DATADOG_SITE || { site: datadogSite })
+      const entry = stored(t)
+      if (datadogSite === DEFAULT_DATADOG_SITE) delete entry.site
+      else entry.site = datadogSite
+      out[t] = Object.keys(entry).length ? entry : true
     } else if (t === "nylas") {
       // Only persist a non-default region, so a US workspace carries just its key.
       out[t] = nylas
@@ -67,10 +82,32 @@ export const buildServers = (
       if (slack.package && slack.package !== DEFAULT_SLACK_PACKAGE) entry.package = slack.package
       out[t] = entry
     } else {
-      out[t] = list.includes(t)
+      const entry = stored(t)
+      out[t] = list.includes(t) && (Object.keys(entry).length ? entry : true)
     }
   }
   return out as Servers
+}
+
+// The gh account picker shared by `add` and `edit`. `current` is the stored account
+// when updating a workspace ("" for none); a stored account that `gh auth status`
+// does not list (gh off PATH, logged out, a locked keyring) stays selectable and
+// preselected, so pressing enter keeps it instead of silently switching the
+// workspace to another account or to none. A new workspace (`current` undefined)
+// preselects the first account, as before.
+export const ghChoices = (accounts: string[], current?: string) => {
+  const choices = accounts.map((a) => ({ label: a, value: a }))
+  if (current && !accounts.includes(current))
+    choices.unshift({ label: `${current} (not in gh auth status)`, value: current })
+  choices.push({ label: "(none)", value: "" })
+  const initial =
+    current === undefined
+      ? 0
+      : Math.max(
+          0,
+          choices.findIndex((c) => c.value === current),
+        )
+  return { choices, initial }
 }
 
 // The Slack package picker, shared by `add` and `edit`. The default (@nrjdalal
@@ -167,11 +204,22 @@ export const persist = (ws: Workspace) => {
   const cfg = configExists() ? loadConfig() : defaultConfig()
   const prior = cfg.workspaces.find((w) => w.name === ws.name)
   const next = upsertWorkspace(cfg, ws)
+  // The shared ~/.claude/skills is first-wins by workspace name, so a change that puts a
+  // skill name another workspace already declares there from a different source (a
+  // rename, turning isolation off) would silently swap one of them out. Refuse a clash
+  // this change introduces; one that already existed is left for the user to resolve.
+  const before = prior ? sharedNameClashes(cfg, prior) : []
+  const introduced = sharedNameClashes(next, ws).filter((c) => !before.includes(c))
+  if (introduced.length)
+    throw new Error(
+      `${introduced.join("\n")}\nRename the skill (\`inscope skill rename\`) or keep this workspace isolated; nothing was changed.`,
+    )
+  preflightApply(next) // refuse before the config is saved, not halfway through apply
   saveConfig(next)
   applyAll(next)
   // Relocated to a new path: applyAll only writes paths still in the config, so
   // prune the now-orphaned managed block from the old path's .mcp.json.
-  if (prior && resolveAbsolute(prior.path) !== resolveAbsolute(ws.path)) removeMcp(prior)
+  if (prior && !sameMcpFile(prior.path, ws.path)) removeMcp(prior)
 }
 
 // After persisting: seed the Slack token now (hidden prompt), or print the

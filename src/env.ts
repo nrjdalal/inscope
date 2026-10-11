@@ -62,3 +62,18 @@ export const packageRoot = (): string => {
   // Fallback: two levels up from the module (dist/index.mjs -> package root).
   return path.dirname(path.dirname(start))
 }
+
+// Whether two paths name the same directory: equal once resolved, or the same device
+// + inode (a symlinked spelling, or a different case on a case-insensitive volume).
+export const sameDir = (a: string, b: string): boolean => {
+  const ra = resolveAbsolute(a)
+  const rb = resolveAbsolute(b)
+  if (ra === rb) return true
+  try {
+    const sa = fs.statSync(ra)
+    const sb = fs.statSync(rb)
+    return sa.dev === sb.dev && sa.ino === sb.ino
+  } catch {
+    return false
+  }
+}

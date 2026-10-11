@@ -529,7 +529,10 @@ export const upsertWorkspace = (cfg: Config, ws: Workspace): Config => {
   // `myproj`) to absolute before contracting. Left cwd-relative, it is later
   // re-resolved against whatever cwd apply/the hook runs from, pointing the hook
   // arm, .mcp.json, and git include at the wrong directory.
-  next.push({ ...ws, path: contractTilde(resolveAbsolute(ws.path)) })
+  // Canonical key order (isolate first, then name and path), so an update that sets
+  // isolation on an existing entry does not append it after the other fields.
+  const { isolate, name, path: p, ...rest } = ws
+  next.push({ isolate, name, path: contractTilde(resolveAbsolute(p)), ...rest })
   next.sort((a, b) => a.name.localeCompare(b.name))
   return { ...cfg, workspaces: next }
 }

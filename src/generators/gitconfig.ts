@@ -15,9 +15,17 @@ export const perWorkspaceGitconfigPath = (name: string) =>
 
 const gitdirPattern = (p: string) => contractTilde(p).replace(/\/+$/, "") + "/"
 
+// When several `includeIf "gitdir:..."` blocks match a repo, git applies them in
+// file order and the last one wins. A nested workspace (`~/work/acme` under
+// `~/work`, or anything under a home-dir workspace) must therefore come AFTER its
+// parent, so emit least-specific-first: a parent's path is a strict prefix of a
+// nested one's, so shorter-path-first is correct. Stable sort keeps name order on
+// ties, so the output stays deterministic.
+const byGenerality = (workspaces: Workspace[]): Workspace[] =>
+  [...workspaces].sort((a, b) => gitdirPattern(a.path).length - gitdirPattern(b.path).length)
+
 export const renderGitInclude = (cfg: Config): string =>
-  cfg.workspaces
-    .filter(hasGitIdentity)
+  byGenerality(cfg.workspaces.filter(hasGitIdentity))
     .map(
       (w) =>
         `[includeIf "gitdir:${gitdirPattern(w.path)}"]\n\tpath = ${contractTilde(

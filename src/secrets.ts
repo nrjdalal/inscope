@@ -76,7 +76,16 @@ export const keychainSet = (service: string, token: string, run: Runner = defaul
 // Single-quote the service: it comes from config (the Slack `keychain` value) and
 // this string is meant to be copy-pasted into a shell, so an unquoted value with
 // shell metacharacters would inject into the pasted command.
-const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
+export const shSingleQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`
+
+// A path for a copy-paste command: single-quoted so spaces and metacharacters stay
+// one argument (an unquoted `~/Client Work/acme` makes `rm -rf` hit `~/Client`),
+// with a leading `~/` left outside the quotes so the shell still expands it.
+export const shQuotePath = (p: string) => {
+  if (p === "~") return "~"
+  if (p.startsWith("~/")) return `~/${shSingleQuote(p.slice(2))}`
+  return shSingleQuote(p)
+}
 
 export const keychainSetCommand = (service: string, placeholder = "xoxp-...") =>
   `security add-generic-password -U -a "${user() || "$USER"}" -s ${shSingleQuote(service)} -w '${placeholder}'`

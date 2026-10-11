@@ -25,7 +25,7 @@ Commands:
   list           List configured workspaces (alias: ls)
   edit [path]    Edit a workspace interactively, then re-apply
   rm [path]      Remove a workspace mapping (alias: remove)
-  skill          Manage a workspace's Claude skills (add, list, rename, rm, update)
+  skill          Manage a workspace's Claude skills (add, list, rename, rm, update) (alias: skills)
   doctor         Verify tokens, identities, the hook, and skill links resolve correctly
   diff           Preview what apply would change; --adopt pulls on-disk extras back
   apply          Regenerate the hook, git includes, .mcp.json, and skill links (alias: sync)
@@ -47,7 +47,7 @@ const main = async () => {
       case "add":
         return await add(rest)
       case "edit":
-        return edit(rest)
+        return await edit(rest)
       case "rm":
       case "remove":
         return await remove(rest)
@@ -58,6 +58,7 @@ const main = async () => {
       case "whoami":
         return status(rest)
       case "skill":
+      case "skills":
         return await skill(rest)
       case "diff":
         return diff(rest)

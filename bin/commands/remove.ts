@@ -1,10 +1,11 @@
 import { parseArgs } from "node:util"
 
-import { applyAll } from "@/apply"
+import { applyAll, preflightApply } from "@/apply"
 import { findWorkspace, removeWorkspace, saveConfig, type Workspace } from "@/config"
 import { removePerWorkspaceGitconfig } from "@/generators/gitconfig"
 import { removeMcp } from "@/generators/mcp"
 import { removeSkills } from "@/generators/skills"
+import { shQuotePath, shSingleQuote } from "@/secrets"
 import { requireConfig } from "~/bin/commands/_config"
 import { isInteractive, orange, promptText, selectOne } from "~/bin/commands/_prompt"
 import { name } from "~/package.json"
@@ -73,6 +74,7 @@ export const remove = async (args: string[]) => {
   }
 
   const { cfg: next } = removeWorkspace(cfg, target.name)
+  preflightApply(next) // refuse before anything is removed or saved
   removeMcp(target)
   removePerWorkspaceGitconfig(target.name)
   // Symlinks into a shared cache are disposable, so we clean them up outright
@@ -86,13 +88,13 @@ export const remove = async (args: string[]) => {
   if (target.isolate) {
     console.log(
       `\nNote: ${target.path}/.inscope still holds a Claude login; it was left in place.\n` +
-        `Delete it with: ${orange(`rm -rf ${target.path}/.inscope`)}`,
+        `Delete it with: ${orange(`rm -rf ${shQuotePath(`${target.path}/.inscope`)}`)}`,
     )
   }
   if (target.servers.slack) {
     console.log(
       `\nNote: the keychain entry ${target.servers.slack.keychain} was left in place.\n` +
-        `Delete it with: ${orange(`security delete-generic-password -s ${target.servers.slack.keychain}`)}`,
+        `Delete it with: ${orange(`security delete-generic-password -s ${shSingleQuote(target.servers.slack.keychain)}`)}`,
     )
   }
   process.exit(0)

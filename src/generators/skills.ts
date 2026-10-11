@@ -7,10 +7,11 @@ import {
   type NormalizedSkill,
   normalizeSkill,
   RESERVED_SKILL_NAME,
+  type SkillSpec,
   type Workspace,
 } from "@/config"
-import { inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
+import { contractTilde, home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
+import { baseClaudeDir, inscopeDirPath, ownConfigDir } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
 
@@ -242,7 +243,36 @@ const renamedDirFor = (original: string, name: string): string =>
 export const skillTargetDir = (skill: NormalizedSkill): string => {
   const orig = originalTarget(skill)
   const fm = readFrontmatterName(orig)
-  return fm !== null && fm !== skill.name ? renamedDirFor(orig, skill.name) : orig
+  if (fm !== null && fm !== skill.name) return renamedDirFor(orig, skill.name)
+  return skill.source.kind === "local" ? localLinkFor(orig) : orig
+}
+
+// A local source is linked through a symlink in the cache (`skills-cache/local/...`
+// -> the source dir) rather than directly, so every link inscope puts in a personal
+// skills dir points into its own cache. That makes ownership a filesystem fact
+// (isOwnedLink) for local skills too: a re-pointed or no-longer-declared local skill
+// is recognized as inscope's and is re-linked or pruned, and a user's own link of the
+// same name (which never points into the cache) is never touched. Keyed by the
+// source path, so two sources with one basename stay distinct.
+const localLinkFor = (dir: string): string =>
+  path.join(
+    skillsCacheRoot(),
+    "local",
+    `${san(path.basename(dir)) || "skill"}-${createHash("sha1").update(dir).digest("hex").slice(0, 7)}`,
+  )
+
+// Point the cache's local link at the source dir (atomic, idempotent).
+const ensureLocalLink = (src: string): string => {
+  const link = localLinkFor(src)
+  try {
+    if (fs.readlinkSync(link) === src) return link
+  } catch {}
+  fs.mkdirSync(path.dirname(link), { recursive: true })
+  const tmp = `${link}.inscope-${process.pid}.tmp`
+  fs.rmSync(tmp, { force: true })
+  fs.symlinkSync(src, tmp)
+  fs.renameSync(tmp, link)
+  return link
 }
 
 // Replace the `name:` line inside a SKILL.md's leading frontmatter, body untouched.
@@ -287,7 +317,11 @@ export const skillLinkTarget = (ws: Workspace, name: string): string | null =>
 export const desiredSkillLinks = (ws: Workspace): { name: string; target: string }[] => {
   const out: { name: string; target: string }[] = []
   const seen = new Set<string>()
-  if (ws.selfSkill !== false && selfSkillAvailable()) {
+  if (
+    ws.selfSkill !== false &&
+    selfSkillAvailable() &&
+    !selfSkillProvidedElsewhere(skillsDir(ws))
+  ) {
     out.push({ name: SELF_SKILL_NAME, target: selfSkillCacheDir() })
     seen.add(SELF_SKILL_NAME)
   }
@@ -330,12 +364,16 @@ export const discoverSkills = (root: string): { name: string; subdir: string }[]
   return out
 }
 
-// Point `<dir>/.claude/skills/<name>` at the resolved source dir. Idempotent (an
+// Point `<dir>/.claude/skills/<name>` at its target in the cache. Idempotent (an
 // already-correct symlink is left alone) and atomic (write a temp link, rename it
-// over). Refuses to overwrite a real, user-authored directory or file: only a
-// symlink inscope owns is ever replaced, mirroring the "touch only what we own"
-// discipline of the managed dotfile blocks.
-const linkSkill = (link: string, target: string) => {
+// over). Refuses to overwrite a real, user-authored directory or file, or a symlink
+// inscope did not create (one the user made by hand or with another tool, e.g.
+// `~/.claude/skills/foo -> ~/.agents/skills/foo`): only a link inscope owns (it
+// points into the cache) is ever replaced, mirroring the "touch only what we own"
+// discipline of the managed dotfile blocks. `legacySrc` is this skill's own local
+// source dir, which older versions linked directly at this name; exactly that link is
+// inscope's and is migrated to the cache-backed form (a link to any other dir is not).
+const linkSkill = (link: string, target: string, legacySrc?: string) => {
   let existing: fs.Stats | null = null
   try {
     existing = fs.lstatSync(link)
@@ -344,12 +382,25 @@ const linkSkill = (link: string, target: string) => {
   }
   if (existing) {
     if (existing.isSymbolicLink()) {
+      let current = ""
       try {
-        if (fs.readlinkSync(link) === target) return
+        current = fs.readlinkSync(link)
       } catch {}
+      if (current === target) return
+      const resolved = path.resolve(path.dirname(link), current)
+      if (!isOwnedLink(link) && resolved !== legacySrc)
+        throw new Error(
+          `refusing to replace ${link}: it is a symlink inscope does not manage (-> ${resolved}); ` +
+            (path.basename(link) === SELF_SKILL_NAME
+              ? "remove it, or opt this workspace out with `inscope skill rm inscope`"
+              : "remove it, or install this skill under another name with --name"),
+        )
     } else {
       throw new Error(
-        `refusing to overwrite ${link}: a non-symlink already exists there (pick a different skill name)`,
+        `refusing to overwrite ${link}: a non-symlink already exists there; ` +
+          (path.basename(link) === SELF_SKILL_NAME
+            ? "remove it, or opt this workspace out with `inscope skill rm inscope`"
+            : "remove it, or install this skill under another name with --name"),
       )
     }
   }
@@ -377,16 +428,78 @@ const isOwnedLink = (link: string): boolean => {
   }
 }
 
-// The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
-export const ownedSkillNames = (dir: string): string[] => {
-  let entries: string[]
+// Why `<skillsDir>/<name>` cannot take an inscope link, or null when it can: a
+// user-authored dir or file, or a symlink inscope did not create (including one that
+// already points at the very source being added: claiming it would let a later
+// `skill rm` delete the user's own link). Lets `skill add` refuse before persisting
+// instead of declaring a skill it cannot link.
+export const foreignSkillAt = (ws: Workspace, name: string): string | null => {
+  const link = path.join(skillsDir(ws), name)
+  let st: fs.Stats
   try {
-    entries = fs.readdirSync(dir)
+    st = fs.lstatSync(link)
+  } catch {
+    return null
+  }
+  if (!st.isSymbolicLink())
+    return `${contractTilde(link)} already exists and is not an inscope link`
+  if (isOwnedLink(link)) return null
+  const to = path.resolve(path.dirname(link), fs.readlinkSync(link))
+  return `${contractTilde(link)} is a link inscope does not manage (-> ${contractTilde(to)})`
+}
+
+// Why `ws` cannot declare `spec` at its name in a skills dir it shares with another
+// workspace (the non-isolated ~/.claude/skills) that already declares that name from a
+// different source, or null. apply keeps the first declaration and warns, so `skill add`
+// refuses up front instead of printing a misleading "added".
+export const sharedNameClash = (cfg: Config, ws: Workspace, spec: SkillSpec): string | null => {
+  const skill = normalizeSkill(spec)
+  const dir = skillsDir(ws)
+  const want = skillTargetDir(skill)
+  for (const other of cfg.workspaces) {
+    if (other.name === ws.name || skillsDir(other) !== dir) continue
+    const d = desiredSkillLinks(other).find((x) => x.name === skill.name)
+    if (d && d.target !== want)
+      return `workspace "${other.name}" already declares "${skill.name}" in ${contractTilde(dir)} from a different source`
+  }
+  return null
+}
+
+// Every shared-dir name clash `ws`'s declared skills would have in `cfg` (see
+// sharedNameClash). persist refuses a change that introduces one.
+export const sharedNameClashes = (cfg: Config, ws: Workspace): string[] =>
+  (ws.skills ?? [])
+    .map((spec) => sharedNameClash(cfg, ws, spec))
+    .filter((c): c is string => c !== null)
+
+// The bundled self-skill is often installed another way too: the README's
+// `npx skills add nrjdalal/inscope` puts the skills CLI's copy at
+// ~/.claude/skills/inscope. An entry at that name that inscope does not own but that
+// IS the inscope skill (its SKILL.md says `name: inscope`) already provides it, so
+// inscope leaves it alone and counts it as satisfied instead of refusing on every
+// write (the user's entry is still never replaced).
+export const selfSkillProvidedElsewhere = (dir: string): boolean => {
+  const entry = path.join(dir, SELF_SKILL_NAME)
+  try {
+    fs.lstatSync(entry)
+  } catch {
+    return false
+  }
+  return !isOwnedLink(entry) && readFrontmatterName(entry) === SELF_SKILL_NAME
+}
+
+// A dir's entries, sorted; none when it does not exist.
+const safeReaddir = (dir: string): string[] => {
+  try {
+    return fs.readdirSync(dir).sort()
   } catch {
     return []
   }
-  return entries.filter((n) => isOwnedLink(path.join(dir, n)))
 }
+
+// The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
+export const ownedSkillNames = (dir: string): string[] =>
+  safeReaddir(dir).filter((n) => isOwnedLink(path.join(dir, n)))
 
 // Remove every inscope-owned link in `dir` whose name is not in `keep`. Only cache
 // -backed symlinks are candidates, so a user-authored dir/skill sharing the same
@@ -423,6 +536,7 @@ const linkOne = (
   wsName: string,
   update: boolean,
   resolve: () => string,
+  local: boolean,
 ) => {
   try {
     const srcDir = resolve()
@@ -435,7 +549,8 @@ const linkOne = (
       target = renamedDirFor(srcDir, name)
       materializeRenamed(srcDir, name, target, update)
     }
-    linkSkill(path.join(dir, name), target)
+    if (local && target === srcDir) target = ensureLocalLink(srcDir)
+    linkSkill(path.join(dir, name), target, local ? srcDir : undefined)
   } catch (err) {
     console.error(
       `inscope: skill "${name}" in "${wsName}" not applied: ${err instanceof Error ? err.message : err}`,
@@ -443,7 +558,13 @@ const linkOne = (
   }
 }
 
-type DesiredLink = { name: string; target: string; wsName: string; resolve: () => string }
+type DesiredLink = {
+  name: string
+  target: string
+  wsName: string
+  resolve: () => string
+  local: boolean
+}
 
 // Materialize every workspace's declared skills into its personal skills dir
 // (skillsDir): clone/resolve each source, symlink it in, then prune inscope-owned
@@ -471,21 +592,24 @@ export const applySkills = (
   const push = (dir: string, l: DesiredLink) => byDir.get(dir)?.push(l)
   for (const ws of cfg.workspaces) {
     const dir = skillsDir(ws)
-    if (ws.selfSkill !== false && selfDir)
+    if (ws.selfSkill !== false && selfDir && !selfSkillProvidedElsewhere(dir))
       push(dir, {
         name: SELF_SKILL_NAME,
         target: selfSkillCacheDir(),
         wsName: ws.name,
         resolve: () => selfDir,
+        local: false,
       })
     for (const spec of ws.skills ?? []) {
       const skill = normalizeSkill(spec)
       if (skill.name === SELF_SKILL_NAME) continue // reserved for the self-skill
+      const local = skill.source.kind === "local"
       push(dir, {
         name: skill.name,
         target: skillTargetDir(skill),
         wsName: ws.name,
         resolve: () => resolveSkillDir(skill, run, opts),
+        local,
       })
     }
   }
@@ -504,7 +628,7 @@ export const applySkills = (
         continue
       }
       first.set(l.name, l)
-      linkOne(dir, l.name, l.wsName, !!opts?.update, l.resolve)
+      linkOne(dir, l.name, l.wsName, !!opts?.update, l.resolve, l.local)
     }
     // Prune by declared name (not link success): a still-declared skill whose link
     // just failed transiently keeps its existing link instead of being removed.
@@ -512,16 +636,27 @@ export const applySkills = (
   }
 }
 
-// Remove a single managed skill symlink by name (never a real, user-authored dir).
-// `skill rm` uses this before re-applying, because a local source is not cache-backed
-// and so the apply-time prune (which keys on the cache) would miss it; the following
-// apply re-links anything still declared, including another workspace that shares the
-// same name in ~/.claude/skills.
-export const unlinkSkillLink = (ws: Workspace, name: string) => {
+// Remove a single managed skill symlink by name: only a link inscope owns (into its
+// cache) or this skill's own pre-cache-link direct link, never a real, user-authored
+// dir or a user's own symlink of the same name. `skill rm`/`rename` use this before
+// re-applying so the link goes now even when another workspace still declares the
+// name (the following apply re-links it there). Returns whether a link was removed.
+export const unlinkSkillLink = (ws: Workspace, name: string, spec: SkillSpec): boolean => {
   const link = path.join(skillsDir(ws), name)
   try {
-    if (fs.lstatSync(link).isSymbolicLink()) fs.rmSync(link, { force: true })
-  } catch {}
+    if (!fs.lstatSync(link).isSymbolicLink()) return false
+    const skill = normalizeSkill(spec)
+    const resolved = path.resolve(path.dirname(link), fs.readlinkSync(link))
+    if (
+      !isOwnedLink(link) &&
+      !(skill.source.kind === "local" && resolved === originalTarget(skill))
+    )
+      return false
+    fs.rmSync(link, { force: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 // Tear down an isolated workspace's private skill links when it is removed from the
@@ -530,4 +665,102 @@ export const unlinkSkillLink = (ws: Workspace, name: string) => {
 export const removeSkills = (ws: Workspace) => {
   if (!ws.isolate) return
   pruneOwned(skillsDir(ws), new Set())
+}
+
+// The skills a workspace lists as its own: the bundled self-skill (unless opted out),
+// then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
+export const workspaceSkills = (ws: Workspace): { name: string; skill?: NormalizedSkill }[] => [
+  ...(ws.selfSkill === false ? [] : [{ name: SELF_SKILL_NAME }]),
+  ...(ws.skills ?? []).map((spec) => {
+    const skill = normalizeSkill(spec)
+    return { name: skill.name, skill }
+  }),
+]
+
+// Everything else Claude loads from a workspace's skills dir: a skill another workspace
+// sharing the dir links there, an inscope link no workspace declares any more (the next
+// apply removes it), the user's own skill (a dir, or a link inscope did not create), and
+// the skills Claude Code syncs from the login's claude.ai account into `synced/`. Only
+// entries holding a SKILL.md count: Claude loads nothing else.
+export type OtherSkill =
+  | { name: string; kind: "workspace"; workspace: string }
+  | { name: string; kind: "stale" }
+  | { name: string; kind: "own"; target?: string }
+  | { name: string; kind: "synced" }
+
+const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
+
+// The `.claude.json` Claude Code reads for a workspace's login: the one in
+// CLAUDE_CONFIG_DIR, else `~/.claude.json`. An isolated login always has it set (the hook
+// points it at `<ws>/.inscope`); the shared login has it set when the hook exports the
+// base (any workspace isolated) or the user set their own.
+const loginStateFile = (cfg: Config, ws: Workspace): string => {
+  if (ws.isolate) return path.join(inscopeDirPath(ws), ".claude.json")
+  if (cfg.workspaces.some((w) => w.isolate)) return path.join(baseClaudeDir(), ".claude.json")
+  const own = ownConfigDir()
+  return own ? path.join(own, ".claude.json") : path.join(home(), ".claude.json")
+}
+
+// Claude Code keeps each claude.ai account's synced skills under
+// `synced/<organizationUuid>_<accountUuid>` (lowercased) and loads only the signed-in
+// account's folder, which the login's `.claude.json` names.
+const syncedAccountDir = (stateFile: string): string | null => {
+  try {
+    const o = JSON.parse(fs.readFileSync(stateFile, "utf8"))?.oauthAccount
+    if (o?.organizationUuid && o?.accountUuid)
+      return `${o.organizationUuid}_${o.accountUuid}`.toLowerCase()
+  } catch {}
+  return null
+}
+
+export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
+  const dir = skillsDir(ws)
+  const own = new Set(workspaceSkills(ws).map((s) => s.name))
+  // the other workspaces linking into this same dir: the names each declares, and the
+  // path of each local source (a link made before #59 points straight at it)
+  const sharers = cfg.workspaces
+    .filter((o) => o.name !== ws.name && skillsDir(o) === dir)
+    .map((o) => {
+      const skills = workspaceSkills(o)
+      return {
+        name: o.name,
+        declared: new Set(skills.map((s) => s.name)),
+        local: new Map(
+          skills.flatMap(({ name: n, skill }) =>
+            skill?.source.kind === "local" ? [[n, originalTarget(skill)] as const] : [],
+          ),
+        ),
+      }
+    })
+  const out: OtherSkill[] = []
+  // claude.ai's synced skills come last, as a group
+  const synced: OtherSkill[] = []
+  for (const name of safeReaddir(dir)) {
+    if (name.startsWith(".") || own.has(name)) continue
+    const entry = path.join(dir, name)
+    if (name === "synced") {
+      const account = syncedAccountDir(loginStateFile(cfg, ws))
+      const from = account ? path.join(entry, account) : null
+      if (from)
+        for (const s of safeReaddir(from))
+          if (hasSkillMd(path.join(from, s))) synced.push({ name: s, kind: "synced" })
+      continue
+    }
+    if (!hasSkillMd(entry)) continue
+    // where a link points, resolved (a link the user made may be relative); none for a dir
+    let target: string | undefined
+    try {
+      if (fs.lstatSync(entry).isSymbolicLink()) target = path.resolve(dir, fs.readlinkSync(entry))
+    } catch {}
+    const owned = isOwnedLink(entry)
+    // an inscope link is the declaring workspace's even before apply re-points it; a
+    // direct link to a declared local source is too (the rule unlinkSkillLink uses)
+    const other = sharers.find(
+      (o) => o.declared.has(name) && (owned || (!!target && o.local.get(name) === target)),
+    )
+    if (other) out.push({ name, kind: "workspace", workspace: other.name })
+    else if (owned) out.push({ name, kind: "stale" })
+    else out.push({ name, kind: "own", ...(target ? { target: contractTilde(target) } : {}) })
+  }
+  return [...out, ...synced]
 }
