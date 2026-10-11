@@ -141,6 +141,41 @@ before committing:
   carries it (its canary already does).
 - The root `catalog`: run `bun update` (within the ranges) and check that
   `bun audit --audit-level high` is clean.
+- The dashboard's hooks into upstream files: the `INSCOPE_CONFIG_INVALID` code and
+  `inscopeConfigErrorResponses` in `api/hono/src/lib/error.ts`, the
+  `.route("/inscope", inscopeRouter)` line in `api/hono/src/index.ts` and its
+  re-export in `api/hono/src/routers/index.ts`, the `local-only` re-export in
+  `api/hono/src/middlewares/index.ts`, and the `/inscope` case that hides the
+  marketing navbar in `web/next/src/components/common/navbar.tsx`.
+
+## Dashboard
+
+A read-only web view of this machine's inscope state lives in the dev stack:
+`web/next/src/app/(inscope)` renders it at `/inscope`, and
+`api/hono/src/routers/inscope.ts` serves it at `/api/inscope` from the inscope
+library (`packages/cli/src`, imported as the `inscope` workspace package). It
+shows each workspace's identity, MCP file, skills, the doctor checks, and what
+`apply` would change.
+
+- It is local by construction. The pages render only under `next dev`. The API
+  routes answer only on the `local` stage, only to a request addressed to a
+  loopback name from a loopback socket peer, never to a cross-site browser
+  request, and they set `Cache-Control: no-store`
+  (`api/hono/src/middlewares/local-only.ts`).
+- It shows booleans for tokens and keychain items, never values, and redacts
+  credential-looking values in the diffs.
+- `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
+  your own logins, run it on a sealed sandbox instead:
+
+```bash
+bun tests/inscope/stack.ts           # seed a sandbox, start the API and web, run the e2e suite
+bun tests/inscope/stack.ts --keep    # same, then leave http://localhost:3000/inscope up for a browser
+```
+
+The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
+`claude`, and `security` on PATH, three workspaces applied by the real CLI, and
+deliberate drift. The router's own tests (`tests/api/hono/src/routers/inscope.test.ts`)
+run in `bun run test`; the e2e suite runs in CI through `test-e2e.yml`.
 
 ## Releasing
 

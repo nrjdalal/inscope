@@ -33,6 +33,10 @@ Guidance for AI coding agents working in this repository, a Bun monorepo: the `w
 - ALWAYS: Load the bundled `inscope` self-skill from `.agents/skills/inscope`, a link to `packages/cli/skills/inscope` (the skills tables below skip links, so it is not listed there).
 - ALWAYS: Keep `.github/workflows/release.yml` under that name: npm Trusted Publishing for `inscope` is bound to it. It publishes a canary when a push to `canary` touches `packages/cli`, `packages/scripts`, or `tests`, and `latest` once auto-release tags a version. A test version of a PR is `gh workflow run release.yml -f pr=<n>`, not upstream's `/release` comment (see CONTRIBUTING.md, Releasing).
 
+## Dashboard
+
+- ALWAYS: Keep the dashboard read-only and local: every `/api/inscope` route sits behind `createLocalOnly`, returns tokens and keychain items as booleans only, and maps library results field by field. A test touching inscope state seals HOME with `tests/inscope/sandbox.ts`, never the developer's own (see CONTRIBUTING.md, Dashboard).
+
 ## UI
 
 - ALWAYS: Follow the `design` skill for UI, styling, and design decisions (it holds the canonical conventions). Update it in the same change when a convention changes.
