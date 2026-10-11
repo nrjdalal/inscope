@@ -75,8 +75,9 @@ const nextConfig: NextConfig = {
   rewrites: async () => {
     return [
       {
-        source: "/api/:path*",
-        destination: `${env.INTERNAL_API_URL || env.NEXT_PUBLIC_API_URL}/api/:path*`,
+        // every API route but inscope's: next dev relays from loopback and passes the caller's own forwarding headers along, so the dashboard API must never be reachable through it (its pages call the API directly)
+        source: "/api/:path((?!inscope(?:/|$)).*)",
+        destination: `${env.INTERNAL_API_URL || env.NEXT_PUBLIC_API_URL}/api/:path`,
       },
       {
         source: "/blog/:path*.md",
