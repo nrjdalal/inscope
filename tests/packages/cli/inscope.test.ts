@@ -490,8 +490,8 @@ const sandboxCli = (sb: string) => {
   }
   delete env.GH_TOKEN
   delete env.GITHUB_TOKEN
-  const cli = (args: string[], input = "") =>
-    spawnSync("bun", [entry, ...args], { encoding: "utf8", env, input })
+  const cli = (args: string[], input = "", cwd?: string, extra: Record<string, string> = {}) =>
+    spawnSync("bun", [entry, ...args], { encoding: "utf8", env: { ...env, ...extra }, input, cwd })
   const cfgFile = path.join(sb, ".config", "inscope", "inscope.json")
   const writeCfg = (cfg: Config) => {
     fs.mkdirSync(path.dirname(cfgFile), { recursive: true })
@@ -590,6 +590,234 @@ test("CLI: skill add refuses a name held by the user's own link, before saving a
       expect(readWs("ws")!.skills).toBeUndefined()
       expect(fs.readlinkSync(link)).toBe(theirs)
     }
+  })
+})
+
+test("CLI: skill list lists every skill in each workspace's skills dir, aligned, current first", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    const skill = (dir: string, name: string) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: d\n---\n`)
+    }
+    const long = "improve-codebase-architecture"
+    skill(path.join(sb, "src", long), long)
+    skill(path.join(sb, "src", "tdd"), "tdd")
+    // workspace paths as the shell reports them (macOS resolves /var to /private/var), so
+    // running from inside one finds it as the current workspace
+    const ws = (d: string) => path.join(fs.realpathSync(sb), d)
+    for (const d of ["a", "b", "iso"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "a", path: ws("a"), servers: {} },
+        { name: "b", path: ws("b"), servers: {}, selfSkill: false },
+        { isolate: true, name: "iso", path: ws("iso"), servers: {} },
+      ],
+    })
+    expect(cli(["skill", "add", path.join(sb, "src", long), "-w", "a"]).status).toBe(0)
+    expect(cli(["skill", "add", path.join(sb, "src", "tdd"), "-w", "b"]).status).toBe(0)
+
+    const shared = path.join(sb, ".claude", "skills")
+    // the user's own: a dir, and a relative link
+    skill(path.join(shared, "mine"), "mine")
+    skill(path.join(sb, ".agents", "skills", "linked"), "linked")
+    fs.symlinkSync("../../.agents/skills/linked", path.join(shared, "linked"))
+    // an inscope link no workspace declares any more
+    skill(path.join(sb, ".config", "inscope", "skills-cache", "gone"), "gone")
+    fs.symlinkSync(
+      path.join(sb, ".config", "inscope", "skills-cache", "gone"),
+      path.join(shared, "gone"),
+    )
+    // not skills: a file, a broken link, a dir without SKILL.md, a dot-entry
+    fs.writeFileSync(path.join(shared, "README.md"), "")
+    fs.symlinkSync(path.join(sb, "nowhere"), path.join(shared, "broken"))
+    fs.mkdirSync(path.join(shared, "empty"))
+    fs.writeFileSync(path.join(shared, ".DS_Store"), "")
+    // claude.ai syncs per account; only the signed-in account's folder counts
+    skill(path.join(shared, "synced", "org1_acct1", "docs"), "docs")
+    skill(path.join(shared, "synced", "org1_acct1", "pdf"), "pdf")
+    fs.writeFileSync(path.join(shared, "synced", "org1_acct1", "manifest.json"), "{}")
+    skill(path.join(shared, "synced", "org2_acct2", "other-account"), "other-account")
+    fs.writeFileSync(
+      path.join(sb, ".claude", ".claude.json"),
+      JSON.stringify({ oauthAccount: { organizationUuid: "org1", accountUuid: "acct1" } }),
+    )
+    skill(path.join(ws("iso"), ".inscope", "skills", "private"), "private")
+
+    // -w: one workspace, one column sized to its longest name
+    const a = cli(["skill", "list", "-w", "a"])
+    expect(a.status).toBe(0)
+    const col = 2 + long.length + 2
+    const rows = a.stdout.split("\n").filter((l) => l.startsWith("  ") && !l.startsWith("  also"))
+    // its own skills, then the rest of the folder, claude.ai's synced ones last
+    expect(rows.map((r) => r.slice(2).split(" ")[0])).toEqual([
+      "inscope",
+      long,
+      "gone",
+      "linked",
+      "mine",
+      "tdd",
+      "docs",
+      "pdf",
+    ])
+    for (const r of rows) {
+      const name = r.slice(2).split(" ")[0]
+      expect(r.slice(2 + name.length, col).trim()).toBe("")
+      expect(r[col]).not.toBe(" ")
+    }
+    const label = (out: string, n: string) =>
+      out.match(new RegExp(`\\n {2}${n} +(.*)\\n`))?.[1].trim()
+    expect(a.stdout).toContain("also in this folder, not added by inscope here:")
+    expect(label(a.stdout, "mine")).toBe("yours")
+    expect(label(a.stdout, "linked")).toBe("yours, -> ~/.agents/skills/linked")
+    expect(label(a.stdout, "gone")).toBe(
+      "inscope link no workspace declares (the next apply removes it)",
+    )
+    expect(label(a.stdout, "tdd")).toBe('from workspace "b"')
+    expect(label(a.stdout, "docs")).toBe("synced from your claude.ai account")
+    for (const n of ["README.md", "broken", "empty", ".DS_Store", "other-account", "manifest"])
+      expect(a.stdout).not.toContain(n)
+    expect(a.stdout).not.toContain("\nb  (")
+
+    // bare (here through the `skills` alias): every workspace, the current one first.
+    // b opted out of the self-skill, so the inscope link a keeps there reads as a's.
+    const all = cli(["skills", "list"], "", ws("b"))
+    expect(all.status).toBe(0)
+    const order = [...all.stdout.matchAll(/^(\w+) {2}\(/gm)].map((m) => m[1])
+    expect(order).toEqual(["b", "a", "iso"])
+    const b = all.stdout.slice(all.stdout.indexOf("\nb  ("), all.stdout.indexOf("\na  ("))
+    expect(label(b, "inscope")).toBe('from workspace "a"')
+    expect(label(b, long)).toBe('from workspace "a"')
+    const iso = all.stdout.slice(all.stdout.indexOf("\niso  ("))
+    expect(label(iso, "private")).toBe("yours")
+    expect(iso).not.toContain("mine")
+  })
+})
+
+test("CLI: skill list reads the signed-in claude.ai account from the .claude.json Claude reads", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    const synced = path.join(sb, ".claude", "skills", "synced")
+    for (const [folder, name] of [
+      ["org-a_acct-a", "from-home-file"],
+      ["org-b_acct-b", "from-config-dir"],
+    ]) {
+      fs.mkdirSync(path.join(synced, folder, name), { recursive: true })
+      fs.writeFileSync(path.join(synced, folder, name, "SKILL.md"), `---\nname: ${name}\n---\n`)
+    }
+    // Claude names the folder in lowercase; .claude.json may not
+    const account = (org: string, acct: string) =>
+      JSON.stringify({ oauthAccount: { organizationUuid: org, accountUuid: acct } })
+    fs.writeFileSync(path.join(sb, ".claude.json"), account("ORG-A", "ACCT-A"))
+    fs.writeFileSync(path.join(sb, ".claude", ".claude.json"), account("org-b", "acct-b"))
+    for (const d of ["a", "iso"]) fs.mkdirSync(path.join(sb, d))
+    const a = { name: "a", path: path.join(sb, "a"), servers: {} }
+
+    // nothing sets CLAUDE_CONFIG_DIR, so Claude reads ~/.claude.json
+    writeCfg({ version: 1, workspaces: [a] })
+    const plain = cli(["skill", "list", "-w", "a"]).stdout
+    expect(plain).toContain("from-home-file")
+    expect(plain).not.toContain("from-config-dir")
+
+    // a .inscope inherited from a shell that had isolation is not the user's own
+    const inherited = cli(["skill", "list", "-w", "a"], "", undefined, {
+      CLAUDE_CONFIG_DIR: path.join(sb, "a", ".inscope"),
+    }).stdout
+    expect(inherited).toContain("from-home-file")
+    // the user's own CLAUDE_CONFIG_DIR is the one Claude reads
+    const mine = path.join(sb, "mine")
+    fs.mkdirSync(path.join(mine, "skills", "synced", "org-m_acct-m", "own-dir"), {
+      recursive: true,
+    })
+    fs.writeFileSync(
+      path.join(mine, "skills", "synced", "org-m_acct-m", "own-dir", "SKILL.md"),
+      "---\nname: own-dir\n---\n",
+    )
+    fs.writeFileSync(path.join(mine, ".claude.json"), account("org-m", "acct-m"))
+    const own = cli(["skill", "list", "-w", "a"], "", undefined, { CLAUDE_CONFIG_DIR: mine }).stdout
+    expect(own).toContain("own-dir")
+    expect(own).not.toContain("from-home-file")
+
+    // with a workspace isolated the hook exports ~/.claude, so Claude reads the one there
+    writeCfg({
+      version: 1,
+      workspaces: [a, { isolate: true, name: "iso", path: path.join(sb, "iso"), servers: {} }],
+    })
+    const exported = cli(["skill", "list", "-w", "a"]).stdout
+    expect(exported).toContain("from-config-dir")
+    expect(exported).not.toContain("from-home-file")
+  })
+})
+
+test("CLI: skill list keeps a re-pointed skill with its workspace until apply re-links it", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    for (const v of ["v1", "v2"]) {
+      const d = path.join(sb, "src", v, "tool")
+      fs.mkdirSync(d, { recursive: true })
+      fs.writeFileSync(path.join(d, "SKILL.md"), "---\nname: tool\n---\n")
+    }
+    for (const d of ["a", "b"]) fs.mkdirSync(path.join(sb, d))
+    const cfg = (source: string): Config => ({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {} },
+        { name: "b", path: path.join(sb, "b"), servers: {}, skills: [source] },
+      ],
+    })
+    writeCfg(cfg(path.join(sb, "src", "v1", "tool")))
+    expect(cli(["apply"]).status).toBe(0)
+    // b now declares another source; the link still points at the old one
+    writeCfg(cfg(path.join(sb, "src", "v2", "tool")))
+    const r = cli(["skill", "list", "-w", "a"])
+    expect(r.stdout).toMatch(/\n {2}tool {2,}from workspace "b"\n/)
+    expect(r.stdout).not.toContain("no workspace declares")
+  })
+})
+
+test("CLI: skill list credits a pre-#59 direct link to the local source a workspace declares", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    const src = path.join(sb, "src", "old")
+    fs.mkdirSync(src, { recursive: true })
+    fs.writeFileSync(path.join(src, "SKILL.md"), "---\nname: old\n---\n")
+    for (const d of ["a", "b"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {} },
+        { name: "b", path: path.join(sb, "b"), servers: {}, skills: [src] },
+      ],
+    })
+    // linked straight to the source, as inscope did before #59 (apply re-links it)
+    const shared = path.join(sb, ".claude", "skills")
+    fs.mkdirSync(shared, { recursive: true })
+    fs.symlinkSync(src, path.join(shared, "old"))
+    const r = cli(["skill", "list", "-w", "a"])
+    expect(r.stdout).toMatch(/\n {2}old {2,}from workspace "b"\n/)
+  })
+})
+
+test("CLI: skill list credits the user's own inscope install to the user, not a workspace", () => {
+  withSandbox((sb) => {
+    const { cli, writeCfg } = sandboxCli(sb)
+    // installed another way (e.g. `npx skills add nrjdalal/inscope`): a real dir
+    const own = path.join(sb, ".claude", "skills", "inscope")
+    fs.mkdirSync(own, { recursive: true })
+    fs.writeFileSync(path.join(own, "SKILL.md"), "---\nname: inscope\ndescription: d\n---\n")
+    for (const d of ["a", "b"]) fs.mkdirSync(path.join(sb, d))
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "a", path: path.join(sb, "a"), servers: {} },
+        { name: "b", path: path.join(sb, "b"), servers: {}, selfSkill: false },
+      ],
+    })
+    const r = cli(["skill", "list", "-w", "b"])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toMatch(/\n {2}inscope {2,}yours\n/)
+    expect(r.stdout).not.toContain("from workspace")
   })
 })
 

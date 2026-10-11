@@ -28,10 +28,13 @@ import {
   skillLinked,
   skillsDir,
   unlinkSkillLink,
+  type OtherSkill,
+  otherSkillsIn,
+  workspaceSkills,
 } from "@/generators/skills"
 import { defaultRunner } from "@/secrets"
 import { requireConfigExists } from "~/bin/commands/_config"
-import { green, isInteractive, orange, selectMany, yellow } from "~/bin/commands/_prompt"
+import { dim, green, isInteractive, orange, selectMany, yellow } from "~/bin/commands/_prompt"
 import { persist } from "~/bin/commands/_workspace"
 import { name } from "~/package.json"
 
@@ -46,7 +49,8 @@ Usage:
 
 Commands:
   add <source>        Add a skill (owner/repo#subdir, a git URL, or a local path)
-  list                List a workspace's skills and whether they are linked (alias: ls)
+  list                List every skill in each workspace's skills dir, the current
+                      workspace first; -w lists one (alias: ls)
   rename <old> <new>  Rename a skill (and its /command) in a workspace (alias: mv)
   rm <name>           Remove a skill from a workspace (alias: remove)
   update              Pull the latest for a workspace's floating git skills
@@ -328,6 +332,21 @@ const skillAdd = async (args: string[]) => {
   )
 }
 
+type Row = { name: string; label: string; mark?: string }
+
+const otherLabel = (o: OtherSkill): string => {
+  switch (o.kind) {
+    case "workspace":
+      return `from workspace "${o.workspace}"`
+    case "stale":
+      return "inscope link no workspace declares (the next apply removes it)"
+    case "synced":
+      return "synced from your claude.ai account"
+    case "own":
+      return o.target ? `yours, -> ${o.target}` : "yours"
+  }
+}
+
 const skillList = (args: string[]) => {
   const { values } = parse(args)
   if (values.help) {
@@ -335,28 +354,38 @@ const skillList = (args: string[]) => {
     process.exit(0)
   }
   const cfg = loadConfig()
-  const here = values.workspace ? resolveWorkspace(cfg, values.workspace) : currentWorkspace(cfg)
-  const targets = here ? [here] : cfg.workspaces
-
-  if (!targets.length) {
+  if (!cfg.workspaces.length) {
     console.log(`No workspaces yet. Add one with \`${name} add <path>\`.`)
     process.exit(0)
   }
+  // -w lists one workspace; otherwise every workspace, the one you are in first
+  const here = currentWorkspace(cfg)
+  const targets = values.workspace
+    ? [resolveWorkspace(cfg, values.workspace)]
+    : [...(here ? [here] : []), ...cfg.workspaces.filter((ws) => ws !== here)]
+
   for (const ws of targets) {
+    const rows: Row[] = workspaceSkills(ws).map(({ name: n, skill }) => ({
+      name: n,
+      label: orange(skill ? sourceLabel(skill) : "(bundled self-skill)"),
+      mark: skillLinked(ws, n) ? green("✓ linked") : yellow("⚠ missing"),
+    }))
+    const others: Row[] = otherSkillsIn(cfg, ws).map((o) => ({
+      name: o.name,
+      label: dim(otherLabel(o)),
+    }))
+    // one column for the whole workspace, sized to its longest name
+    const width = Math.max(...[...rows, ...others].map((r) => r.name.length), 0) + 2
+    const line = (r: Row) =>
+      console.log(`  ${r.name.padEnd(width)}${r.label}${r.mark ? `  ${r.mark}` : ""}`)
+
     console.log(`\n${ws.name}  (${contractTilde(skillsDir(ws))})`)
-    let any = false
-    if (ws.selfSkill !== false) {
-      const mark = skillLinked(ws, SELF_SKILL_NAME) ? green("✓ linked") : yellow("⚠ missing")
-      console.log(`  ${SELF_SKILL_NAME.padEnd(18)}${orange("(bundled self-skill)")}  ${mark}`)
-      any = true
+    if (!rows.length) console.log("  (no skills)")
+    rows.forEach(line)
+    if (others.length) {
+      console.log(dim("  also in this folder, not added by inscope here:"))
+      others.forEach(line)
     }
-    for (const spec of ws.skills ?? []) {
-      const s = normalizeSkill(spec)
-      const mark = skillLinked(ws, s.name) ? green("✓ linked") : yellow("⚠ missing")
-      console.log(`  ${s.name.padEnd(18)}${orange(sourceLabel(s))}  ${mark}`)
-      any = true
-    }
-    if (!any) console.log("  (no skills)")
   }
   process.exit(0)
 }
