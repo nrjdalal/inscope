@@ -693,18 +693,24 @@ export const workspaceSkills = (ws: Workspace): { name: string; skill?: Normaliz
 // apply removes it), the user's own skill (a dir, or a link inscope did not create), and
 // the skills Claude Code syncs from the login's claude.ai account into `synced/`. Only
 // entries holding a SKILL.md count: Claude loads nothing else.
-export type OtherSkill =
-  | { name: string; kind: "workspace"; workspace: string }
-  | { name: string; kind: "stale" }
-  | { name: string; kind: "own"; target?: string }
-  | { name: string; kind: "synced" }
+export const OTHER_SKILL_KINDS = ["own", "stale", "synced", "workspace"] as const
 
-export const OTHER_SKILL_KINDS = [
-  "own",
-  "stale",
-  "synced",
-  "workspace",
-] as const satisfies readonly OtherSkill["kind"][]
+type OtherSkillKind = (typeof OTHER_SKILL_KINDS)[number]
+
+// every listed kind must say what it carries besides its name
+type FieldsPerKind<T extends Record<OtherSkillKind, object>> = T
+
+// The union below is built from the list, so a kind exists in both or in neither.
+type OtherSkillFields = FieldsPerKind<{
+  own: { target?: string }
+  stale: {}
+  synced: {}
+  workspace: { workspace: string }
+}>
+
+export type OtherSkill = {
+  [K in OtherSkillKind]: { kind: K; name: string } & OtherSkillFields[K]
+}[OtherSkillKind]
 
 const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 
