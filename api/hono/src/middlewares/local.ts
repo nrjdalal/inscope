@@ -80,7 +80,9 @@ export const requireLocal =
   async (c, next) => {
     if (!isLocal(stage)) return c.notFound()
     const { addresses, hosts, unnamed } = relayed(c)
-    if (![hostnameOf(c.req.header("host") ?? ""), ...hosts].every(isLoopbackHost))
+    if (
+      ![hostnameOf(c.req.header("host") ?? new URL(c.req.url).host), ...hosts].every(isLoopbackHost)
+    )
       return jsonError(c, 403, "FORBIDDEN", "Only answers requests addressed to localhost")
     let address: string | undefined
     try {
