@@ -1723,6 +1723,105 @@ test("validateConfig refuses a config newer than it understands, tolerates older
   )
 })
 
+test("validateConfig rejects a hand-written workspace shape that would crash a command", () => {
+  const cfg = (extra: Record<string, unknown>) =>
+    ({ version: 1, workspaces: [{ name: "w", path: "~/w", ...extra }] }) as unknown as Config
+  // left out, null, or false means none
+  expect(() => validateConfig(cfg({}))).not.toThrow()
+  expect(() => validateConfig(cfg({ servers: null, git: null, gh: null }))).not.toThrow()
+  expect(() => validateConfig(cfg({ servers: false, git: false, gh: false }))).not.toThrow()
+  expect(() => validateConfig(cfg({ git: { email: false, name: null } }))).not.toThrow()
+  for (const servers of ["github", ["github"], 1, true])
+    expect(() => validateConfig(cfg({ servers }))).toThrow(
+      /workspace "w" servers must be an object/,
+    )
+  for (const git of ["me@example.com", ["me@example.com"]])
+    expect(() => validateConfig(cfg({ git }))).toThrow(/workspace "w" git must be an object/)
+  expect(() => validateConfig(cfg({ name: 7 }))).toThrow(/workspace name 7 must be a string/)
+  expect(() => validateConfig(cfg({ path: 123 }))).toThrow(/workspace "w" path must be a string/)
+  expect(() => validateConfig(cfg({ gh: true }))).toThrow(/workspace "w" gh must be a string/)
+  for (const git of [{ email: {} }, { name: 5 }])
+    expect(() => validateConfig(cfg({ git }))).toThrow(
+      /workspace "w" git (email|name) must be a string/,
+    )
+  for (const ws of [null, 1, "w", []])
+    expect(() => validateConfig({ version: 1, workspaces: [ws] } as unknown as Config)).toThrow(
+      /each workspace must be an object/,
+    )
+  for (const slack of [true, {}, { keychain: 5 }])
+    expect(() => validateConfig(cfg({ servers: { slack } }))).toThrow(
+      /workspace "w" Slack keychain .* is invalid: missing/,
+    )
+  expect(() =>
+    validateConfig(cfg({ servers: { slack: { keychain: "SLACK_MCP_XOXP_TOKEN_W" } } })),
+  ).not.toThrow()
+})
+
+test("loadConfig settles an unset servers, gh, or git and rejects a file that is not an object", () => {
+  const prev = process.env.XDG_CONFIG_HOME
+  process.env.XDG_CONFIG_HOME = tmpDir()
+  try {
+    const file = configPath()
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ version: 1, workspaces: [{ name: "w", path: "~/w" }] }))
+    expect(loadConfig().workspaces[0].servers).toEqual({})
+    // null and false settle to the same shape as left out
+    const unset = {
+      name: "w",
+      path: "~/w",
+      servers: false,
+      gh: false,
+      git: { email: false, name: null },
+    }
+    fs.writeFileSync(file, JSON.stringify({ version: 1, workspaces: [unset] }))
+    expect(loadConfig().workspaces[0]).toEqual({ name: "w", path: "~/w", servers: {}, git: {} })
+    fs.writeFileSync(file, "null")
+    expect(() => loadConfig()).toThrow(/must hold a JSON object/)
+  } finally {
+    if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prev
+  }
+})
+
+test("CLI: a hand-written config without servers applies, lists, reports status, and passes doctor", () => {
+  withSandbox((tmp) => {
+    // realpath, or a cwd under /private/var matches no workspace under an unresolved /var HOME
+    const sb = fs.realpathSync(tmp)
+    const { cli, writeCfg } = sandboxCli(sb)
+    // stub gh and claude so status and doctor never reach the developer's real logins
+    const stubBin = path.join(sb, "stub-bin")
+    fs.mkdirSync(stubBin, { recursive: true })
+    for (const bin of ["gh", "claude"]) {
+      fs.writeFileSync(path.join(stubBin, bin), "#!/bin/sh\nexit 1\n")
+      fs.chmodSync(path.join(stubBin, bin), 0o755)
+    }
+    const PATH = `${stubBin}${path.delimiter}${process.env.PATH ?? ""}`
+    for (const dir of ["personal", "work"]) fs.mkdirSync(path.join(sb, dir), { recursive: true })
+    writeCfg({
+      version: 1,
+      workspaces: [
+        { name: "personal", path: "~/personal", git: { email: "me@example.com" } },
+        { isolate: true, name: "work", path: "~/work", git: { email: "me@work.example" } },
+      ],
+    } as unknown as Config)
+    const work = path.join(sb, "work")
+    const run = (cmd: string, cwd: string) => {
+      const r = cli([cmd], "", cwd, { PATH })
+      expect(`${cmd} ${r.status} ${r.stderr}`).toBe(`${cmd} 0 `)
+      return r.stdout
+    }
+    run("apply", sb)
+    expect(run("list", sb)).toContain("servers  none")
+    const status = run("status", work)
+    expect(status).toContain("work  ~/work")
+    expect(status).toMatch(/MCP +none/)
+    expect(run("doctor", work)).toContain("[work] mcp  0 server(s)")
+    expect(JSON.parse(fs.readFileSync(path.join(work, ".mcp.json"), "utf8"))).toEqual({
+      mcpServers: {},
+    })
+  })
+})
+
 test("loadConfig surfaces a too-new version on its own, not under 'fix it and re-run'", () => {
   const prev = process.env.XDG_CONFIG_HOME
   process.env.XDG_CONFIG_HOME = tmpDir()
