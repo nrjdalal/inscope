@@ -27,7 +27,7 @@ import {
   type SkillSpec,
   type Workspace,
 } from "@/config"
-import { bypassDisabledByPolicy, currentWorkspace, runDoctor } from "@/doctor"
+import { bypassDisabledByPolicy, currentWorkspace, runDoctor, unpinnedServers } from "@/doctor"
 import { adoptable, computeDrift, diffLines, mcpError, mcpTarget } from "@/drift"
 import { configPath, gitIncludeDir, home, hookPath, resolveAbsolute, zshrcPath } from "@/env"
 import {
@@ -155,7 +155,7 @@ test("renderServers matches the blog's acme .mcp.json", () => {
     "slack-acme": {
       type: "stdio",
       command: "npx",
-      args: ["-y", "@nrjdalal/slack-mcp-server@latest"],
+      args: ["--prefix", "/", "-y", "@nrjdalal/slack-mcp-server@latest"],
       env: {
         SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN:-}",
       },
@@ -1376,7 +1376,7 @@ test("renderServers shapes the @nrjdalal slack fork per its own CLI", () => {
 
   // write-enabled (the fork's default): no --transport flag, no write env
   const write = fork({ keychain: "K", package: "@nrjdalal/slack-mcp-server", addMessageTool: true })
-  expect(write.args).toEqual(["-y", "@nrjdalal/slack-mcp-server@latest"])
+  expect(write.args).toEqual(["--prefix", "/", "-y", "@nrjdalal/slack-mcp-server@latest"])
   expect(write.args).not.toContain("--transport")
   expect(write.env.SLACK_MCP_ALLOW_WRITE).toBeUndefined()
   expect(write.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBeUndefined()
@@ -1387,7 +1387,14 @@ test("renderServers shapes the @nrjdalal slack fork per its own CLI", () => {
 
   // korotovsky (explicit, non-default) keeps --transport stdio and the add-message-tool env
   const koro = fork({ keychain: "K", package: "slack-mcp-server", addMessageTool: true })
-  expect(koro.args).toContain("--transport")
+  expect(koro.args).toEqual([
+    "--prefix",
+    "/",
+    "-y",
+    "slack-mcp-server@1.3.0",
+    "--transport",
+    "stdio",
+  ])
   expect(koro.env.SLACK_MCP_ADD_MESSAGE_TOOL).toBe("true")
   expect(koro.env.SLACK_MCP_ALLOW_WRITE).toBeUndefined()
 })
@@ -2259,6 +2266,10 @@ test("slackPackageFromArgs detects the package, ignoring the version suffix", ()
     "@nrjdalal/slack-mcp-server",
   )
   expect(slackPackageFromArgs(["-y", "slack-mcp-server"])).toBe("slack-mcp-server")
+  // the --prefix / launch shape reads the same
+  expect(slackPackageFromArgs(["--prefix", "/", "-y", "@nrjdalal/slack-mcp-server@latest"])).toBe(
+    "@nrjdalal/slack-mcp-server",
+  )
   expect(slackPackageFromArgs(["-y", "some-other-mcp@1.0.0"])).toBeNull()
   // a sibling name that merely contains the package name is not the package
   expect(slackPackageFromArgs(["-y", "slack-mcp-server-fork@1.0.0"])).toBeNull()
@@ -3843,4 +3854,20 @@ test("runDoctor checks the nylas API key is in the keychain", () => {
   const missing = nylasCheck(false)
   expect(missing?.status).toBe("fail")
   expect(missing?.detail).toContain("-s 'NYLAS_API_KEY_ACME' -w 'nyk_...'")
+})
+
+test("doctor reads an npx server's package past --prefix and its directory", () => {
+  const doc = (args: string[]) => ({
+    mcpServers: { "slack-acme": { type: "stdio", command: "npx", args } },
+  })
+  // pinned korotovsky, launched the way inscope renders it: not flagged
+  expect(
+    unpinnedServers(doc(["--prefix", "/", "-y", "slack-mcp-server@1.3.0", "--transport", "stdio"])),
+  ).toEqual([])
+  // a bare package after --prefix is still caught, not mistaken for the "/" it follows
+  expect(unpinnedServers(doc(["--prefix", "/", "-y", "slack-mcp-server"]))).toEqual(["slack-acme"])
+  // the @nrjdalal fork stays exempt on @latest
+  expect(
+    unpinnedServers(doc(["--prefix", "/", "-y", "@nrjdalal/slack-mcp-server@latest"])),
+  ).toEqual([])
 })
