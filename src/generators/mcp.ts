@@ -199,7 +199,8 @@ export const renderServers = (ws: Workspace): Record<string, unknown> => {
       // --prefix / stops npx from taking the current project as its root. A project whose npm
       // overrides clash with its own dependencies makes npx exit with EOVERRIDE before the
       // server starts, and reading a large project slows every launch. npx still installs
-      // into its own cache, never the prefix.
+      // into its own cache, never the prefix, and the project's .npmrc no longer applies
+      // (~/.npmrc still does).
       const args = ["--prefix", "/", "-y", slackPackageSpec(pkg)]
       if (pkg === "@nrjdalal/slack-mcp-server") {
         // The fork speaks stdio by default (no --transport flag) and is

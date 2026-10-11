@@ -39,7 +39,8 @@ export type Check = { status: CheckStatus; label: string; detail?: string }
 // accidental unpin; doctor skips it rather than nagging about it every run.
 const INTENTIONALLY_FLOATING = slackPackageSpec("@nrjdalal/slack-mcp-server")
 
-// The package an npx server runs: its first bare argument, skipping flags and the directory --prefix takes.
+// The package an npx server runs: its first bare argument, skipping flags and the
+// directory --prefix takes.
 const npxPackage = (args: unknown[]): string | undefined => {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
