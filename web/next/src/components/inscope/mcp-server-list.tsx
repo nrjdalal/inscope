@@ -1,10 +1,21 @@
 import { StatusBadge } from "@/components/inscope/status-badge"
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item"
 import type { InscopeWorkspace } from "@/lib/inscope"
 
 // A workspace's MCP servers by name: inscope's own and any added by hand, and whether each is in the file yet.
 export function McpServerList({ servers }: { servers: InscopeWorkspace["mcp"]["servers"] }) {
-  if (!servers.length) return <p className="text-muted-foreground text-sm">No MCP servers.</p>
+  if (!servers.length)
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>No MCP servers</EmptyTitle>
+          <EmptyDescription>
+            Neither the config nor the file names one for this workspace.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
   return (
     <ItemGroup className="gap-2">
       {servers.map((server) => (

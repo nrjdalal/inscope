@@ -14,11 +14,18 @@ import {
 import { Spinner } from "@/components/ui/spinner"
 import type { ApiError } from "@/lib/api/client"
 
-const errorCopy = (error: ApiError) => {
+const errorCopy = (error: ApiError): { description: React.ReactNode; title: string } => {
   if (error.code === "INSCOPE_CONFIG_INVALID")
     return { title: "The inscope config is invalid", description: error.message }
   if (error.code === "NETWORK_ERROR")
-    return { title: "The API is not reachable", description: "Start the stack with `bun run dev`." }
+    return {
+      title: "The API is not reachable",
+      description: (
+        <>
+          Start the stack with <code>bun run dev</code>.
+        </>
+      ),
+    }
   if (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")
     return {
       title: "Not available here",

@@ -19,9 +19,9 @@ const useInscopeQuery = <T>(
   useQuery<T, ApiError>({
     queryKey,
     queryFn: async () => {
-      const { data, error } = await call()
-      if (error) throw error
-      return data as T
+      const result = await call()
+      if (result.error) throw result.error
+      return result.data
     },
     refetchOnWindowFocus: false,
     retry: false,

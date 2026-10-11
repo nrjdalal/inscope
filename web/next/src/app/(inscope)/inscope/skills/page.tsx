@@ -30,8 +30,8 @@ export default function Page() {
                   key={workspace.name}
                   id={`skills-${workspace.name}`}
                   title={workspace.name}
+                  description={workspace.skills.dir}
                 >
-                  <p className="text-muted-foreground font-mono text-sm">{workspace.skills.dir}</p>
                   <SkillList skills={workspace.skills} />
                 </PageSection>
               ))}

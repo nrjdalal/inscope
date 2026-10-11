@@ -47,8 +47,8 @@ export default function Page() {
                   key={drift.label}
                   id={`drift-${drift.label}`}
                   title={<span className="font-mono">{drift.label}</span>}
+                  description={drift.path}
                 >
-                  <p className="text-muted-foreground font-mono text-sm">{drift.path}</p>
                   <DriftDiff drift={drift} />
                 </PageSection>
               ))}

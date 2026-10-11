@@ -12,6 +12,7 @@ import { SkillList } from "@/components/inscope/skill-list"
 import { WorkspaceBadges } from "@/components/inscope/workspace-badges"
 import { PageHeader } from "@/components/shell/page-header"
 import { PageShell } from "@/components/shell/page-shell"
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { useInscopeWorkspace } from "@/lib/inscope"
 
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
@@ -64,22 +65,27 @@ export default function Page() {
                 </Row>
               </dl>
             </PageSection>
-            <PageSection id="mcp" title="MCP servers">
-              <p className="text-muted-foreground font-mono text-sm">{workspace.mcp.path}</p>
+            <PageSection id="mcp" title="MCP servers" description={workspace.mcp.path}>
               {workspace.mcp.error && (
                 <p className="text-destructive text-sm">{workspace.mcp.error}</p>
               )}
               <McpServerList servers={workspace.mcp.servers} />
             </PageSection>
-            <PageSection id="skills" title="Skills">
-              <p className="text-muted-foreground font-mono text-sm">{workspace.skills.dir}</p>
+            <PageSection id="skills" title="Skills" description={workspace.skills.dir}>
               <SkillList skills={workspace.skills} />
             </PageSection>
             <PageSection id="checks" title="Checks">
               {checks.length ? (
                 <CheckList checks={checks} />
               ) : (
-                <p className="text-muted-foreground text-sm">No checks for this workspace.</p>
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>No checks</EmptyTitle>
+                    <EmptyDescription>
+                      Doctor runs no check that belongs to this workspace.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               )}
             </PageSection>
             <PageSection id="changes" title="Pending changes">
@@ -93,7 +99,14 @@ export default function Page() {
                   </div>
                 ))
               ) : (
-                <p className="text-muted-foreground text-sm">In sync with the config.</p>
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>In sync</EmptyTitle>
+                    <EmptyDescription>
+                      Every file inscope manages for this workspace matches the config.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               )}
             </PageSection>
           </div>

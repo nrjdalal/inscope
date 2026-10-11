@@ -55,8 +55,8 @@ export default function Page() {
                         </span>
                       </ItemTitle>
                       <ItemDescription>
-                        {workspace.servers.length
-                          ? `MCP servers: ${workspace.servers.join(", ")}`
+                        {workspace.mcp.types.length
+                          ? `MCP servers: ${workspace.mcp.types.join(", ")}`
                           : "No MCP servers"}
                       </ItemDescription>
                       <WorkspaceBadges
