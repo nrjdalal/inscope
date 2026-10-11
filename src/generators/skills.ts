@@ -10,8 +10,8 @@ import {
   type SkillSpec,
   type Workspace,
 } from "@/config"
-import { contractTilde, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
-import { baseClaudeDir, inscopeDirPath } from "@/generators/isolate"
+import { contractTilde, home, inscopeHome, packageRoot, resolveAbsolute } from "@/env"
+import { baseClaudeDir, inscopeDirPath, ownConfigDir } from "@/generators/isolate"
 import { readBlock, removeBlock } from "@/managed-block"
 import { defaultRunner, type Runner } from "@/secrets"
 
@@ -488,16 +488,18 @@ export const selfSkillProvidedElsewhere = (dir: string): boolean => {
   return !isOwnedLink(entry) && readFrontmatterName(entry) === SELF_SKILL_NAME
 }
 
-// The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
-export const ownedSkillNames = (dir: string): string[] => {
-  let entries: string[]
+// A dir's entries, sorted; none when it does not exist.
+const safeReaddir = (dir: string): string[] => {
   try {
-    entries = fs.readdirSync(dir)
+    return fs.readdirSync(dir).sort()
   } catch {
     return []
   }
-  return entries.filter((n) => isOwnedLink(path.join(dir, n)))
 }
+
+// The names of inscope-owned links currently in `dir`. Drives pruning and the diff.
+export const ownedSkillNames = (dir: string): string[] =>
+  safeReaddir(dir).filter((n) => isOwnedLink(path.join(dir, n)))
 
 // Remove every inscope-owned link in `dir` whose name is not in `keep`. Only cache
 // -backed symlinks are candidates, so a user-authored dir/skill sharing the same
@@ -663,4 +665,102 @@ export const unlinkSkillLink = (ws: Workspace, name: string, spec: SkillSpec): b
 export const removeSkills = (ws: Workspace) => {
   if (!ws.isolate) return
   pruneOwned(skillsDir(ws), new Set())
+}
+
+// The skills a workspace lists as its own: the bundled self-skill (unless opted out),
+// then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
+export const workspaceSkills = (ws: Workspace): { name: string; skill?: NormalizedSkill }[] => [
+  ...(ws.selfSkill === false ? [] : [{ name: SELF_SKILL_NAME }]),
+  ...(ws.skills ?? []).map((spec) => {
+    const skill = normalizeSkill(spec)
+    return { name: skill.name, skill }
+  }),
+]
+
+// Everything else Claude loads from a workspace's skills dir: a skill another workspace
+// sharing the dir links there, an inscope link no workspace declares any more (the next
+// apply removes it), the user's own skill (a dir, or a link inscope did not create), and
+// the skills Claude Code syncs from the login's claude.ai account into `synced/`. Only
+// entries holding a SKILL.md count: Claude loads nothing else.
+export type OtherSkill =
+  | { name: string; kind: "workspace"; workspace: string }
+  | { name: string; kind: "stale" }
+  | { name: string; kind: "own"; target?: string }
+  | { name: string; kind: "synced" }
+
+const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
+
+// The `.claude.json` Claude Code reads for a workspace's login: the one in
+// CLAUDE_CONFIG_DIR, else `~/.claude.json`. An isolated login always has it set (the hook
+// points it at `<ws>/.inscope`); the shared login has it set when the hook exports the
+// base (any workspace isolated) or the user set their own.
+const loginStateFile = (cfg: Config, ws: Workspace): string => {
+  if (ws.isolate) return path.join(inscopeDirPath(ws), ".claude.json")
+  if (cfg.workspaces.some((w) => w.isolate)) return path.join(baseClaudeDir(), ".claude.json")
+  const own = ownConfigDir()
+  return own ? path.join(own, ".claude.json") : path.join(home(), ".claude.json")
+}
+
+// Claude Code keeps each claude.ai account's synced skills under
+// `synced/<organizationUuid>_<accountUuid>` (lowercased) and loads only the signed-in
+// account's folder, which the login's `.claude.json` names.
+const syncedAccountDir = (stateFile: string): string | null => {
+  try {
+    const o = JSON.parse(fs.readFileSync(stateFile, "utf8"))?.oauthAccount
+    if (o?.organizationUuid && o?.accountUuid)
+      return `${o.organizationUuid}_${o.accountUuid}`.toLowerCase()
+  } catch {}
+  return null
+}
+
+export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
+  const dir = skillsDir(ws)
+  const own = new Set(workspaceSkills(ws).map((s) => s.name))
+  // the other workspaces linking into this same dir: the names each declares, and the
+  // path of each local source (a link made before #59 points straight at it)
+  const sharers = cfg.workspaces
+    .filter((o) => o.name !== ws.name && skillsDir(o) === dir)
+    .map((o) => {
+      const skills = workspaceSkills(o)
+      return {
+        name: o.name,
+        declared: new Set(skills.map((s) => s.name)),
+        local: new Map(
+          skills.flatMap(({ name: n, skill }) =>
+            skill?.source.kind === "local" ? [[n, originalTarget(skill)] as const] : [],
+          ),
+        ),
+      }
+    })
+  const out: OtherSkill[] = []
+  // claude.ai's synced skills come last, as a group
+  const synced: OtherSkill[] = []
+  for (const name of safeReaddir(dir)) {
+    if (name.startsWith(".") || own.has(name)) continue
+    const entry = path.join(dir, name)
+    if (name === "synced") {
+      const account = syncedAccountDir(loginStateFile(cfg, ws))
+      const from = account ? path.join(entry, account) : null
+      if (from)
+        for (const s of safeReaddir(from))
+          if (hasSkillMd(path.join(from, s))) synced.push({ name: s, kind: "synced" })
+      continue
+    }
+    if (!hasSkillMd(entry)) continue
+    // where a link points, resolved (a link the user made may be relative); none for a dir
+    let target: string | undefined
+    try {
+      if (fs.lstatSync(entry).isSymbolicLink()) target = path.resolve(dir, fs.readlinkSync(entry))
+    } catch {}
+    const owned = isOwnedLink(entry)
+    // an inscope link is the declaring workspace's even before apply re-points it; a
+    // direct link to a declared local source is too (the rule unlinkSkillLink uses)
+    const other = sharers.find(
+      (o) => o.declared.has(name) && (owned || (!!target && o.local.get(name) === target)),
+    )
+    if (other) out.push({ name, kind: "workspace", workspace: other.name })
+    else if (owned) out.push({ name, kind: "stale" })
+    else out.push({ name, kind: "own", ...(target ? { target: contractTilde(target) } : {}) })
+  }
+  return [...out, ...synced]
 }
