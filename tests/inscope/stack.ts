@@ -1,8 +1,7 @@
 // Runs the dashboard end to end against a sealed sandbox: seeds one (tests/inscope/sandbox.ts), starts the API on it at :4000 and `next dev` at :3000, then runs the dashboard's e2e suite, or with --keep leaves both up for a browser. `bun tests/inscope/stack.ts [--dir <path>] [--keep]`.
+import { type ChildProcess, spawn } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-
-import type { Subprocess } from "bun"
 
 import { seedSandbox } from "./sandbox"
 
@@ -35,14 +34,22 @@ const webEnv = {
   PORTLESS: "0",
 }
 
-const children: Subprocess[] = []
+// each server runs in its own process group, so stopping it also stops what it spawned (`bun run dev:app` reaches `next dev` through two wrappers)
+const children: ChildProcess[] = []
 const stop = () => {
-  for (const child of children) child.kill()
+  for (const child of children) {
+    try {
+      if (child.pid) process.kill(-child.pid, "SIGTERM")
+    } catch {
+      // already gone
+    }
+  }
 }
-process.on("SIGINT", () => {
-  stop()
-  process.exit(130)
-})
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.on(signal, () => {
+    stop()
+    process.exit(130)
+  })
 
 const start = (
   cwd: string,
@@ -50,8 +57,13 @@ const start = (
   env: Record<string, string | undefined>,
   log: string,
 ) => {
-  const out = Bun.file(path.join(sb.root, log))
-  const child = Bun.spawn(cmd, { cwd: path.join(REPO, cwd), env, stdout: out, stderr: out })
+  const out = fs.openSync(path.join(sb.root, log), "a")
+  const child = spawn(cmd[0], cmd.slice(1), {
+    cwd: path.join(REPO, cwd),
+    detached: true,
+    env,
+    stdio: ["ignore", out, out],
+  })
   children.push(child)
   return child
 }
