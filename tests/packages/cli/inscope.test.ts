@@ -1745,6 +1745,17 @@ test("validateConfig rejects a hand-written workspace shape that would crash a c
   expect(() => validateConfig(one({ name: "w", path: 123 }))).toThrow(
     /workspace "w" path must be a string/,
   )
+  expect(() => validateConfig(one({ name: "w", path: "~/w", gh: true }))).toThrow(
+    /workspace "w" gh must be a string/,
+  )
+  for (const git of [{ email: {} }, { name: 5 }])
+    expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
+      /workspace "w" git (email|name) must be a string/,
+    )
+  for (const ws of [null, 1, "w", []])
+    expect(() => validateConfig({ version: 1, workspaces: [ws] } as unknown as Config)).toThrow(
+      /each workspace must be an object/,
+    )
   for (const slack of [true, {}, { keychain: 5 }])
     expect(() => validateConfig(cfg({ servers: { slack } }))).toThrow(
       /workspace "w" Slack keychain .* is invalid: missing/,
@@ -1762,6 +1773,8 @@ test("loadConfig reads a workspace without servers as one with no MCP servers", 
     fs.mkdirSync(path.dirname(file), { recursive: true })
     fs.writeFileSync(file, JSON.stringify({ version: 1, workspaces: [{ name: "w", path: "~/w" }] }))
     expect(loadConfig().workspaces[0].servers).toEqual({})
+    fs.writeFileSync(file, "null")
+    expect(() => loadConfig()).toThrow(/must hold a JSON object/)
   } finally {
     if (prev === undefined) delete process.env.XDG_CONFIG_HOME
     else process.env.XDG_CONFIG_HOME = prev
@@ -1790,21 +1803,17 @@ test("CLI: a hand-written config without servers applies, lists, reports status,
       ],
     } as unknown as Config)
     const work = path.join(sb, "work")
-    for (const [args, cwd] of [
-      [["apply"], sb],
-      [["list"], sb],
-      [["status"], work],
-      [["doctor"], work],
-    ] as const) {
-      const r = cli([...args], "", cwd, { PATH })
-      expect(`${args[0]} ${r.status} ${r.stderr}`).toBe(`${args[0]} 0 `)
-      expect(r.stdout).not.toContain("Cannot read properties")
+    const run = (cmd: string, cwd: string) => {
+      const r = cli([cmd], "", cwd, { PATH })
+      expect(`${cmd} ${r.status} ${r.stderr}`).toBe(`${cmd} 0 `)
+      return r.stdout
     }
-    expect(cli(["list"], "", sb, { PATH }).stdout).toContain("servers  none")
-    const status = cli(["status"], "", work, { PATH }).stdout
+    run("apply", sb)
+    expect(run("list", sb)).toContain("servers  none")
+    const status = run("status", work)
     expect(status).toContain("work  ~/work")
     expect(status).toMatch(/MCP +none/)
-    expect(cli(["doctor"], "", work, { PATH }).stdout).toContain("[work] mcp  0 server(s)")
+    expect(run("doctor", work)).toContain("[work] mcp  0 server(s)")
     expect(JSON.parse(fs.readFileSync(path.join(work, ".mcp.json"), "utf8"))).toEqual({
       mcpServers: {},
     })

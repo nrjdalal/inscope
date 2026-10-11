@@ -146,6 +146,9 @@ export const defaultConfig = (): Config => ({
 
 export const configExists = () => fs.existsSync(configPath())
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v)
+
 export const loadConfig = (): Config => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
@@ -159,6 +162,8 @@ export const loadConfig = (): Config => {
   }
   // A too-new config is fixed by upgrading inscope, not by editing the file, so
   // surface it on its own rather than under the generic "fix it and re-run".
+  if (!isPlainObject(parsed))
+    throw new Error(`${contractTilde(file)} must hold a JSON object; fix it, then re-run.`)
   const versionErr = configVersionError(parsed)
   if (versionErr) throw new Error(versionErr)
   try {
@@ -379,9 +384,6 @@ export const currentWorkspace = (
   return best
 }
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v)
-
 export const validateConfig = (cfg: Config) => {
   if (!cfg || typeof cfg !== "object") throw new Error("config is not an object")
   const versionErr = configVersionError(cfg)
@@ -391,6 +393,7 @@ export const validateConfig = (cfg: Config) => {
     throw new Error("config bypass must be a boolean")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
+    if (!isPlainObject(ws)) throw new Error("each workspace must be an object")
     if (!ws.name) throw new Error("a workspace is missing a name")
     if (typeof ws.name !== "string")
       throw new Error(`workspace name ${JSON.stringify(ws.name)} must be a string`)
@@ -400,11 +403,13 @@ export const validateConfig = (cfg: Config) => {
     if (typeof ws.path !== "string") throw new Error(`workspace "${ws.name}" path must be a string`)
     const pathErr = workspacePathError(ws.path)
     if (pathErr) throw new Error(`workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`)
-    // null or left out means none; anything else that is not an object would crash a generator
+    // left out or null means none; any other non-object is a typo to surface, not to ignore
     if (ws.servers != null && !isPlainObject(ws.servers))
       throw new Error(`workspace "${ws.name}" servers must be an object`)
     if (ws.git != null && !isPlainObject(ws.git))
       throw new Error(`workspace "${ws.name}" git must be an object`)
+    if (ws.gh != null && typeof ws.gh !== "string")
+      throw new Error(`workspace "${ws.name}" gh must be a string`)
     if (ws.gh) {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
@@ -414,6 +419,9 @@ export const validateConfig = (cfg: Config) => {
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
+    for (const key of ["email", "name"] as const)
+      if (ws.git?.[key] != null && typeof ws.git[key] !== "string")
+        throw new Error(`workspace "${ws.name}" git ${key} must be a string`)
     if (ws.git?.email) {
       const emailErr = gitValueError(ws.git.email)
       if (emailErr)
@@ -431,10 +439,7 @@ export const validateConfig = (cfg: Config) => {
     // the Slack keychain service is interpolated into the hook, and doctor and the hook need it set
     const slack = ws.servers?.slack
     if (slack) {
-      const kcErr =
-        isPlainObject(slack) && typeof slack.keychain === "string"
-          ? hookValueError(slack.keychain)
-          : "missing"
+      const kcErr = typeof slack.keychain === "string" ? hookValueError(slack.keychain) : "missing"
       if (kcErr)
         throw new Error(
           `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
