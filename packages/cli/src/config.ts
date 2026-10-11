@@ -379,7 +379,7 @@ export const currentWorkspace = (
   return best
 }
 
-const isPlainObject = (v: unknown): boolean =>
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
 
 export const validateConfig = (cfg: Config) => {
@@ -392,17 +392,19 @@ export const validateConfig = (cfg: Config) => {
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
     if (!ws.name) throw new Error("a workspace is missing a name")
+    if (typeof ws.name !== "string")
+      throw new Error(`workspace name ${JSON.stringify(ws.name)} must be a string`)
     const nameErr = workspaceNameError(ws.name)
     if (nameErr) throw new Error(`workspace name "${ws.name}" is invalid: ${nameErr}`)
     if (!ws.path) throw new Error(`workspace "${ws.name}" is missing a path`)
+    if (typeof ws.path !== "string") throw new Error(`workspace "${ws.name}" path must be a string`)
     const pathErr = workspacePathError(ws.path)
     if (pathErr) throw new Error(`workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`)
-    if (ws.servers !== undefined && !isPlainObject(ws.servers))
-      throw new Error(`workspace "${ws.name}" servers must be an object, e.g. { "github": true }`)
-    if (ws.git !== undefined && !isPlainObject(ws.git))
-      throw new Error(
-        `workspace "${ws.name}" git must be an object, e.g. { "email": "you@example.com" }`,
-      )
+    // null or left out means none; anything else that is not an object would crash a generator
+    if (ws.servers != null && !isPlainObject(ws.servers))
+      throw new Error(`workspace "${ws.name}" servers must be an object`)
+    if (ws.git != null && !isPlainObject(ws.git))
+      throw new Error(`workspace "${ws.name}" git must be an object`)
     if (ws.gh) {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
@@ -426,9 +428,13 @@ export const validateConfig = (cfg: Config) => {
           `workspace "${ws.name}" git name "${ws.git.name}" is invalid: ${gitNameErr}`,
         )
     }
+    // the Slack keychain service is interpolated into the hook, and doctor and the hook need it set
     const slack = ws.servers?.slack
-    if (slack && slack.keychain) {
-      const kcErr = hookValueError(slack.keychain)
+    if (slack) {
+      const kcErr =
+        isPlainObject(slack) && typeof slack.keychain === "string"
+          ? hookValueError(slack.keychain)
+          : "missing"
       if (kcErr)
         throw new Error(
           `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
@@ -473,7 +479,7 @@ export const validateConfig = (cfg: Config) => {
       const seenSkill = new Set<string>()
       for (const spec of ws.skills) {
         const isStr = typeof spec === "string"
-        if (!isStr && (spec === null || typeof spec !== "object" || Array.isArray(spec)))
+        if (!isStr && !isPlainObject(spec))
           throw new Error(`workspace "${ws.name}" has a skill that is not a string or object`)
         if (!isStr) {
           const o = spec as Record<string, unknown>

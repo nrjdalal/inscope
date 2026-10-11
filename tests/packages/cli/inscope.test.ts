@@ -1723,18 +1723,35 @@ test("validateConfig refuses a config newer than it understands, tolerates older
   )
 })
 
-test("validateConfig rejects servers or git that is not an object, and allows servers left out", () => {
+test("validateConfig rejects a hand-written workspace shape that would crash a command", () => {
   const cfg = (extra: Record<string, unknown>) =>
     ({ version: 1, workspaces: [{ name: "w", path: "~/w", ...extra }] }) as unknown as Config
+  // left out or null means none
   expect(() => validateConfig(cfg({}))).not.toThrow()
-  for (const servers of ["github", ["github"], null, 1])
+  expect(() => validateConfig(cfg({ servers: null, git: null }))).not.toThrow()
+  for (const servers of ["github", ["github"], 1])
     expect(() => validateConfig(cfg({ servers }))).toThrow(
       /workspace "w" servers must be an object/,
     )
-  for (const git of ["me@example.com", ["me@example.com"], null])
+  for (const git of ["me@example.com", ["me@example.com"]])
     expect(() => validateConfig(cfg({ servers: {}, git }))).toThrow(
       /workspace "w" git must be an object/,
     )
+  const one = (ws: Record<string, unknown>) =>
+    ({ version: 1, workspaces: [{ servers: {}, ...ws }] }) as unknown as Config
+  expect(() => validateConfig(one({ name: 7, path: "~/w" }))).toThrow(
+    /workspace name 7 must be a string/,
+  )
+  expect(() => validateConfig(one({ name: "w", path: 123 }))).toThrow(
+    /workspace "w" path must be a string/,
+  )
+  for (const slack of [true, {}, { keychain: 5 }])
+    expect(() => validateConfig(cfg({ servers: { slack } }))).toThrow(
+      /workspace "w" Slack keychain .* is invalid: missing/,
+    )
+  expect(() =>
+    validateConfig(cfg({ servers: { slack: { keychain: "SLACK_MCP_XOXP_TOKEN_W" } } })),
+  ).not.toThrow()
 })
 
 test("loadConfig reads a workspace without servers as one with no MCP servers", () => {
@@ -1752,7 +1769,9 @@ test("loadConfig reads a workspace without servers as one with no MCP servers", 
 })
 
 test("CLI: a hand-written config without servers applies, lists, reports status, and passes doctor", () => {
-  withSandbox((sb) => {
+  withSandbox((tmp) => {
+    // realpath, or a cwd under /private/var matches no workspace under an unresolved /var HOME
+    const sb = fs.realpathSync(tmp)
     const { cli, writeCfg } = sandboxCli(sb)
     // stub gh and claude so status and doctor never reach the developer's real logins
     const stubBin = path.join(sb, "stub-bin")
@@ -1782,6 +1801,10 @@ test("CLI: a hand-written config without servers applies, lists, reports status,
       expect(r.stdout).not.toContain("Cannot read properties")
     }
     expect(cli(["list"], "", sb, { PATH }).stdout).toContain("servers  none")
+    const status = cli(["status"], "", work, { PATH }).stdout
+    expect(status).toContain("work  ~/work")
+    expect(status).toMatch(/MCP +none/)
+    expect(cli(["doctor"], "", work, { PATH }).stdout).toContain("[work] mcp  0 server(s)")
     expect(JSON.parse(fs.readFileSync(path.join(work, ".mcp.json"), "utf8"))).toEqual({
       mcpServers: {},
     })
