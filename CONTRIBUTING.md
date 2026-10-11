@@ -118,7 +118,8 @@ The inscope CLI has **zero runtime dependencies** by design; validation is
 hand-rolled rather than pulling in a schema library. Its devDependencies come
 from the root `catalog` (`"catalog:"`), which `bunx zerostarter sync` keeps on
 upstream's versions; no bot opens update PRs, so the catalog moves with each
-sync and the `bun update` that follows it (see below).
+sync and the `bun update` that follows it (see Syncing with zerostarter).
+
 `bun audit --audit-level high` runs on pre-push and in CI and must stay clean,
 with one recorded exception: `braces` (GHSA-vfj7-8cjw-p6xm) has no patched
 release and only dev tooling reaches it, so both ignore it, as zerostarter's
@@ -162,8 +163,9 @@ zerostarter does not ship its GitHub settings to forks, so these were applied
 by hand, and the flow above depends on them:
 
 - `canary` is the default branch, and merged PR branches are deleted.
-- Merge commits and squash merges both stay allowed: the release PR needs merge
-  commits, and canary PRs squash by convention, since no rule enforces it.
+- All three merge methods stay allowed, as upstream: the release PR needs merge
+  commits, canary PRs squash by convention (no rule enforces it), and rebase
+  merges go unused.
 - Actions keep read-only workflow permissions (every workflow that writes
   declares its own scopes), with "Allow GitHub Actions to create and approve
   pull requests" on so `auto-canary-into-main.yml` can open the release PR.
@@ -174,6 +176,10 @@ by hand, and the flow above depends on them:
     `ci(version)` and `ci(changelog)` commits to canary directly and a personal
     repo cannot list GitHub Actions as a bypass actor (zerostarter's live canary
     ruleset is the same).
-  - After editing one, apply it with
-    `gh api -X PUT repos/{owner}/{repo}/rulesets/<id> --input .github/rulesets/<name>.json`
-    (`gh api repos/{owner}/{repo}/rulesets` lists the ids).
+
+After editing a ruleset file, apply it (the first command lists the ids):
+
+```bash
+gh api 'repos/{owner}/{repo}/rulesets' -q '.[] | "\(.id) \(.name)"'
+gh api -X PUT 'repos/{owner}/{repo}/rulesets/<id>' --input .github/rulesets/<name>.json
+```
