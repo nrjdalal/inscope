@@ -53,8 +53,10 @@ export function WorkspaceBadges({
       <StatusBadge tone={mcp.tone}>{mcp.label}</StatusBadge>
       {unlinked > 0 ? (
         <StatusBadge tone="warn">{plural(unlinked, "skill")} not linked</StatusBadge>
-      ) : (
+      ) : workspace.skills.own.length ? (
         <StatusBadge tone="ok">{plural(workspace.skills.own.length, "skill")} linked</StatusBadge>
+      ) : (
+        <StatusBadge tone="muted">No skills</StatusBadge>
       )}
     </div>
   )
