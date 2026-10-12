@@ -1,5 +1,5 @@
-// One titled section of a dashboard page: a heading the region is named by (h2, or h3 for a section inside another), an optional monospace line under it (the file or folder the section describes), then its content.
-export function PageSection({
+// One titled section of a dashboard page: a heading the region is named by (h2, or h3 for a section inside another), an optional monospace line under it (the file or folder the section describes, which wraps anywhere so a long path fits a phone), then its content.
+export function InscopeSection({
   children,
   description,
   id,
@@ -19,7 +19,9 @@ export function PageSection({
         <Heading id={id} className="font-semibold">
           {title}
         </Heading>
-        {description && <p className="text-muted-foreground font-mono text-sm">{description}</p>}
+        {description && (
+          <p className="text-muted-foreground font-mono text-sm wrap-anywhere">{description}</p>
+        )}
       </div>
       {children}
     </section>

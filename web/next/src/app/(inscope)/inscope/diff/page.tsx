@@ -1,8 +1,8 @@
 "use client"
 
-import { DriftSection } from "@/components/inscope/drift-diff"
+import { DriftSection } from "@/components/inscope/drift-section"
 import { InSync } from "@/components/inscope/in-sync"
-import { PageSection } from "@/components/inscope/page-section"
+import { InscopeSection } from "@/components/inscope/inscope-section"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { PageHeader } from "@/components/shell/page-header"
@@ -26,7 +26,7 @@ export default function Page() {
           ) : (
             <div className="space-y-8">
               {data.adoptable.length > 0 && (
-                <PageSection id="adoptable" title="Hand edits apply would undo">
+                <InscopeSection id="adoptable" title="Hand edits apply would undo">
                   <p className="text-muted-foreground text-sm">
                     <code>inscope diff --adopt</code> pulls these back into the config instead.
                   </p>
@@ -35,7 +35,7 @@ export default function Page() {
                       <li key={change}>{change}</li>
                     ))}
                   </ul>
-                </PageSection>
+                </InscopeSection>
               )}
               {data.drifts.map((drift) => (
                 <DriftSection key={drift.label} drift={drift} />

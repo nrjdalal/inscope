@@ -1,6 +1,6 @@
 import { cn } from "cn"
 
-import { PageSection } from "@/components/inscope/page-section"
+import { InscopeSection } from "@/components/inscope/inscope-section"
 import type { InscopeDrift } from "@/lib/inscope"
 
 const lineClass = (line: string) =>
@@ -31,13 +31,13 @@ function DriftDiff({ drift }: { drift: InscopeDrift }) {
 // A pending change as its own section: its label as the heading, the file it changes beneath, then the diff.
 export function DriftSection({ drift, level }: { drift: InscopeDrift; level?: 2 | 3 }) {
   return (
-    <PageSection
+    <InscopeSection
       id={`change-${drift.label}`}
       level={level}
       title={<span className="font-mono">{drift.label}</span>}
       description={drift.path}
     >
       <DriftDiff drift={drift} />
-    </PageSection>
+    </InscopeSection>
   )
 }

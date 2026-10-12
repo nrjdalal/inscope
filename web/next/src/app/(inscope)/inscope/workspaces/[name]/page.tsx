@@ -3,10 +3,10 @@
 import { notFound, useParams } from "next/navigation"
 
 import { CheckList } from "@/components/inscope/check-list"
-import { DriftSection } from "@/components/inscope/drift-diff"
+import { DriftSection } from "@/components/inscope/drift-section"
 import { InSync } from "@/components/inscope/in-sync"
+import { InscopeSection } from "@/components/inscope/inscope-section"
 import { McpServerList } from "@/components/inscope/mcp-server-list"
-import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { SkillList } from "@/components/inscope/skill-list"
@@ -40,14 +40,18 @@ export default function Page() {
     <PageShell size="lg">
       <PageHeader
         title={name}
-        description={detail.data && <span className="font-mono">{detail.data.workspace.path}</span>}
+        description={
+          detail.data && (
+            <span className="font-mono wrap-anywhere">{detail.data.workspace.path}</span>
+          )
+        }
         actions={<RefreshButton />}
       />
       <QueryState query={detail}>
         {({ checks, drifts, identity, workspace }) => (
           <div className="space-y-8">
             <WorkspaceBadges workspace={workspace} identity={identity} identityPending={false} />
-            <PageSection id="identity" title="Identity">
+            <InscopeSection id="identity" title="Identity">
               <dl className="space-y-2">
                 <Row label="Claude login">
                   {identity.claude.isolated ? "own login" : "shared login"} in{" "}
@@ -69,17 +73,17 @@ export default function Page() {
                   {identity.git.email ?? "unset"} ({identity.git.source})
                 </Row>
               </dl>
-            </PageSection>
-            <PageSection id="mcp" title="MCP servers" description={workspace.mcp.path}>
+            </InscopeSection>
+            <InscopeSection id="mcp" title="MCP servers" description={workspace.mcp.path}>
               {workspace.mcp.error && (
                 <p className="text-destructive text-sm">{workspace.mcp.error}</p>
               )}
               <McpServerList servers={workspace.mcp.servers} />
-            </PageSection>
-            <PageSection id="skills" title="Skills" description={workspace.skills.dir}>
+            </InscopeSection>
+            <InscopeSection id="skills" title="Skills" description={workspace.skills.dir}>
               <SkillList skills={workspace.skills} />
-            </PageSection>
-            <PageSection id="checks" title="Checks">
+            </InscopeSection>
+            <InscopeSection id="checks" title="Checks">
               {checks.length ? (
                 <CheckList checks={checks} />
               ) : (
@@ -92,14 +96,14 @@ export default function Page() {
                   </EmptyHeader>
                 </Empty>
               )}
-            </PageSection>
-            <PageSection id="changes" title="Pending changes">
+            </InscopeSection>
+            <InscopeSection id="changes" title="Pending changes">
               {drifts.length ? (
                 drifts.map((drift) => <DriftSection key={drift.label} drift={drift} level={3} />)
               ) : (
                 <InSync workspace={workspace.name} />
               )}
-            </PageSection>
+            </InscopeSection>
           </div>
         )}
       </QueryState>

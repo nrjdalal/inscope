@@ -4,6 +4,7 @@ import type { InscopeCheck } from "@/lib/inscope"
 
 const statusLabel = { fail: "Fail", ok: "OK", warn: "Warn" } as const
 
+// Each check with its status; a detail can hold a long path, so it wraps anywhere and is never clamped.
 export function CheckList({ checks }: { checks: InscopeCheck[] }) {
   return (
     <ItemGroup>
@@ -15,7 +16,9 @@ export function CheckList({ checks }: { checks: InscopeCheck[] }) {
               <span className="font-mono">{check.label}</span>
             </ItemTitle>
             {check.detail && (
-              <ItemDescription className="font-mono">{check.detail}</ItemDescription>
+              <ItemDescription className="line-clamp-none font-mono wrap-anywhere">
+                {check.detail}
+              </ItemDescription>
             )}
           </ItemContent>
         </Item>

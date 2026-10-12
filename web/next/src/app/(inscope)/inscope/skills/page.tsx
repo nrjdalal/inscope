@@ -1,7 +1,7 @@
 "use client"
 
+import { InscopeSection } from "@/components/inscope/inscope-section"
 import { NoWorkspaces } from "@/components/inscope/no-workspaces"
-import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
 import { RefreshButton } from "@/components/inscope/refresh-button"
 import { SkillList } from "@/components/inscope/skill-list"
@@ -26,14 +26,14 @@ export default function Page() {
           ) : (
             <div className="space-y-8">
               {data.workspaces.map((workspace) => (
-                <PageSection
+                <InscopeSection
                   key={workspace.name}
                   id={`skills-${workspace.name}`}
                   title={workspace.name}
                   description={workspace.skills.dir}
                 >
                   <SkillList skills={workspace.skills} />
-                </PageSection>
+                </InscopeSection>
               ))}
             </div>
           )

@@ -50,7 +50,7 @@ export default function Page() {
                     <ItemContent className="gap-2">
                       <ItemTitle>
                         {workspace.name}
-                        <span className="text-muted-foreground font-mono font-normal">
+                        <span className="text-muted-foreground font-mono font-normal wrap-anywhere">
                           {workspace.path}
                         </span>
                       </ItemTitle>
