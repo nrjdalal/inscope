@@ -141,12 +141,18 @@ before committing:
   carries it (its canary already does).
 - The root `catalog`: run `bun update` (within the ranges) and check that
   `bun audit --audit-level high` is clean.
-- The dashboard's hooks into upstream files: the `INSCOPE_CONFIG_INVALID` code and
-  `inscopeConfigErrorResponses` in `api/hono/src/lib/error.ts`, the
-  `.route("/inscope", inscopeRouter)` line in `api/hono/src/index.ts` and its
-  re-export in `api/hono/src/routers/index.ts`, the `requireLocal` mention in the
-  `forbiddenErrorResponses` comment, and the `/inscope` case that hides the
-  marketing navbar in `web/next/src/components/common/navbar.tsx`.
+- The dashboard's hooks into upstream files:
+  - `api/hono/src/lib/error.ts`: the `INSCOPE_CONFIG_INVALID` and
+    `INSCOPE_WORKSPACE_NOT_FOUND` codes, `inscopeConfigErrorResponses` and
+    `inscopeWorkspaceErrorResponses`, and the `requireLocal` mention in the
+    `forbiddenErrorResponses` comment;
+  - the `.route("/inscope", inscopeRouter)` line in `api/hono/src/index.ts` and
+    its re-export in `api/hono/src/routers/index.ts`;
+  - the `/api` rewrite's `source` in `web/next/next.config.ts`, which skips
+    `/api/inscope` (dropping it reopens the dashboard API to the LAN through
+    `next dev`);
+  - the `/inscope` case that hides the marketing navbar in
+    `web/next/src/components/common/navbar.tsx`.
 
 ## Dashboard
 
@@ -161,21 +167,32 @@ what `apply` would change.
   routes (`requireLocal`, `api/hono/src/middlewares/local.ts`) answer only on
   the `local` stage, and only to a request addressed to a loopback name from a
   loopback socket peer. A request relayed by a proxy on this machine must name
-  its client, and every host and client it names must be loopback: portless
-  appends the real client to `x-forwarded-for`, while `next dev`'s `/api`
-  forwarding names none and passes the caller's own Host along, so a request
-  through it is refused (the pages call the API directly). These headers can
-  refuse a request but never admit one. A cross-site browser request is refused,
-  a write needs a trusted Origin, and every response, refusals included, is
-  `Cache-Control: no-store`.
+  its client, and every host and client it names must be loopback (portless
+  appends the real client to `x-forwarded-for`); these headers can refuse a
+  request but never admit one. `next dev`'s `/api` rewrite
+  (`web/next/next.config.ts`) relays from loopback and passes the caller's own
+  Host and forwarding headers along, so anyone who can reach port 3000 could
+  forge them: the rewrite skips `/api/inscope`, and since its matcher does not
+  decode, the gate refuses any percent-encoded path (the pages call the API
+  directly). A cross-site browser request is refused, a write needs a trusted
+  Origin, and every response, refusals included, is `Cache-Control: no-store`.
 - It shows booleans for tokens and keychain items, never values. A `.mcp.json`
-  is redacted by structure before it is diffed: every `env` and `headers` value
-  that does more than name a variable, anything under a key that names a
-  credential, the value after a credential flag or a docker `-e`/`--env`, and,
-  in any string, the user info, query, and fragment of a URL in any scheme, an
-  HTTP auth scheme's token (`Bearer ...`), and a `name=value` or `Name: value`
-  whose name says credential. The `diff --adopt` lines go through the same
-  string rules.
+  is redacted by structure before it is diffed (`api/hono/src/lib/inscope.ts`):
+  - every `env` and `headers` value that does more than name a variable or set
+    an on/off toggle (`true`, `off`, `yes`);
+  - anything under a key that names a credential, judged word by word (`apiKey`,
+    `DB_PASSWORD`, and `X-Api-Key` count; `keycloak`, `oauth`, and `clientId` do
+    not), while server names are never judged;
+  - the value after a credential flag, a docker `-e`/`--env`, or `--env=K=V`;
+  - in any string, JSON inside a string included: the user info, query, and
+    fragment of a URL in any scheme, an HTTP auth scheme's token in any case
+    (`Bearer ...`, `basic ...`), and a `name=value`, a quoted `"name": "value"`,
+    or a `Name: value` header (to the end of its line) whose name says
+    credential. A placeholder filled in at run time (`%s`, `${...}`, `$(...)`)
+    is kept, so inscope's own `headersHelper` stays readable.
+
+  The `diff --adopt` lines go through the same string rules.
+
 - `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
   your own logins, run it on a sealed sandbox instead:
 
