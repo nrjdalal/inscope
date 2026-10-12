@@ -93,7 +93,7 @@ try {
   for (const page of PAGES) await waitFor(`${WEB_URL}${page.path}`, 240)
 
   if (keep) {
-    console.log(`sandbox ${sb.root}\napi ${API_URL}\nweb ${WEB_URL}/inscope\nCtrl-C to stop`)
+    console.log(`sandbox ${sb.root}\napi ${API_URL}\nweb ${WEB_URL}\nCtrl-C to stop`)
     await new Promise(() => {})
   }
 
