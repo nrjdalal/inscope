@@ -5,14 +5,20 @@ import path from "node:path"
 
 // The fake credentials the stubs hand out: a test asserts none of them ever reaches a response.
 export const SECRETS = [
+  "at-sign-pass-should-be-redacted",
   "bearer-should-be-redacted",
   "conn-should-be-redacted",
+  "cookie-two-should-be-redacted",
   "default-token-should-be-redacted",
   "docker-env-should-be-redacted",
   "fragment-should-be-redacted",
   "gho_demo_token",
   "header-bearer-should-be-redacted",
   "helper-bearer-should-be-redacted",
+  "inline-env-should-be-redacted",
+  "json-in-string-should-be-redacted",
+  "lower-token-should-be-redacted",
+  "nospace-should-be-redacted",
   "pg-pass-should-be-redacted",
   "query-token-should-be-redacted",
   "sk-should-be-redacted",
@@ -187,11 +193,27 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
       "--connectionString",
       "Server=db;Password=conn-should-be-redacted",
       "https://mcp.example.com/cb#access_token=fragment-should-be-redacted",
+      "--header",
+      "authorization: token lower-token-should-be-redacted",
+      "--config",
+      '{"apiKey":"json-in-string-should-be-redacted","region":"eu"}',
+      "-H",
+      "X-API-Key:nospace-should-be-redacted",
+      "--env=DB_PASSWORD=inline-env-should-be-redacted",
+      "-H",
+      "Cookie: a=1; session=cookie-two-should-be-redacted",
+      "postgresql://user:x@at-sign-pass-should-be-redacted@db.example/x",
     ],
     env: {
       MY_API_KEY: "sk-should-be-redacted",
       MY_TOKEN: "${MY_TOKEN:-default-token-should-be-redacted}",
     },
+  }
+  // what is not a credential stays readable: a server named like one, its client id and port
+  mcp.mcpServers.keycloak = {
+    type: "http",
+    url: "https://sso.example.com/mcp",
+    oauth: { callbackPort: 33418, clientId: "dashboard-client" },
   }
   mcp.mcpServers.remote = {
     type: "http",

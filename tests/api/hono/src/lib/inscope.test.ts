@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
-import { redactMcpText, redactStrings } from "../../../../../api/hono/src/lib/inscope"
+import {
+  isCredentialName,
+  redactMcpText,
+  redactString,
+} from "../../../../../api/hono/src/lib/inscope"
 
 const redacted = (doc: unknown) => JSON.parse(redactMcpText(JSON.stringify(doc)))
 
@@ -105,7 +109,7 @@ describe("redactMcpText", () => {
     ).toEqual([
       "postgresql://<redacted>@localhost/db",
       "--header",
-      "Authorization: Bearer <redacted>",
+      "Authorization: <redacted>",
       "-H",
       "X-Api-Key: <redacted>",
       "-e",
@@ -126,6 +130,13 @@ describe("redactMcpText", () => {
       redacted({ headersHelper: `echo '{"Authorization":"Bearer helper-bearer-1"}'` })
         .headersHelper,
     ).toBe(`echo '{"Authorization":"Bearer <redacted>"}'`)
+    expect(redacted({ args: ["--header", "Authorization: token lower-1"] }).args).toEqual([
+      "--header",
+      "Authorization: <redacted>",
+    ])
+    expect(redactString("curl -H 'authorization: bearer lowercase-token-1'")).toBe(
+      "curl -H 'authorization: <redacted>'",
+    )
   })
 
   test("withholds user info, queries, and fragments in any URL scheme", () => {
@@ -140,6 +151,52 @@ describe("redactMcpText", () => {
       b: "redis://<redacted>@cache.example:6379",
       c: "wss://<redacted>@socket.example/feed",
     })
+  })
+
+  test("withholds JSON inside a string, a header without a space, --env=K=V, and every cookie", () => {
+    expect(
+      redacted({
+        args: [
+          "--config",
+          '{"apiKey":"json-1","region":"eu"}',
+          "-H",
+          "X-API-Key:nospace-1",
+          "--env=REGION=inline-env-1",
+          "-H",
+          "Cookie: a=1; session=cookie-2",
+          "postgresql://user:x@at-sign-1@db.example/x",
+        ],
+      }).args,
+    ).toEqual([
+      "--config",
+      '{"apiKey":"<redacted>","region":"eu"}',
+      "-H",
+      "X-API-Key:<redacted>",
+      "--env=REGION=<redacted>",
+      "-H",
+      "Cookie: <redacted>",
+      "postgresql://<redacted>@db.example/x",
+    ])
+  })
+
+  test("keeps what is not a credential readable: server names, client ids, ports, toggles", () => {
+    const doc = {
+      mcpServers: {
+        auth0: { type: "http", url: "https://auth0.example.com/mcp" },
+        keycloak: {
+          type: "http",
+          url: "https://sso.example.com/mcp",
+          oauth: { callbackPort: 33418, clientId: "dashboard-client" },
+        },
+        "slack-work": {
+          env: {
+            SLACK_MCP_ALLOW_WRITE: "false",
+            SLACK_MCP_XOXP_TOKEN: "${SLACK_MCP_XOXP_TOKEN:-}",
+          },
+        },
+      },
+    }
+    expect(redacted(doc)).toEqual(doc)
   })
 
   test("leaves inscope's own servers readable", () => {
@@ -163,15 +220,52 @@ describe("redactMcpText", () => {
   })
 })
 
-describe("redactStrings", () => {
+describe("isCredentialName", () => {
+  test("judges each word of a name, whatever its case style", () => {
+    for (const name of [
+      "apiKey",
+      "API_KEY",
+      "X-Api-Key",
+      "DB_PASSWORD",
+      "dbpassword",
+      "githubToken",
+      "GITHUB_PAT",
+      "connectionString",
+      "SENTRY_DSN",
+      "Authorization",
+      "cookie",
+      "credentials",
+      "clientSecret",
+      "--api-key",
+      "pwd",
+    ])
+      expect(`${name} ${isCredentialName(name)}`).toBe(`${name} true`)
+    for (const name of [
+      "keycloak",
+      "oauth",
+      "auth0",
+      "clientId",
+      "callbackPort",
+      "keychain",
+      "SLACK_MCP_ALLOW_WRITE",
+      "url",
+      "region",
+      "monkey",
+      "passport-bridge",
+    ])
+      expect(`${name} ${isCredentialName(name)}`).toBe(`${name} false`)
+  })
+})
+
+describe("redactString", () => {
   test("covers an adopted value: a URL's query and user info inside free text", () => {
-    expect(redactStrings("work: linear.url = https://mcp.linear.app/sse?key=k1")).toBe(
+    expect(redactString("work: linear.url = https://mcp.linear.app/sse?key=k1")).toBe(
       "work: linear.url = https://mcp.linear.app/sse?<redacted>",
     )
-    expect(redactStrings("work: x.url = http://a:b@h.example")).toBe(
+    expect(redactString("work: x.url = http://a:b@h.example")).toBe(
       "work: x.url = http://<redacted>@h.example",
     )
-    expect(redactStrings("work: slack.package = @nrjdalal/slack-mcp-server")).toBe(
+    expect(redactString("work: slack.package = @nrjdalal/slack-mcp-server")).toBe(
       "work: slack.package = @nrjdalal/slack-mcp-server",
     )
   })

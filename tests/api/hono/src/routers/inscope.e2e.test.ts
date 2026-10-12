@@ -46,27 +46,38 @@ describe.skipIf(!enabled || !SANDBOX)("api/hono/src/routers/inscope.ts", () => {
     expect((await res.json()).error.code).toBe("FORBIDDEN")
   })
 
-  test("refuses the same rebinding through next dev's /api forwarding", async () => {
-    // next dev relays /api from loopback with the Host rewritten; the hop it came from rides in x-forwarded-host
-    const res = await get("/api/inscope", { host: "rebind.attacker.test:3000" }, WEB)
-    expect(res.status).toBe(403)
-    // it names no client, so even a loopback caller is refused through it, and a LAN caller cannot pass by forging Host
-    expect((await get("/api/inscope", {}, WEB)).status).toBe(403)
-    expect((await get("/api/inscope", { host: "localhost:3000" }, WEB)).status).toBe(403)
+  test("next dev's /api forwarding never reaches these routes", async () => {
+    // next dev relays /api from loopback and passes the caller's own forwarding headers along, so its rewrite skips inscope's routes and the dashboard calls the API directly
+    for (const host of ["localhost:3000", "rebind.attacker.test:3000"]) {
+      expect((await get("/api/inscope", { host }, WEB)).status).toBe(404)
+      expect((await get("/api/inscope/status", { host }, WEB)).status).toBe(404)
+    }
+    // its matcher does not decode, so an encoded path still reaches the API, whose gate refuses it
+    expect((await get("/api/%69nscope", {}, WEB)).status).toBe(403)
+    expect((await get("/api/inscop%65/status", {}, WEB)).status).toBe(403)
+    // every other API route still rides it
+    expect((await get("/api/health", {}, WEB)).status).toBe(200)
   })
 
   test.skipIf(!lanAddress)(
     "refuses this machine's LAN address, directly and through next dev",
     async () => {
-      expect((await get("/api/inscope", {}, `http://${lanAddress}:4000`)).status).toBe(403)
-      expect((await get("/api/inscope", {}, `http://${lanAddress}:3000`)).status).toBe(403)
-      // a LAN client cannot pass by forging the Host the forwarding passes along
-      const forged = await get(
-        "/api/inscope",
+      // forging Host or the forwarding headers next dev passes along gets a LAN client nowhere, directly or through it
+      for (const headers of [
+        {},
         { host: "localhost:3000" },
-        `http://${lanAddress}:3000`,
-      )
-      expect(forged.status).toBe(403)
+        { host: "localhost:3000", "x-forwarded-for": "127.0.0.1" },
+        { host: "localhost:3000", "x-real-ip": "127.0.0.1" },
+        { host: "localhost:3000", forwarded: "for=127.0.0.1;host=localhost:3000" },
+      ] as Record<string, string>[]) {
+        const label = JSON.stringify(headers)
+        const direct = await get("/api/inscope", headers, `http://${lanAddress}:4000`)
+        expect(`${label} ${direct.status}`).toBe(`${label} 403`)
+        for (const path of ["/api/inscope", "/api/%69nscope"]) {
+          const relayed = await get(path, headers, `http://${lanAddress}:3000`)
+          expect(`${path} ${label} ${relayed.status}`).not.toBe(`${path} ${label} 200`)
+        }
+      }
     },
   )
 
@@ -89,7 +100,7 @@ describe.skipIf(!enabled || !SANDBOX)("api/hono/src/routers/inscope.ts", () => {
 
   test("unknown and impossible workspace names", async () => {
     expect((await get("/api/inscope/workspaces/nope")).status).toBe(404)
-    expect((await get("/api/inscope/workspaces/bad%20name")).status).toBe(400)
+    expect((await get("/api/inscope/workspaces/bad!name")).status).toBe(400)
   })
 
   test("the OpenAPI document lists the inscope routes", async () => {

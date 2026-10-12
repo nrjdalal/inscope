@@ -120,13 +120,20 @@ describe("the local-only gate", () => {
     }
   })
 
-  test("admits a proxy on this machine relaying a loopback request (portless, next dev)", async () => {
+  test("admits a proxy on this machine relaying a loopback request it names (portless)", async () => {
     for (const headers of [
       { "x-forwarded-host": "api.inscope.localhost:1355", "x-forwarded-for": "127.0.0.1" },
       { "x-forwarded-host": "localhost:3000", "x-forwarded-for": "::1" },
       { forwarded: 'for="[::1]:51234";host=localhost:3000;proto=http' },
     ] as Record<string, string>[])
       expect((await send("/", { headers })).status).toBe(200)
+  })
+
+  test("refuses an encoded path, which next dev's rewrite would not recognize as inscope's", async () => {
+    for (const route of ["/st%61tus", "/%64iff", "/workspaces/w%6Frk"]) {
+      const res = await send(route)
+      expect(`${route} ${res.status}`).toBe(`${route} 403`)
+    }
   })
 
   test("never caches a response, the gate's own refusals included", async () => {
@@ -173,6 +180,7 @@ describe("GET /api/inscope", () => {
     // server names only: inscope's own for the workspace, the user's hand-added ones, and whether each is written yet
     expect(work.mcp.servers).toEqual([
       { managed: true, name: "github-work", written: true },
+      { managed: false, name: "keycloak", written: true },
       { managed: true, name: "linear-work", written: true },
       { managed: false, name: "mine", written: true },
       { managed: false, name: "remote", written: true },
@@ -267,6 +275,11 @@ describe("GET /api/inscope/diff", () => {
     expect(work.diff).toContain('"--api-key",')
     expect(work.diff).toContain('"url": "https://mcp.example.com/sse?<redacted>"')
     expect(work.diff).toContain('"Authorization": "<redacted>"')
+    // not credentials: a server named like one, its client id and port, a write toggle
+    expect(work.diff).toContain('"clientId": "dashboard-client"')
+    expect(work.diff).toContain('"callbackPort": 33418')
+    expect(work.diff).toContain('"SLACK_MCP_ALLOW_WRITE": "false"')
+    expect(work.diff).toContain('"url": "https://sso.example.com/mcp"')
     expect(work.diff).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
     expect(drifts[2].diff).toContain("- old-notes -> ")
   })
@@ -294,9 +307,9 @@ describe("GET /api/inscope/workspaces/:name", () => {
     const unknown = await send("/workspaces/nope")
     expect(unknown.status).toBe(404)
     expect(await unknown.json()).toEqual({
-      error: { code: "NOT_FOUND", message: 'No workspace named "nope"' },
+      error: { code: "INSCOPE_WORKSPACE_NOT_FOUND", message: 'No workspace named "nope"' },
     })
-    const bad = await send("/workspaces/bad%20name")
+    const bad = await send("/workspaces/bad!name")
     expect(bad.status).toBe(400)
     expect((await bad.json()).error.code).toBe("VALIDATION_ERROR")
   })
