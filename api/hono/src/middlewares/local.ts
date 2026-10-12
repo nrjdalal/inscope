@@ -13,7 +13,7 @@ type RequireLocalOptions = {
 
 const socketPeer = (c: Context) => getConnInfo(c).remote.address
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"])
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"])
 
 export const isLoopbackHost = (hostname: string): boolean =>
   LOOPBACK_HOSTS.has(hostname) || hostname.endsWith(".localhost")

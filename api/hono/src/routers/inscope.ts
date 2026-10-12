@@ -3,10 +3,8 @@ import { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import {
   CHECK_STATUSES,
-  defaultRunner,
   GIT_SOURCES,
   OTHER_SKILL_KINDS,
-  type Runner,
   SERVER_TYPES,
   workspaceNameError,
 } from "inscope"
@@ -131,15 +129,13 @@ const { data, error } = await unwrap(${client})`,
 
 type InscopeRouterOptions = {
   peer?: Parameters<typeof requireLocal>[0]["peer"]
-  run?: Runner
   stage?: string
   trustedOrigins?: string[]
 }
 
-// The read-only inscope dashboard API: this machine's ~/.config/inscope, answered only on the local stage and only to loopback (see requireLocal). Options exist so tests can pin the stage, the socket peer, and the commands it runs.
+// The read-only inscope dashboard API: this machine's ~/.config/inscope, answered only on the local stage and only to loopback (see requireLocal). Options exist so tests can pin what the gate sees: the stage, the socket peer, and the trusted origins.
 export const createInscopeRouter = ({
   peer,
-  run = defaultRunner,
   stage = env.NODE_ENV,
   trustedOrigins = env.HONO_TRUSTED_ORIGINS,
 }: InscopeRouterOptions = {}) =>
@@ -187,7 +183,7 @@ export const createInscopeRouter = ({
           summary: z.object({ fail: z.number(), ok: z.number(), warn: z.number() }),
         }),
       ),
-      (c) => c.json({ data: doctor(readConfig(), run) }),
+      (c) => c.json({ data: doctor(readConfig()) }),
     )
     .get(
       "/status",
@@ -196,7 +192,7 @@ export const createInscopeRouter = ({
         "apiClient.inscope.status.$get()",
         z.object({ workspaces: z.array(identitySchema) }),
       ),
-      (c) => c.json({ data: status(readConfig(), run) }),
+      (c) => c.json({ data: status(readConfig()) }),
     )
     .get(
       "/workspaces/:name",
@@ -221,7 +217,7 @@ export const createInscopeRouter = ({
             `workspace name "${name}" is invalid: ${nameErr}`,
           )
         const { cfg, ws } = findWorkspaceOrThrow(readConfig(), name)
-        return c.json({ data: workspaceDetail(cfg, ws, run) })
+        return c.json({ data: workspaceDetail(cfg, ws) })
       },
     )
 
