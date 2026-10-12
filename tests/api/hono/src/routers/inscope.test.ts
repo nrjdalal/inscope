@@ -4,7 +4,7 @@ import path from "node:path"
 
 import { createInscopeRouter } from "../../../../../api/hono/src/routers/inscope"
 import { ROUTES } from "../../../../inscope/pages"
-import { SECRETS, type Sandbox, seedSandbox } from "../../../../inscope/sandbox"
+import { SECRETS, type Sandbox, seedSandbox, UNSEALED } from "../../../../inscope/sandbox"
 
 const TRUSTED = "http://inscope.localhost:1355"
 
@@ -18,7 +18,7 @@ beforeAll(async () => {
     saved[key] = process.env[key]
     process.env[key] = value
   }
-  for (const key of ["CLAUDE_CONFIG_DIR", "GH_TOKEN", "GITHUB_TOKEN"]) {
+  for (const key of UNSEALED) {
     saved[key] = process.env[key]
     delete process.env[key]
   }
@@ -304,6 +304,9 @@ describe("GET /api/inscope/diff", () => {
     expect(mcp).toContain('"url": "https://sso.example.com/mcp"')
     expect(mcp).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
     expect(mcp).toContain('"url": "https://mcp.zapier.com/api/mcp/s/<redacted>/mcp"')
+    // a credential flag inside one string loses its value; a count that only looks like one keeps it
+    expect(mcp).toContain('"npx -y @acme/mcp --api-key <redacted>",')
+    expect(mcp).toMatch(/"--max-tokens",\n\s+"4096"/)
     // a quoted value keeps its quotes; a token its vendor prefix gives away goes whole
     expect(mcp).toContain('"API_KEY=\\"<redacted>\\"",')
     expect(mcp).toContain(`"--password='<redacted>'",`)
@@ -383,6 +386,28 @@ describe("the config file's own states", () => {
       const { error } = await res.json()
       expect(error.code).toBe("INSCOPE_CONFIG_INVALID")
       expect(error.message).toContain("Fix it in ~/.config/inscope/inscope.json")
+    } finally {
+      await Bun.write(configFile(), original)
+    }
+  })
+
+  test("the 422 never quotes a credential from the invalid value", async () => {
+    const original = await Bun.file(configFile()).text()
+    try {
+      // a skill URL with no path: its name falls back to the whole URL, token and all, which the config refuses
+      const skill = "https://x-access-token:config-error-should-be-redacted@git.example.com"
+      await Bun.write(
+        configFile(),
+        JSON.stringify({
+          version: 1,
+          workspaces: [{ name: "w", path: "~/w", servers: {}, skills: [skill] }],
+        }),
+      )
+      const res = await send("/")
+      expect(res.status).toBe(422)
+      const { error } = await res.json()
+      expect(error.message).not.toContain("config-error-should-be-redacted")
+      expect(error.message).toContain("<redacted>@git.example.com")
     } finally {
       await Bun.write(configFile(), original)
     }

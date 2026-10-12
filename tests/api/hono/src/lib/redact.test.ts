@@ -257,6 +257,13 @@ describe("isCredentialName", () => {
       "region",
       "monkey",
       "passport-bridge",
+      "--max-tokens",
+      "maxTokens",
+      "tokenizer",
+      "cookieFile",
+      "KEY_FILE",
+      "--key-file",
+      "TOKEN_URL",
     ])
       expect(`${name} ${isCredentialName(name)}`).toBe(`${name} false`)
   })
@@ -401,6 +408,54 @@ describe("redactString on a vendor token", () => {
 
   test("keeps a word that only starts like one", () => {
     for (const value of ["sk-learn", "ghp_short", "xoxo", "npm_config_cache", "AKIA"])
+      expect(redactString(value)).toBe(value)
+  })
+})
+
+describe("redactString on user info with no scheme", () => {
+  test("withholds it, keeping the host", () => {
+    expect(redactString("oauth2:scheme-less-should-be-redacted@gitlab.com/org/skills")).toBe(
+      "<redacted>@gitlab.com/org/skills",
+    )
+    expect(
+      redactString(
+        'skill name "x-access-token:quoted-should-be-redacted@git.example.com" is invalid',
+      ),
+    ).toBe('skill name "<redacted>@git.example.com" is invalid')
+  })
+
+  test("keeps an ssh remote, a pinned image, and an email address", () => {
+    for (const value of [
+      "git@github.com:org/repo.git",
+      "node:20@sha256:0123abcd",
+      "dev@acme.example",
+    ])
+      expect(redactString(value)).toBe(value)
+  })
+})
+
+describe("redactString on a credential flag inside one string", () => {
+  test("withholds the value after it, keeping the rest of the command", () => {
+    expect(redactString("npx -y @acme/mcp --api-key flag-should-be-redacted --verbose")).toBe(
+      "npx -y @acme/mcp --api-key <redacted> --verbose",
+    )
+    expect(redactString("run --password 'single-should-be-redacted'")).toBe(
+      "run --password '<redacted>'",
+    )
+    expect(redactString("run --header --api-key next-should-be-redacted")).toBe(
+      "run --header --api-key <redacted>",
+    )
+  })
+
+  test("keeps a count, a location, a flag with no value, and a value filled in at run time", () => {
+    for (const value of [
+      "llm --max-tokens 4096",
+      "git --key-file ~/.ssh/id_ed25519",
+      "server --api-key --verbose",
+      "server --api-key $(gh auth token)",
+      "cookieFile = ~/.gitcookies",
+      "KEY_FILE=/run/keys/server.pem",
+    ])
       expect(redactString(value)).toBe(value)
   })
 })

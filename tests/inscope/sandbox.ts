@@ -14,13 +14,14 @@ export const SECRETS = [
   "cookie-two-should-be-redacted",
   "default-token-should-be-redacted",
   "docker-env-should-be-redacted",
+  "flag-in-string-should-be-redacted",
   "fragment-should-be-redacted",
   "gho_demo_token",
   VENDOR_TOKEN,
   "gitconfig-token-should-be-redacted",
-  "helper-password-should-be-redacted",
   "header-bearer-should-be-redacted",
   "helper-bearer-should-be-redacted",
+  "helper-password-should-be-redacted",
   "inline-env-should-be-redacted",
   "json-in-string-should-be-redacted",
   "lower-token-should-be-redacted",
@@ -83,19 +84,21 @@ exit 44
 export type Sandbox = { root: string; home: string; env: Record<string, string> }
 
 // The sealed environment every process touching the sandbox runs with: nothing from the developer's own logins can leak in.
+// What carries this machine's own identity into a process (its Claude login dir, tokens, git config, and the hook's own variables): the sandbox never inherits these, and a test that puts the sandbox's env on its own process must drop them too.
+export const UNSEALED = [
+  "CLAUDE_CONFIG_DIR",
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "GIT_CONFIG_GLOBAL",
+  "INSCOPE_BASE_CCD",
+  "INSCOPE_CCD",
+  "SLACK_MCP_XOXP_TOKEN",
+] as const
+
 const sealedEnv = (root: string): Record<string, string> => {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value
-  for (const key of [
-    "CLAUDE_CONFIG_DIR",
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GIT_CONFIG_GLOBAL",
-    "INSCOPE_BASE_CCD",
-    "INSCOPE_CCD",
-    "SLACK_MCP_XOXP_TOKEN",
-  ])
-    delete env[key]
+  for (const key of UNSEALED) delete env[key]
   const home = path.join(root, "home")
   return {
     ...env,
@@ -227,6 +230,11 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
       "-H",
       'X-Api-Key: "quoted-header-should-be-redacted"',
       VENDOR_TOKEN,
+      // a whole command in one argument, and a count that only looks like a credential
+      "-c",
+      "npx -y @acme/mcp --api-key flag-in-string-should-be-redacted",
+      "--max-tokens",
+      "4096",
     ],
     env: {
       MY_API_KEY: "sk-should-be-redacted",
