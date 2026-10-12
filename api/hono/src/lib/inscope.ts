@@ -55,13 +55,23 @@ export const findWorkspaceOrThrow = (
   return { cfg, ws }
 }
 
-// an .mcp.json is redacted by structure; the hook, git includes, and skill links by the string rules, since a hand edit can put a credential anywhere (a git include's `[url "https://user:token@host/"]`), and a skill link's git cache folder by redactSkillPaths
-const driftRow = (cfg: Config, d: Drift) => {
+type RedactPaths = (text: string) => string
+
+// What one request reads once and every row shares: the config, its pending changes, and the redactor for its git skill folders (see redactSkillPaths).
+type Snapshot = { cfg: Config; drifts: Drift[]; redactPaths: RedactPaths }
+
+const snapshot = (cfg: Config): Snapshot => ({
+  cfg,
+  drifts: computeDrift(cfg),
+  redactPaths: redactSkillPaths(cfg),
+})
+
+// an .mcp.json is redacted by structure; the hook, git includes, and skill links by the string rules, since a hand edit can put a credential anywhere (a git include's `[url "https://user:token@host/"]`), and a skill link's git cache folder by redactPaths
+const driftRow = ({ cfg, redactPaths }: Snapshot, d: Drift) => {
   const isMcp = cfg.workspaces.some((ws) => mcpFilePath(ws) === d.path)
-  const paths = redactSkillPaths(cfg)
-  const text = isMcp ? redactMcpText : (value: string) => paths(redactString(value))
+  const redact = isMcp ? redactMcpText : (value: string) => redactPaths(redactString(value))
   return {
-    diff: d.error ? null : diffLines(text(d.current), text(d.next)),
+    diff: d.error ? null : diffLines(redact(d.current), redact(d.next)),
     error: d.error ?? null,
     label: d.label,
     path: contractTilde(d.path),
@@ -69,14 +79,12 @@ const driftRow = (cfg: Config, d: Drift) => {
 }
 
 // a skill check can name a link's target, which may be a git skill's cache folder
-const checkRows = (cfg: Config, checks: Check[]) => {
-  const paths = redactSkillPaths(cfg)
-  return checks.map((c) => ({
-    detail: c.detail ? paths(c.detail) : null,
+const checkRows = (checks: Check[], redactPaths: RedactPaths) =>
+  checks.map((c) => ({
+    detail: c.detail ? redactPaths(c.detail) : null,
     label: c.label,
     status: c.status,
   }))
-}
 
 export const MCP_STATES = ["drifted", "in-sync", "invalid", "missing"] as const
 
@@ -125,33 +133,30 @@ const mcpSummary = async (ws: Workspace, drifts: Drift[]) => {
 }
 
 // a git source's URL and a link into its cache folder can both carry a credential
-const skillRows = (cfg: Config, ws: Workspace) => {
-  const paths = redactSkillPaths(cfg)
-  return {
-    dir: contractTilde(skillsDir(ws)),
-    other: otherSkillsIn(cfg, ws).map((o) => ({
-      kind: o.kind,
-      label: paths(otherSkillLabel(o)),
-      name: o.name,
-      target: o.kind === "own" && o.target ? paths(o.target) : null,
-      workspace: o.kind === "workspace" ? o.workspace : null,
-    })),
-    own: workspaceSkills(ws).map(({ name, skill }) => ({
-      linked: skillLinked(ws, name),
-      name,
-      source: skill ? skillSourceLabel(skill) : null,
-    })),
-  }
-}
+const skillRows = ({ cfg, redactPaths }: Snapshot, ws: Workspace) => ({
+  dir: contractTilde(skillsDir(ws)),
+  other: otherSkillsIn(cfg, ws).map((o) => ({
+    kind: o.kind,
+    label: redactPaths(otherSkillLabel(o)),
+    name: o.name,
+    target: o.kind === "own" && o.target ? redactPaths(o.target) : null,
+    workspace: o.kind === "workspace" ? o.workspace : null,
+  })),
+  own: workspaceSkills(ws).map(({ name, skill }) => ({
+    linked: skillLinked(ws, name),
+    name,
+    source: skill ? skillSourceLabel(skill) : null,
+  })),
+})
 
-const workspaceSummary = async (cfg: Config, ws: Workspace, drifts: Drift[]) => ({
+const workspaceSummary = async (snap: Snapshot, ws: Workspace) => ({
   gh: ws.gh ?? null,
   git: { email: ws.git?.email ?? null, name: ws.git?.name ?? null },
   isolated: ws.isolate === true,
-  mcp: await mcpSummary(ws, drifts),
+  mcp: await mcpSummary(ws, snap.drifts),
   name: ws.name,
   path: ws.path,
-  skills: skillRows(cfg, ws),
+  skills: skillRows(snap, ws),
 })
 
 // What the config says and what is on disk; reads files only, never spawns a process.
@@ -162,9 +167,9 @@ export const overview = async (cfg: Config | null) => {
     path: contractTilde(configPath()),
   }
   if (!cfg) return { workspaces: [], config }
-  const drifts = computeDrift(cfg)
+  const snap = snapshot(cfg)
   return {
-    workspaces: await Promise.all(cfg.workspaces.map((ws) => workspaceSummary(cfg, ws, drifts))),
+    workspaces: await Promise.all(cfg.workspaces.map((ws) => workspaceSummary(snap, ws))),
     config,
   }
 }
@@ -200,25 +205,26 @@ const summarize = (checks: Check[]) => ({
 // `inscope doctor` without its "this shell" section, which describes the API process rather than any workspace.
 export const doctor = (cfg: Config | null) => {
   const checks = cfg ? runDoctor(cfg) : []
-  return { checks: cfg ? checkRows(cfg, checks) : [], summary: summarize(checks) }
+  return { checks: cfg ? checkRows(checks, redactSkillPaths(cfg)) : [], summary: summarize(checks) }
 }
 
 // What `inscope apply` would change, and what `inscope diff --adopt` would pull back into the config; an adopted value can be a URL or a credential, so it goes through redactString too.
 export const diff = (cfg: Config | null) => {
   if (!cfg) return { drifts: [], adoptable: [] }
+  const snap = snapshot(cfg)
   return {
-    drifts: computeDrift(cfg).map((d) => driftRow(cfg, d)),
+    drifts: snap.drifts.map((d) => driftRow(snap, d)),
     adoptable: adoptable(cfg).changes.map(redactString),
   }
 }
 
 // One workspace: its summary, the identity it resolves to, and the doctor checks and pending changes that belong to it.
 export const workspaceDetail = async (cfg: Config, ws: Workspace) => {
-  const drifts = computeDrift(cfg)
+  const snap = snapshot(cfg)
   return {
-    workspace: await workspaceSummary(cfg, ws, drifts),
-    checks: checkRows(cfg, workspaceChecks(runDoctor(cfg), ws)),
-    drifts: workspaceDrifts(drifts, ws).map((d) => driftRow(cfg, d)),
+    workspace: await workspaceSummary(snap, ws),
+    checks: checkRows(workspaceChecks(runDoctor(cfg), ws), snap.redactPaths),
+    drifts: workspaceDrifts(snap.drifts, ws).map((d) => driftRow(snap, d)),
     identity: identity(cfg, ws),
   }
 }
