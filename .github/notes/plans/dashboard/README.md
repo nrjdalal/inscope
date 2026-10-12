@@ -1,6 +1,6 @@
 # Dashboard follow-ups
 
-The read-only dashboard (`/inscope` in the dev stack, PR #73) ships local and
+The read-only dashboard (the dev stack's home page, PR #73) ships local and
 read-only by construction; see CONTRIBUTING.md, Dashboard. These are the next
 steps it deliberately left out, plus what building it turned up in the CLI.
 Each is its own PR.

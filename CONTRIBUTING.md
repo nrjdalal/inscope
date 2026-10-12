@@ -151,19 +151,23 @@ before committing:
   - the `/api` rewrite's `source` in `web/next/next.config.ts`, which skips
     `/api/inscope` (dropping it reopens the dashboard API to the LAN through
     `next dev`);
-  - the `/inscope` case that hides the marketing navbar in
-    `web/next/src/components/common/navbar.tsx`.
+  - the `isDashboardPath` case that hides the marketing navbar on the
+    dashboard's pages in `web/next/src/components/common/navbar.tsx`.
 
 ## Dashboard
 
-A read-only web view of this machine's inscope state lives in the dev stack:
-`web/next/src/app/(inscope)` renders it at `/inscope`, and
+A read-only web view of this machine's inscope state is the dev stack's home
+page: `web/next/src/app/(inscope)` renders it at `/` (its sections at `/skills`,
+`/doctor`, `/diff`, and `/workspaces/<name>`, listed in `inscopePaths` in
+`web/next/src/lib/inscope.ts`), and
 `api/hono/src/routers/inscope.ts` serves it at `/api/inscope` from the inscope
 library (`packages/cli/src`, imported as the `inscope` workspace package). It
 shows each workspace's identity, MCP servers, skills, the doctor checks, and
 what `apply` would change.
 
-- It is local by construction. The pages render only under `next dev`. The API
+- It is local by construction. The pages render only under `next dev`, and a
+  production build answers 404 at every one of them, the home page included,
+  since the fork's starter placeholder home is gone. The API
   routes (`requireLocal`, `api/hono/src/middlewares/local.ts`) answer only on
   the `local` stage, and only to a request addressed to a loopback name from a
   loopback socket peer. A request relayed by a proxy on this machine must name
@@ -216,12 +220,13 @@ what `apply` would change.
   pending change) is shown only when the folder belongs to a declared skill
   whose URL carries no credential.
 
-- `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
-  your own logins, run it on a sealed sandbox instead:
+- `bun run dev` opens it on your real `~/.config/inscope`, through portless at
+  `http://inscope.localhost:1355`. To work on it without your own logins, run it
+  on a sealed sandbox instead:
 
 ```bash
 bun tests/inscope/serve.ts           # seed a sandbox, start the stack, run the e2e suites
-bun tests/inscope/serve.ts --keep    # the same, left up at http://localhost:3000/inscope
+bun tests/inscope/serve.ts --keep    # the same, left up at http://localhost:3000
 ```
 
 The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
