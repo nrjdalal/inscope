@@ -131,15 +131,8 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
 
     test("no page overflows a phone's width", () => {
       ab("set", "viewport", "390", "844")
-      for (const [page, waitFor] of [
-        ["/inscope", "MCP drifted"],
-        ["/inscope/diff", "mcp:work"],
-        ["/inscope/doctor", "[acme] gh"],
-        ["/inscope/skills", "old-notes"],
-        ["/inscope/workspaces/acme", "Checks"],
-        ["/inscope/workspaces/work", "Checks"],
-      ]) {
-        visit(page, waitFor)
+      for (const { loaded, path: page } of PAGES) {
+        visit(page, loaded)
         expect(
           `${page} ${ab("eval", "document.documentElement.scrollWidth <= document.documentElement.clientWidth")}`,
         ).toBe(`${page} true`)

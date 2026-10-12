@@ -1,4 +1,4 @@
-// The dashboard's sandbox, stack runner, and e2e suite import no app source, so they type-check against the shared base alone.
+// The dashboard's sandbox, stack runner, and page and route lists import no app source, so they type-check against the shared base alone.
 {
   "extends": "../../packages/config/tsconfig.json",
   "compilerOptions": {

@@ -335,14 +335,43 @@ describe("redactString on a quoted value", () => {
     )
   })
 
+  test("looks inside a harmless name's quoted value for credentials of its own", () => {
+    expect(
+      redactString(
+        'helper = "!f() { echo username=x; echo password=helper-should-be-redacted; }; f"',
+      ),
+    ).toBe('helper = "!f() { echo username=x; echo password=<redacted>; }; f"')
+    expect(redactString('DB_URL="Server=db;Password=conn-should-be-redacted"')).toBe(
+      'DB_URL="Server=db;Password=<redacted>"',
+    )
+    expect(redactString('OPTS="--token=opts-should-be-redacted"')).toBe('OPTS="--token=<redacted>"')
+    expect(redactString("OPTS='--api-key=single-should-be-redacted'")).toBe(
+      "OPTS='--api-key=<redacted>'",
+    )
+  })
+
   test("keeps a value filled in at run time, the hook's own exports included", () => {
     for (const value of [
       'export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"',
       'GH_TOKEN="$(gh auth token -u demo)"',
       'Authorization: "Bearer %s"',
+      "API_KEY=${API_KEY:-}",
+      "Authorization: Bearer ${GITHUB_TOKEN:-}",
+      "--port=${PORT:-8080}",
       "clearing any inherited token\n__inscope_resolve_identity",
     ])
       expect(redactString(value)).toBe(value)
+  })
+})
+
+describe("redactString on a shell default", () => {
+  test("withholds a credential-named variable's default, keeping the variable", () => {
+    expect(redactString("--token=${TOKEN:-default-should-be-redacted}")).toBe(
+      "--token=${TOKEN:-<redacted>}",
+    )
+    expect(
+      redactString("Authorization: Bearer ${GITHUB_TOKEN:-gh-default-should-be-redacted}"),
+    ).toBe("Authorization: Bearer ${GITHUB_TOKEN:-<redacted>}")
   })
 })
 

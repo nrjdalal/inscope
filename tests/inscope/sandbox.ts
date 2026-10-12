@@ -18,6 +18,7 @@ export const SECRETS = [
   "gho_demo_token",
   VENDOR_TOKEN,
   "gitconfig-token-should-be-redacted",
+  "helper-password-should-be-redacted",
   "header-bearer-should-be-redacted",
   "helper-bearer-should-be-redacted",
   "inline-env-should-be-redacted",
@@ -26,6 +27,7 @@ export const SECRETS = [
   "nospace-should-be-redacted",
   "pg-pass-should-be-redacted",
   "query-token-should-be-redacted",
+  "quoted-conn-should-be-redacted",
   "quoted-header-should-be-redacted",
   "quoted-key-should-be-redacted",
   "single-quoted-should-be-redacted",
@@ -220,6 +222,7 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
       // quoted values, as 21st.dev's magic server documents its key, and a bare token its prefix gives away
       "@21st-dev/magic@latest",
       'API_KEY="quoted-key-should-be-redacted"',
+      'DB_URL="Server=db;Password=quoted-conn-should-be-redacted"',
       "--password='single-quoted-should-be-redacted'",
       "-H",
       'X-Api-Key: "quoted-header-should-be-redacted"',
@@ -249,10 +252,15 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
   }
   await write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
 
-  // acme's git include, edited by hand to rewrite GitHub URLs through a token
+  // acme's git include, edited by hand to rewrite GitHub URLs through a token and to answer a host's credential prompts with a shell helper
+  const acmeInclude = path.join(home, ".config", "inscope", "git", "acme.gitconfig")
   await Bun.write(
-    path.join(home, ".config", "inscope", "git", "acme.gitconfig"),
-    `${await Bun.file(path.join(home, ".config", "inscope", "git", "acme.gitconfig")).text()}[url "https://x-access-token:gitconfig-token-should-be-redacted@github.com/"]\n\tinsteadOf = https://github.com/\n`,
+    acmeInclude,
+    `${await Bun.file(acmeInclude).text()}[url "https://x-access-token:gitconfig-token-should-be-redacted@github.com/"]
+\tinsteadOf = https://github.com/
+[credential "https://bitbucket.org"]
+\thelper = "!f() { echo username=x-token-auth; echo password=helper-password-should-be-redacted; }; f"
+`,
   )
 
   // acme's .mcp.json was never written (or was deleted)

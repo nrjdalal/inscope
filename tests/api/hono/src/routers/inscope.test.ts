@@ -3,6 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 import { createInscopeRouter } from "../../../../../api/hono/src/routers/inscope"
+import { ROUTES } from "../../../../inscope/pages"
 import { SECRETS, type Sandbox, seedSandbox } from "../../../../inscope/sandbox"
 
 const TRUSTED = "http://inscope.localhost:1355"
@@ -309,6 +310,9 @@ describe("GET /api/inscope/diff", () => {
     expect(mcp).toContain('"X-Api-Key: \\"<redacted>\\"",')
     // a hand-edited git include goes through the same string rules
     expect(drift("gitconfig:acme")).toContain('[url "https://<redacted>@github.com/"]')
+    expect(drift("gitconfig:acme")).toContain(
+      "echo username=x-token-auth; echo password=<redacted>;",
+    )
     expect(drift("skills:work")).toContain("- old-notes -> ")
     // a git skill's cache folder is named after its URL: withheld for a link left behind and for one a tokened source would make
     expect(drift("skills:work")).toMatch(/- old-private -> \S+\/skills-cache\/git\/<redacted>$/m)
@@ -353,15 +357,7 @@ describe("GET /api/inscope/workspaces/:name", () => {
 
 describe("no response carries a credential", () => {
   test("not a token, keychain value, or literal key from .mcp.json, on any route", async () => {
-    for (const route of [
-      "/",
-      "/status",
-      "/doctor",
-      "/diff",
-      "/workspaces/personal",
-      "/workspaces/work",
-      "/workspaces/acme",
-    ]) {
+    for (const route of ROUTES) {
       const body = await (await send(route)).text()
       for (const secret of SECRETS)
         expect(`${route}: ${body.includes(secret)}`).toBe(`${route}: false`)

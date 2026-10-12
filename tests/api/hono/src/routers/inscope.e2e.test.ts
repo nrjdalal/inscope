@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import os from "node:os"
 
+import { ROUTES } from "../../../../inscope/pages"
 import { SECRETS } from "../../../../inscope/sandbox"
 import { API, enabled, WEB } from "../../../../stack"
 
@@ -17,7 +18,7 @@ describe.skipIf(!enabled || !SANDBOX)("api/hono/src/routers/inscope.ts", () => {
     fetch(`${base}${path}`, { headers })
 
   test("serves every route from the sandbox, never caching", async () => {
-    for (const path of ["", "/status", "/doctor", "/diff", "/workspaces/work"]) {
+    for (const path of ROUTES) {
       const res = await get(`/api/inscope${path}`)
       expect(`${path} ${res.status}`).toBe(`${path} 200`)
       expect(res.headers.get("cache-control")).toBe("no-store")
@@ -118,15 +119,7 @@ describe.skipIf(!enabled || !SANDBOX)("api/hono/src/routers/inscope.ts", () => {
   })
 
   test("no response carries a credential from the sandbox", async () => {
-    for (const path of [
-      "",
-      "/status",
-      "/doctor",
-      "/diff",
-      "/workspaces/personal",
-      "/workspaces/work",
-      "/workspaces/acme",
-    ]) {
+    for (const path of ROUTES) {
       const body = await (await get(`/api/inscope${path}`)).text()
       for (const secret of SECRETS)
         expect(`${path}: ${body.includes(secret)}`).toBe(`${path}: false`)
