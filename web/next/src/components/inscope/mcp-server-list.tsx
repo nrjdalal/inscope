@@ -17,7 +17,7 @@ export function McpServerList({ servers }: { servers: InscopeWorkspace["mcp"]["s
       </Empty>
     )
   return (
-    <ItemGroup className="gap-2">
+    <ItemGroup>
       {servers.map((server) => (
         <Item key={server.name} variant="outline" size="sm">
           <ItemContent>

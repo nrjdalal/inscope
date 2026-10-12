@@ -6,7 +6,7 @@ const statusLabel = { fail: "Fail", ok: "OK", warn: "Warn" } as const
 
 export function CheckList({ checks }: { checks: InscopeCheck[] }) {
   return (
-    <ItemGroup className="gap-2">
+    <ItemGroup>
       {checks.map((check, index) => (
         <Item key={`${check.label}-${index}`} variant="outline" size="sm">
           <ItemContent>

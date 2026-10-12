@@ -15,8 +15,10 @@ export const inscopeKeys = {
 const useInscopeQuery = <T>(
   queryKey: QueryKey,
   call: () => Promise<{ data: T; error: null } | { data: null; error: ApiError }>,
+  { enabled = true }: { enabled?: boolean } = {},
 ) =>
   useQuery<T, ApiError>({
+    enabled,
     queryKey,
     queryFn: async () => {
       const result = await call()
@@ -40,9 +42,11 @@ export const useInscopeDoctor = () =>
 export const useInscopeDiff = () =>
   useInscopeQuery(inscopeKeys.diff, () => unwrap(apiClient.inscope.diff.$get()))
 
-export const useInscopeWorkspace = (name: string) =>
-  useInscopeQuery(inscopeKeys.workspace(name), () =>
-    unwrap(apiClient.inscope.workspaces[":name"].$get({ param: { name } })),
+export const useInscopeWorkspace = (name: string, options?: { enabled?: boolean }) =>
+  useInscopeQuery(
+    inscopeKeys.workspace(name),
+    () => unwrap(apiClient.inscope.workspaces[":name"].$get({ param: { name } })),
+    options,
   )
 
 export const useInscopeRefresh = () => {

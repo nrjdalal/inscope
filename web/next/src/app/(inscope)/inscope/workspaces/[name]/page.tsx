@@ -3,7 +3,7 @@
 import { notFound, useParams } from "next/navigation"
 
 import { CheckList } from "@/components/inscope/check-list"
-import { DriftDiff } from "@/components/inscope/drift-diff"
+import { DriftSection } from "@/components/inscope/drift-diff"
 import { InSync } from "@/components/inscope/in-sync"
 import { McpServerList } from "@/components/inscope/mcp-server-list"
 import { PageSection } from "@/components/inscope/page-section"
@@ -25,11 +25,14 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function Page() {
   const { name } = useParams<{ name: string }>()
-  const detail = useInscopeWorkspace(name)
+  // a workspace name is letters, digits, dot, dash, and underscore, none of which a URL encodes, so a name that needs encoding (raw or decoded) names no workspace, and the API, which refuses an encoded path, is never asked
+  const urlSafe = encodeURIComponent(name) === name
+  const detail = useInscopeWorkspace(name, { enabled: urlSafe })
   if (
-    detail.isError &&
-    (detail.error.code === "INSCOPE_WORKSPACE_NOT_FOUND" ||
-      detail.error.code === "VALIDATION_ERROR")
+    !urlSafe ||
+    (detail.isError &&
+      (detail.error.code === "INSCOPE_WORKSPACE_NOT_FOUND" ||
+        detail.error.code === "VALIDATION_ERROR"))
   )
     notFound()
 
@@ -92,17 +95,7 @@ export default function Page() {
             </PageSection>
             <PageSection id="changes" title="Pending changes">
               {drifts.length ? (
-                drifts.map((drift) => (
-                  <PageSection
-                    key={drift.label}
-                    id={`change-${drift.label}`}
-                    level={3}
-                    title={<span className="font-mono">{drift.label}</span>}
-                    description={drift.path}
-                  >
-                    <DriftDiff drift={drift} />
-                  </PageSection>
-                ))
+                drifts.map((drift) => <DriftSection key={drift.label} drift={drift} level={3} />)
               ) : (
                 <InSync workspace={workspace.name} />
               )}

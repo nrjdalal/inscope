@@ -40,7 +40,7 @@ export default function Page() {
                 From <code>{data.config.path}</code>
                 {data.config.bypass && ", with permission prompts skipped in isolated logins"}.
               </p>
-              <ItemGroup className="gap-3">
+              <ItemGroup>
                 {data.workspaces.map((workspace) => (
                   <Item
                     key={workspace.name}

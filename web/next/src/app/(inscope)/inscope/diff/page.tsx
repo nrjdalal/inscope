@@ -1,6 +1,6 @@
 "use client"
 
-import { DriftDiff } from "@/components/inscope/drift-diff"
+import { DriftSection } from "@/components/inscope/drift-diff"
 import { InSync } from "@/components/inscope/in-sync"
 import { PageSection } from "@/components/inscope/page-section"
 import { QueryState } from "@/components/inscope/query-state"
@@ -38,14 +38,7 @@ export default function Page() {
                 </PageSection>
               )}
               {data.drifts.map((drift) => (
-                <PageSection
-                  key={drift.label}
-                  id={`drift-${drift.label}`}
-                  title={<span className="font-mono">{drift.label}</span>}
-                  description={drift.path}
-                >
-                  <DriftDiff drift={drift} />
-                </PageSection>
+                <DriftSection key={drift.label} drift={drift} />
               ))}
             </div>
           )
