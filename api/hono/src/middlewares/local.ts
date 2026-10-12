@@ -5,13 +5,9 @@ import { getConnInfo } from "hono/bun"
 import { jsonError } from "@/lib/error"
 
 type RequireLocalOptions = {
-  // the socket peer, never a forwarded header: a client writes those itself
-  peer?: (c: Context) => string | undefined
   stage: string | undefined
   trustedOrigins: string[]
 }
-
-const socketPeer = (c: Context) => getConnInfo(c).remote.address
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "[::1]", "localhost"])
 
@@ -76,7 +72,7 @@ const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
 
 // Routes that read this machine's own state: invisible off the local stage, and refused unless the request is addressed to and arrives from loopback, directly or through a proxy on this machine that names its loopback client, so a web page cannot reach them through DNS rebinding, the LAN, or a cross-site request.
 export const requireLocal =
-  ({ peer = socketPeer, stage, trustedOrigins }: RequireLocalOptions): MiddlewareHandler =>
+  ({ stage, trustedOrigins }: RequireLocalOptions): MiddlewareHandler =>
   async (c, next) => {
     if (!isLocal(stage)) return c.notFound()
     // next dev's /api rewrite skips these routes by path, but its matcher does not decode, so an encoded path (/api/%69nscope) would still reach them through it; no path these routes serve is ever encoded
@@ -87,9 +83,10 @@ export const requireLocal =
       ![hostnameOf(c.req.header("host") ?? new URL(c.req.url).host), ...hosts].every(isLoopbackHost)
     )
       return jsonError(c, 403, "FORBIDDEN", "Only answers requests addressed to localhost")
+    // the socket peer, never a forwarded header: a client writes those itself
     let address: string | undefined
     try {
-      address = peer(c)
+      address = getConnInfo(c).remote.address
     } catch {
       address = undefined
     }

@@ -1,5 +1,3 @@
-import fs from "node:fs"
-
 import {
   adoptable,
   type Check,
@@ -93,9 +91,10 @@ const mcpState = (
 }
 
 // A workspace's .mcp.json as the dashboard shows it, read and parsed once: its state, the server names in it (inscope's own and any added by hand, and whether each is written yet), and the server types the config enables.
-const mcpSummary = (ws: Workspace, drifts: Drift[]) => {
+const mcpSummary = async (ws: Workspace, drifts: Drift[]) => {
   const file = mcpFilePath(ws)
-  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null
+  const onFile = Bun.file(file)
+  const text = (await onFile.exists()) ? await onFile.text() : null
   let onDisk: string[] = []
   let error: string | null = null
   if (text !== null) {
@@ -145,18 +144,18 @@ const skillRows = (cfg: Config, ws: Workspace) => {
   }
 }
 
-const workspaceSummary = (cfg: Config, ws: Workspace, drifts: Drift[]) => ({
+const workspaceSummary = async (cfg: Config, ws: Workspace, drifts: Drift[]) => ({
   gh: ws.gh ?? null,
   git: { email: ws.git?.email ?? null, name: ws.git?.name ?? null },
   isolated: ws.isolate === true,
-  mcp: mcpSummary(ws, drifts),
+  mcp: await mcpSummary(ws, drifts),
   name: ws.name,
   path: ws.path,
   skills: skillRows(cfg, ws),
 })
 
 // What the config says and what is on disk; reads files only, never spawns a process.
-export const overview = (cfg: Config | null) => {
+export const overview = async (cfg: Config | null) => {
   const config = {
     bypass: cfg?.bypass === true,
     exists: cfg !== null,
@@ -164,7 +163,10 @@ export const overview = (cfg: Config | null) => {
   }
   if (!cfg) return { workspaces: [], config }
   const drifts = computeDrift(cfg)
-  return { workspaces: cfg.workspaces.map((ws) => workspaceSummary(cfg, ws, drifts)), config }
+  return {
+    workspaces: await Promise.all(cfg.workspaces.map((ws) => workspaceSummary(cfg, ws, drifts))),
+    config,
+  }
 }
 
 // The identity each workspace resolves to, as `inscope status` run inside it would show; spawns claude, gh, and git.
@@ -211,10 +213,10 @@ export const diff = (cfg: Config | null) => {
 }
 
 // One workspace: its summary, the identity it resolves to, and the doctor checks and pending changes that belong to it.
-export const workspaceDetail = (cfg: Config, ws: Workspace) => {
+export const workspaceDetail = async (cfg: Config, ws: Workspace) => {
   const drifts = computeDrift(cfg)
   return {
-    workspace: workspaceSummary(cfg, ws, drifts),
+    workspace: await workspaceSummary(cfg, ws, drifts),
     checks: checkRows(cfg, workspaceChecks(runDoctor(cfg), ws)),
     drifts: workspaceDrifts(drifts, ws).map((d) => driftRow(cfg, d)),
     identity: identity(cfg, ws),

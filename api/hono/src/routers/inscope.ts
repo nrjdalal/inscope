@@ -128,14 +128,12 @@ const { data, error } = await unwrap(${client})`,
   })
 
 type InscopeRouterOptions = {
-  peer?: Parameters<typeof requireLocal>[0]["peer"]
   stage?: string
   trustedOrigins?: string[]
 }
 
-// The read-only inscope dashboard API: this machine's ~/.config/inscope, answered only on the local stage and only to loopback (see requireLocal). Options exist so tests can pin what the gate sees: the stage, the socket peer, and the trusted origins.
+// The read-only inscope dashboard API: this machine's ~/.config/inscope, answered only on the local stage and only to loopback (see requireLocal). Options exist so tests can pin the stage and the trusted origins.
 export const createInscopeRouter = ({
-  peer,
   stage = env.NODE_ENV,
   trustedOrigins = env.HONO_TRUSTED_ORIGINS,
 }: InscopeRouterOptions = {}) =>
@@ -147,7 +145,7 @@ export const createInscopeRouter = ({
       await next()
       c.header("Cache-Control", "no-store")
     })
-    .use(requireLocal({ peer, stage, trustedOrigins }))
+    .use(requireLocal({ stage, trustedOrigins }))
     .get(
       "/",
       documentedGet(
@@ -162,7 +160,7 @@ export const createInscopeRouter = ({
           }),
         }),
       ),
-      (c) => c.json({ data: overview(readConfig()) }),
+      async (c) => c.json({ data: await overview(readConfig()) }),
     )
     .get(
       "/diff",
@@ -207,7 +205,7 @@ export const createInscopeRouter = ({
         }),
         { ...inscopeWorkspaceErrorResponses, ...validationErrorResponses },
       ),
-      (c) => {
+      async (c) => {
         const name = c.req.param("name")
         const nameErr = workspaceNameError(name)
         if (nameErr)
@@ -217,7 +215,7 @@ export const createInscopeRouter = ({
             `workspace name "${name}" is invalid: ${nameErr}`,
           )
         const { cfg, ws } = findWorkspaceOrThrow(readConfig(), name)
-        return c.json({ data: workspaceDetail(cfg, ws) })
+        return c.json({ data: await workspaceDetail(cfg, ws) })
       },
     )
 
