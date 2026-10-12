@@ -176,29 +176,35 @@ what `apply` would change.
   decode, the gate refuses any percent-encoded path (the pages call the API
   directly). A cross-site browser request is refused, a write needs a trusted
   Origin, and every response, refusals included, is `Cache-Control: no-store`.
-- It shows booleans for tokens and keychain items, never values. A `.mcp.json`
-  is redacted by structure before it is diffed (`api/hono/src/lib/inscope.ts`):
+- It shows booleans for tokens and keychain items, never values. Everything
+  else that can carry a credential is redacted by `api/hono/src/lib/redact.ts`.
+  A `.mcp.json` is redacted by structure before it is diffed:
   - every `env` and `headers` value that does more than name a variable or set
     an on/off toggle (`true`, `off`, `yes`);
   - anything under a key that names a credential, judged word by word (`apiKey`,
-    `DB_PASSWORD`, and `X-Api-Key` count; `keycloak`, `oauth`, and `clientId` do
-    not), while server names are never judged;
+    `DB_PASSWORD`, `X-Api-Key`, `jwt`, and `clientCreds` count; `keycloak`,
+    `oauth`, and `clientId` do not), while server names are never judged;
   - the value after a credential flag, a docker `-e`/`--env`, or `--env=K=V`;
-  - in any string, JSON inside a string included: the user info, query, and
-    fragment of a URL in any scheme, an HTTP auth scheme's token in any case
-    (`Bearer ...`, `basic ...`), and a `name=value`, a quoted `"name": "value"`,
-    or a `Name: value` header (to the end of its line) whose name says
-    credential. A placeholder filled in at run time (`%s`, `${...}`, `$(...)`)
-    is kept, so inscope's own `headersHelper` stays readable.
+  - in any string, JSON inside a string included: the user info, query,
+    fragment, and long opaque path segments (24+ characters mixing letters and
+    digits, the token some hosted servers carry in the URL) of a URL in any
+    scheme, an HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`),
+    and a `name=value`, a quoted `"name": "value"`, or a `Name: value` header
+    (to the end of its line) whose name says credential. A placeholder filled in
+    at run time (`%s`, `${...}`, `$(...)`) is kept, so inscope's own
+    `headersHelper` stays readable.
 
-  The `diff --adopt` lines go through the same string rules.
+  The `diff --adopt` lines go through the same string rules, and so does a git
+  skill's source. A git skill's cache folder is named after its URL, so a path
+  into one (in a skill link, a doctor detail, or a pending change) is shown only
+  when the folder belongs to a declared skill whose URL carries no credential.
 
 - `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
   your own logins, run it on a sealed sandbox instead:
 
 ```bash
 bun tests/inscope/serve.ts           # seed a sandbox, start the API and web, run the e2e suites
-bun tests/inscope/serve.ts --keep    # same, then leave http://localhost:3000/inscope up for a browser
+bun tests/inscope/serve.ts --keep    # seed and start them, then leave http://localhost:3000/inscope up for a browser instead of running the suites
 ```
 
 The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
