@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/inscope/status-badge"
 import { PageHeader } from "@/components/shell/page-header"
 import { PageShell } from "@/components/shell/page-shell"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
-import { useInscopeDoctor } from "@/lib/inscope"
+import { plural, useInscopeDoctor } from "@/lib/inscope"
 
 export default function Page() {
   const doctor = useInscopeDoctor()
@@ -33,7 +33,7 @@ export default function Page() {
               <div className="flex flex-wrap gap-2">
                 <StatusBadge tone="ok">{data.summary.ok} passed</StatusBadge>
                 <StatusBadge tone={data.summary.warn ? "warn" : "muted"}>
-                  {data.summary.warn} warnings
+                  {plural(data.summary.warn, "warning")}
                 </StatusBadge>
                 <StatusBadge tone={data.summary.fail ? "fail" : "muted"}>
                   {data.summary.fail} failed

@@ -2,6 +2,9 @@ import { type QueryKey, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type ApiError, apiClient, unwrap } from "@/lib/api/client"
 
+// "1 skill", "2 skills": a count the dashboard shows, its noun agreeing with it
+export const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
 export const inscopeKeys = {
   all: ["inscope"] as const,
   diff: ["inscope", "diff"] as const,

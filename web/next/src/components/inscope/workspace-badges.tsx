@@ -1,8 +1,6 @@
 import { StatusBadge, type Tone } from "@/components/inscope/status-badge"
 import { Spinner } from "@/components/ui/spinner"
-import type { InscopeIdentity, InscopeWorkspace } from "@/lib/inscope"
-
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+import { type InscopeIdentity, type InscopeWorkspace, plural } from "@/lib/inscope"
 
 const mcpBadge: Record<InscopeWorkspace["mcp"]["state"], { label: string; tone: Tone }> = {
   drifted: { label: "MCP drifted", tone: "warn" },
