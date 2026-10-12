@@ -22,7 +22,10 @@ export const SECRETS = [
   "pg-pass-should-be-redacted",
   "query-token-should-be-redacted",
   "sk-should-be-redacted",
+  "skill-url-token-should-be-redacted",
+  "stale-skill-token-should-be-redacted",
   "xoxp-demo-secret",
+  "zapier-path-token-should-be-redacted-1",
 ] as const
 
 const REPO = path.resolve(import.meta.dir, "..", "..")
@@ -221,6 +224,11 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     headers: { Authorization: "Bearer bearer-should-be-redacted" },
     headersHelper: `echo '{"Authorization":"Bearer helper-bearer-should-be-redacted"}'`,
   }
+  // a hosted server whose token is a segment of the URL's path
+  mcp.mcpServers.zapier = {
+    type: "http",
+    url: "https://mcp.zapier.com/api/mcp/s/zapier-path-token-should-be-redacted-1/mcp",
+  }
   await write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
 
   // acme's .mcp.json was never written (or was deleted)
@@ -235,6 +243,27 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     path.join(workSkills, "my-notes", "SKILL.md"),
     "---\nname: my-notes\ndescription: Mine.\n---\n",
   )
+
+  // a git skill's cache folder is named after its URL, token included: one left linked after its skill left the config
+  const staleGit = path.join(
+    home,
+    ".config",
+    "inscope",
+    "skills-cache",
+    "git",
+    "x-access-token-stale-skill-token-should-be-redacted-git.example.com-org-old-skills",
+  )
+  await write(path.join(staleGit, "SKILL.md"), "---\nname: old-private\ndescription: Old.\n---\n")
+  fs.symlinkSync(staleGit, path.join(workSkills, "old-private"))
+
+  // and acme declares two, after apply so nothing clones them: one from a URL carrying a token, whose source and cache folder must both reach the pages withheld, and a plain one, which stays readable
+  const configFile = path.join(home, ".config", "inscope", "inscope.json")
+  const config = await Bun.file(configFile).json()
+  config.workspaces[2].skills = [
+    "https://git.example.com/org/plain-skills.git",
+    "https://x-access-token:skill-url-token-should-be-redacted@git.example.com/org/private-skills.git",
+  ]
+  await write(configFile, `${JSON.stringify(config, null, 2)}\n`)
 
   return { root, home, env }
 }

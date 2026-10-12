@@ -4,7 +4,8 @@ import {
   isCredentialName,
   redactMcpText,
   redactString,
-} from "../../../../../api/hono/src/lib/inscope"
+  skillSourceLabel,
+} from "../../../../../api/hono/src/lib/redact"
 
 const redacted = (doc: unknown) => JSON.parse(redactMcpText(JSON.stringify(doc)))
 
@@ -238,6 +239,10 @@ describe("isCredentialName", () => {
       "clientSecret",
       "--api-key",
       "pwd",
+      "--passphrase",
+      "JWT_SECRET",
+      "jwt",
+      "clientCreds",
     ])
       expect(`${name} ${isCredentialName(name)}`).toBe(`${name} true`)
     for (const name of [
@@ -268,5 +273,50 @@ describe("redactString", () => {
     expect(redactString("work: slack.package = @nrjdalal/slack-mcp-server")).toBe(
       "work: slack.package = @nrjdalal/slack-mcp-server",
     )
+  })
+})
+
+describe("redactString on a URL's path", () => {
+  test("withholds a long opaque segment, the token some hosted servers carry in the URL itself", () => {
+    expect(
+      redactString("https://mcp.zapier.com/api/mcp/s/a1b2c3d4-path-token-should-be-redacted/mcp"),
+    ).toBe("https://mcp.zapier.com/api/mcp/s/<redacted>/mcp")
+    expect(redactString("wss://hooks.example.com/v2/hook-token-should-be-redacted-01")).toBe(
+      "wss://hooks.example.com/v2/<redacted>",
+    )
+  })
+
+  test("keeps a plain path, and an opaque word outside a URL", () => {
+    for (const value of [
+      "https://mcp.linear.app/sse-old",
+      "https://api.githubcopilot.com/mcp/",
+      "https://docs.example.com/guides/getting-started-with-everything",
+      "@nrjdalal/slack-mcp-server@latest",
+      "a1b2c3d4-not-in-a-url-at-all-0000",
+    ])
+      expect(redactString(value)).toBe(value)
+  })
+})
+
+describe("skillSourceLabel", () => {
+  test("withholds a git URL's credentials and keeps its subdir and ref", () => {
+    expect(
+      skillSourceLabel({
+        name: "audit",
+        ref: "main",
+        source: {
+          kind: "git",
+          url: "https://x-access-token:skill-should-be-redacted@git.example.com/o/r.git",
+        },
+        subdir: "skills/audit",
+      }),
+    ).toBe("https://<redacted>@git.example.com/o/r.git#skills/audit@main")
+    expect(
+      skillSourceLabel({
+        name: "audit",
+        source: { kind: "github", repo: "o/r" },
+        subdir: "skills/audit",
+      }),
+    ).toBe("o/r#skills/audit")
   })
 })

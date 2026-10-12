@@ -175,8 +175,29 @@ describe("GET /api/inscope", () => {
         target: null,
         workspace: null,
       },
+      {
+        kind: "stale",
+        label: "inscope link no workspace declares (the next apply removes it)",
+        name: "old-private",
+        target: null,
+        workspace: null,
+      },
     ])
     expect(acme.mcp.state).toBe("missing")
+    // a git source's token is withheld, its host kept
+    expect(acme.skills.own).toEqual([
+      { linked: true, name: "inscope", source: null },
+      {
+        linked: false,
+        name: "plain-skills",
+        source: "https://git.example.com/org/plain-skills.git",
+      },
+      {
+        linked: false,
+        name: "private-skills",
+        source: "https://<redacted>@git.example.com/org/private-skills.git",
+      },
+    ])
     // server names only: inscope's own for the workspace, the user's hand-added ones, and whether each is written yet
     expect(work.mcp.servers).toEqual([
       { managed: true, name: "github-work", written: true },
@@ -185,6 +206,7 @@ describe("GET /api/inscope", () => {
       { managed: false, name: "mine", written: true },
       { managed: false, name: "remote", written: true },
       { managed: true, name: "slack-work", written: true },
+      { managed: false, name: "zapier", written: true },
     ])
     expect(
       acme.mcp.servers.every(
@@ -266,6 +288,7 @@ describe("GET /api/inscope/diff", () => {
       "mcp:work",
       "mcp:acme",
       "skills:work",
+      "skills:acme",
     ])
     const work = drifts[0]
     expect(work.diff).toContain('-       "url": "https://mcp.linear.app/sse-old"')
@@ -281,7 +304,14 @@ describe("GET /api/inscope/diff", () => {
     expect(work.diff).toContain('"SLACK_MCP_ALLOW_WRITE": "false"')
     expect(work.diff).toContain('"url": "https://sso.example.com/mcp"')
     expect(work.diff).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
+    expect(work.diff).toContain('"url": "https://mcp.zapier.com/api/mcp/s/<redacted>/mcp"')
     expect(drifts[2].diff).toContain("- old-notes -> ")
+    // a git skill's cache folder is named after its URL: withheld for a link left behind and for one a tokened source would make
+    expect(drifts[2].diff).toMatch(/- old-private -> \S+\/skills-cache\/git\/<redacted>$/m)
+    expect(drifts[3].diff).toMatch(/\+ private-skills -> \S+\/skills-cache\/git\/<redacted>$/m)
+    expect(drifts[3].diff).toMatch(
+      /\+ plain-skills -> \S+\/skills-cache\/git\/git\.example\.com-org-plain-skills-[0-9a-f]{7}$/m,
+    )
   })
 })
 

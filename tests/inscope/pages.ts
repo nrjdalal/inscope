@@ -4,5 +4,6 @@ export const PAGES = [
   { loaded: "old-notes", path: "/inscope/skills" },
   { loaded: "[acme] gh", path: "/inscope/doctor" },
   { loaded: "Hand edits apply would undo", path: "/inscope/diff" },
+  { loaded: "Claude login", path: "/inscope/workspaces/acme" },
   { loaded: "Claude login", path: "/inscope/workspaces/work" },
 ] as const

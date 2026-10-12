@@ -97,6 +97,15 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
       shoot("workspace-work")
     })
 
+    test("a name no workspace has shows the not-found page, whether it arrives encoded or not", () => {
+      for (const name of ["nope", "bad!name", "bad%20name", "caf%C3%A9"]) {
+        visit(`/inscope/workspaces/${name}`, "No such page or workspace")
+        expect(`${name} ${ab("get", "text", "main").includes("Not available here")}`).toBe(
+          `${name} false`,
+        )
+      }
+    })
+
     test("doctor, skills, and pending changes render their data", () => {
       visit("/inscope/doctor", "[acme] gh")
       expect(ab("get", "text", "main")).toContain("no token for demo-acme")
@@ -125,7 +134,9 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
       for (const [page, waitFor] of [
         ["/inscope", "MCP drifted"],
         ["/inscope/diff", "mcp:work"],
+        ["/inscope/skills", "old-notes"],
         ["/inscope/workspaces/acme", "Checks"],
+        ["/inscope/workspaces/work", "Checks"],
       ]) {
         visit(page, waitFor)
         expect(
