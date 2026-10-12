@@ -29,7 +29,7 @@ import {
 import { ApiError } from "@/lib/error"
 import { redactMcpText, redactSkillPaths, redactString, skillSourceLabel } from "@/lib/redact"
 
-// Every shape below is mapped field by field, rows A to Z and each response's subject first, so a field the library adds later never reaches the page unreviewed, and a token can only ever leave as a boolean.
+// Every shape below is mapped field by field, fields A to Z and each response's subject first, so a field the library adds later never reaches the page unreviewed, and a token can only ever leave as a boolean.
 
 // The config on disk, or null before the first `inscope add`; an invalid file is the user's to fix, so it surfaces as its own error rather than a 500.
 export const readConfig = (): Config | null => {
@@ -37,10 +37,11 @@ export const readConfig = (): Config | null => {
   try {
     return loadConfig()
   } catch (err) {
+    // the message quotes the offending value, which can be a tokened skill URL
     throw new ApiError(
       422,
       "INSCOPE_CONFIG_INVALID",
-      err instanceof Error ? err.message : String(err),
+      redactString(err instanceof Error ? err.message : String(err)),
     )
   }
 }
@@ -55,7 +56,7 @@ export const findWorkspaceOrThrow = (
   return { cfg, ws }
 }
 
-type RedactPaths = (text: string) => string
+type RedactPaths = ReturnType<typeof redactSkillPaths>
 
 // What one request reads once and every row shares: the config, its pending changes, and the redactor for its git skill folders (see redactSkillPaths).
 type Snapshot = { cfg: Config; drifts: Drift[]; redactPaths: RedactPaths }
@@ -72,7 +73,7 @@ const driftRow = ({ cfg, redactPaths }: Snapshot, d: Drift) => {
   const redact = isMcp ? redactMcpText : (value: string) => redactPaths(redactString(value))
   return {
     diff: d.error ? null : diffLines(redact(d.current), redact(d.next)),
-    error: d.error ?? null,
+    error: d.error ? redactString(d.error) : null,
     label: d.label,
     path: contractTilde(d.path),
   }

@@ -38,15 +38,26 @@ const CREDENTIAL_PARTS = [
   "token",
 ]
 
-// A key, flag, header, or variable whose name says it holds a credential, judged per word of the name (camelCase, snake_case, kebab-case), so `apiKey`, `DB_PASSWORD`, and `X-Api-Key` count while `keycloak`, `oauth`, and `clientId` do not.
-export const isCredentialName = (name: string): boolean =>
-  name
+// words that hold a credential word without naming one: a count of tokens, a tokenizer
+const NOT_CREDENTIAL_WORDS = new Set(["tokenize", "tokenizer", "tokens"])
+
+// a name ending in one of these says where something lives (`KEY_FILE`, `cookieFile`, `TOKEN_URL`), not what it is; a URL's own credentials are left to the URL rules
+const LOCATION_WORDS = new Set(["dir", "file", "path", "url"])
+
+// A key, flag, header, or variable whose name says it holds a credential, judged per word of the name (camelCase, snake_case, kebab-case), so `apiKey`, `DB_PASSWORD`, and `X-Api-Key` count while `keycloak`, `oauth`, `clientId`, `maxTokens`, and `KEY_FILE` do not.
+export const isCredentialName = (name: string): boolean => {
+  const words = name
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
     .map((word) => word.toLowerCase())
-    .some(
-      (word) => CREDENTIAL_WORDS.has(word) || CREDENTIAL_PARTS.some((part) => word.includes(part)),
-    )
+  if (LOCATION_WORDS.has(words.at(-1) ?? "")) return false
+  return words.some(
+    (word) =>
+      !NOT_CREDENTIAL_WORDS.has(word) &&
+      (CREDENTIAL_WORDS.has(word) || CREDENTIAL_PARTS.some((part) => word.includes(part))),
+  )
+}
 
 // only names an environment variable, with at most an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), or is a plain toggle, so it holds no secret
 const NOT_SECRET = /^(\$\{\w+(:-)?\}|true|false|on|off|yes|no)$/i
@@ -66,6 +77,19 @@ const redactDefaults = (value: string): string =>
   value.replace(/\$\{(\w+):-([^}]+)\}/g, (whole: string, name: string) =>
     isCredentialName(name) ? `\${${name}:-${REDACTED}}` : whole,
   )
+
+// a value as written: its opening quote, if any, the closing one, if it has one, and what lies between
+const quoted = (raw: string) => {
+  const quote = /^["']/.test(raw) ? raw[0] : ""
+  const close = quote && raw.length > 1 && raw.endsWith(quote) ? quote : ""
+  return { close, inner: raw.slice(quote.length, raw.length - close.length), quote }
+}
+
+// a value withheld, its quotes kept
+const withheld = (raw: string): string => {
+  const { close, quote } = quoted(raw)
+  return `${quote}${REDACTED}${close}`
+}
 
 // where a value ends, by how it opens: a double-quoted one at its closing quote (escapes allowed), a single-quoted one at its own, a bare one at a quote; none crosses a line
 const VALUE_END: Record<string, RegExp> = {
@@ -115,10 +139,17 @@ const redactHeaders = (value: string): string => {
   return out + value.slice(done)
 }
 
-// Every credential a free string can carry by its shape: the user info, query, fragment, and opaque path segments of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=, /s/<token>/), an HTTP auth scheme's token in any case, a token with a vendor prefix, a quoted JSON pair, a `name=value` (its value bare or quoted), and a `Name: value` header whose name says credential.
+// user info with no scheme in front (`oauth2:<token>@gitlab.com/org/repo`), as a git remote or a skill source can carry it, withheld before the header rule could read `name:` as a header and take the host with it; a scheme's own user info is left to the URL rules
+const redactBareUserInfo = (value: string): string =>
+  value.replace(
+    /(^|[\s"'=(,])[\w.~%+-]+:[^\s"'@/]+@(?=[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)/g,
+    `$1${REDACTED}@`,
+  )
+
+// Every credential a free string can carry by its shape: the user info, query, fragment, and opaque path segments of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=, /s/<token>/), user info with no scheme (oauth2:<token>@gitlab.com/...), an HTTP auth scheme's token in any case, a token with a vendor prefix, a quoted JSON pair, a credential flag's value (`--api-key <key>`), a `name=value` (its value bare or quoted), and a `Name: value` header whose name says credential.
 export const redactString = (value: string): string =>
   redactJsonText(value) ??
-  redactHeaders(redactDefaults(value))
+  redactHeaders(redactBareUserInfo(redactDefaults(value)))
     .replace(new RegExp(`(${URL_START})[^\\s"'@/]*:[^\\s"']*@`, "gi"), `$1${REDACTED}@`)
     .replace(new RegExp(`(${URL_START})[^\\s"'@/:]*@`, "gi"), `$1${REDACTED}@`)
     .replace(new RegExp(`${URL_START}[^\\s"'?#]*`, "gi"), redactUrlPath)
@@ -127,18 +158,21 @@ export const redactString = (value: string): string =>
     .replace(new RegExp(`\\b(${AUTH_SCHEMES})[ \\t]+[\\w.~+/=-]{8,}`, "gi"), `$1 ${REDACTED}`)
     .replace(VENDOR_TOKEN, REDACTED)
     .replace(
+      /(^|\s)(--?[A-Za-z][\w-]*)([ \t]+)(?!-)("(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?|[^\s"']+)/g,
+      (match: string, lead: string, flag: string, space: string, raw: string) =>
+        holdsCredential(flag, raw) ? `${lead}${flag}${space}${withheld(raw)}` : match,
+    )
+    .replace(
       /"([^"\\]+)"(\s*:\s*)"((?:[^"\\]|\\.)*)"/g,
       (pair: string, name: string, separator: string, inner: string) =>
         holdsCredential(name, inner) ? `"${name}"${separator}"${REDACTED}"` : pair,
     )
     .replace(
       /\b([A-Za-z_][\w.-]*)(\s*=\s*)("(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?|[^\s,;&"']+)/g,
-      (pair: string, name: string, separator: string, value: string) => {
-        const quote = /^["']/.test(value) ? value[0] : ""
-        const close = quote && value.length > 1 && value.endsWith(quote) ? quote : ""
-        if (holdsCredential(name, value)) return `${name}${separator}${quote}${REDACTED}${close}`
+      (pair: string, name: string, separator: string, raw: string) => {
+        if (holdsCredential(name, raw)) return `${name}${separator}${withheld(raw)}`
         // a harmless name's quoted value can hold credentials of its own (`helper = "!f() { echo password=...; }; f"`), which this pattern has already stepped over
-        const inner = value.slice(quote.length, value.length - close.length)
+        const { close, inner, quote } = quoted(raw)
         return quote ? `${name}${separator}${quote}${redactString(inner)}${close}` : pair
       },
     )
