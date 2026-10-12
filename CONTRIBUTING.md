@@ -191,26 +191,30 @@ what `apply` would change.
     fragment, and long opaque path segments (24+ characters mixing letters and
     digits, the token some hosted servers carry in the URL) of a URL in any
     scheme; an HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`);
-    a token whose vendor prefix gives it away (`ghp_`, `github_pat_`, `sk-`,
-    `xoxb-`, `AKIA`, `ntn_`, `lin_api_`, `glpat-`, `npm_`, and others), even as
-    a bare argument; and a `name=value`, a quoted `"name": "value"`, or a
+    a token whose vendor prefix gives it away (`AKIA`, `ghp_`, `github_pat_`,
+    `glpat-`, `lin_api_`, `npm_`, `ntn_`, `sk-`, `xoxb-`, and others), even as a
+    bare argument; and a `name=value`, a quoted `"name": "value"`, or a
     `Name: value` header (to the end of its line) whose name says credential,
-    its value bare or quoted (`API_KEY="..."`, `X-Api-Key: '...'`). A value
-    filled in at run time (`%s`, `${...}`, `$(...)`, a lone `$var`) is kept, so
-    inscope's own `headersHelper` and hook stay readable.
+    its value bare or quoted (`API_KEY="..."`, `X-Api-Key: '...'`). A harmless
+    name's quoted value is searched in turn (`helper = "!f() { echo
+password=...; }; f"`), and a credential-named variable's shell default is
+    withheld (`${API_KEY:-<redacted>}`). A value filled in at run time (`%s`,
+    `${...}`, `$(...)`, a lone `$var`) is kept, so inscope's own `headersHelper`
+    and hook stay readable.
 
   The `diff --adopt` lines go through the same string rules, and so do a git
   skill's source and the pending changes to the hook and git includes, which a
-  hand edit can put a credential in (`[url "https://user:token@host/"]`). A git skill's cache folder is named after its URL, so a path
-  into one (in a skill link, a doctor detail, or a pending change) is shown only
-  when the folder belongs to a declared skill whose URL carries no credential.
+  hand edit can put a credential in (`[url "https://user:token@host/"]`). A git
+  skill's cache folder is named after its URL, so a path into one (in a skill
+  link, a doctor detail, or a pending change) is shown only when the folder
+  belongs to a declared skill whose URL carries no credential.
 
 - `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
   your own logins, run it on a sealed sandbox instead:
 
 ```bash
-bun tests/inscope/serve.ts           # seed a sandbox, start the API and web, run the e2e suites
-bun tests/inscope/serve.ts --keep    # seed and start them, then leave http://localhost:3000/inscope up for a browser instead of running the suites
+bun tests/inscope/serve.ts           # seed a sandbox, start the stack, run the e2e suites
+bun tests/inscope/serve.ts --keep    # the same, left up at http://localhost:3000/inscope
 ```
 
 The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
