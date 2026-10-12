@@ -190,24 +190,31 @@ what `apply` would change.
   - in any string, JSON inside a string included: the user info, query,
     fragment, and long opaque path segments (24+ characters mixing letters and
     digits, the token some hosted servers carry in the URL) of a URL in any
-    scheme; an HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`);
-    a token whose vendor prefix gives it away (`AKIA`, `ghp_`, `github_pat_`,
-    `glpat-`, `lin_api_`, `npm_`, `ntn_`, `sk-`, `xoxb-`, and others), even as a
-    bare argument; and a `name=value`, a quoted `"name": "value"`, or a
-    `Name: value` header (to the end of its line) whose name says credential,
-    its value bare or quoted (`API_KEY="..."`, `X-Api-Key: '...'`). A harmless
-    name's quoted value is searched in turn (`helper = "!f() { echo
-password=...; }; f"`), and a credential-named variable's shell default is
-    withheld (`${API_KEY:-<redacted>}`). A value filled in at run time (`%s`,
-    `${...}`, `$(...)`, a lone `$var`) is kept, so inscope's own `headersHelper`
-    and hook stay readable.
+    scheme, and user info with no scheme (`oauth2:<token>@gitlab.com/...`); an
+    HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`); a token
+    whose vendor prefix gives it away (`AKIA`, `ghp_`, `github_pat_`, `glpat-`,
+    `lin_api_`, `npm_`, `ntn_`, `sk-`, `xoxb-`, and others), even as a bare
+    argument; the value after a credential flag (`--api-key <key>`, in one
+    string as across two arguments); and a `name=value`, a quoted
+    `"name": "value"`, or a `Name: value` header (to the end of its line) whose
+    name says credential, its value bare or quoted (`API_KEY="..."`,
+    `X-Api-Key: '...'`).
+
+    A harmless name's quoted value is searched in turn
+    (`helper = "!f() { echo password=...; }; f"`), and a credential-named
+    variable's shell default is withheld (`${API_KEY:-<redacted>}`). A value
+    filled in at run time (`%s`, `${...}`, `$(...)`, a lone `$var`) is kept, so
+    inscope's own `headersHelper` and hook stay readable, and so is a name that
+    only holds a credential word (`maxTokens`, `tokenizer`) or ends in `file`,
+    `path`, `dir`, or `url` (`KEY_FILE`, `cookieFile`).
 
   The `diff --adopt` lines go through the same string rules, and so do a git
-  skill's source and the pending changes to the hook and git includes, which a
-  hand edit can put a credential in (`[url "https://user:token@host/"]`). A git
-  skill's cache folder is named after its URL, so a path into one (in a skill
-  link, a doctor detail, or a pending change) is shown only when the folder
-  belongs to a declared skill whose URL carries no credential.
+  skill's source, the message for an invalid config, and the pending changes to
+  the hook and git includes, which a hand edit can put a credential in
+  (`[url "https://user:token@host/"]`). A git skill's cache folder is named
+  after its URL, so a path into one (in a skill link, a doctor detail, or a
+  pending change) is shown only when the folder belongs to a declared skill
+  whose URL carries no credential.
 
 - `bun run dev` opens it on your real `~/.config/inscope`. To work on it without
   your own logins, run it on a sealed sandbox instead:
