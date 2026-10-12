@@ -134,6 +134,7 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
       for (const [page, waitFor] of [
         ["/inscope", "MCP drifted"],
         ["/inscope/diff", "mcp:work"],
+        ["/inscope/doctor", "[acme] gh"],
         ["/inscope/skills", "old-notes"],
         ["/inscope/workspaces/acme", "Checks"],
         ["/inscope/workspaces/work", "Checks"],
@@ -142,8 +143,8 @@ describe.skipIf(!enabled || !SANDBOX || !browser)(
         expect(
           `${page} ${ab("eval", "document.documentElement.scrollWidth <= document.documentElement.clientWidth")}`,
         ).toBe(`${page} true`)
+        shoot(`phone${page.replaceAll("/", "-")}`)
       }
-      shoot("overview-mobile")
       ab("set", "viewport", "1782", "972")
     })
   },

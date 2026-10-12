@@ -77,13 +77,8 @@ describe("the local-only gate", () => {
   test("refuses a peer that is not loopback, or that cannot be read", async () => {
     for (const peer of ["10.0.0.5", "192.168.1.20", "::ffff:10.0.0.5", "2001:db8::1", null])
       expect((await send("/", { peer })).status).toBe(403)
-    const unreadable = createInscopeRouter({
-      stage: "local",
-      trustedOrigins: [],
-      peer: () => {
-        throw new TypeError("env has to include the 2nd argument of fetch.")
-      },
-    })
+    // with no Bun server behind the request, getConnInfo cannot read a peer at all
+    const unreadable = createInscopeRouter({ stage: "local", trustedOrigins: [] })
     expect((await unreadable.request("http://localhost:4000/")).status).toBe(403)
   })
 
@@ -249,7 +244,7 @@ describe("GET /api/inscope/status", () => {
       {
         name: "acme",
         claude: {
-          configDir: "~/clients/acme/.inscope",
+          configDir: "~/clients/acme-corporation-holdings/engineering/acme/.inscope",
           email: null,
           isolated: true,
           org: null,
@@ -285,31 +280,42 @@ describe("GET /api/inscope/diff", () => {
     const { adoptable, drifts } = await data("/diff")
     expect(adoptable).toEqual(["work: linear.url = https://mcp.linear.app/sse-old"])
     expect(drifts.map((d: { label: string }) => d.label)).toEqual([
+      "gitconfig:acme",
       "mcp:work",
       "mcp:acme",
       "skills:work",
       "skills:acme",
     ])
-    const work = drifts[0]
-    expect(work.diff).toContain('-       "url": "https://mcp.linear.app/sse-old"')
-    expect(work.diff).toContain('+       "url": "https://mcp.linear.app/mcp"')
-    expect(work.diff).toContain('"MY_API_KEY": "<redacted>"')
-    expect(work.diff).toContain('"MY_TOKEN": "<redacted>"')
-    expect(work.diff).toContain('"--api-key",')
-    expect(work.diff).toContain('"url": "https://mcp.example.com/sse?<redacted>"')
-    expect(work.diff).toContain('"Authorization": "<redacted>"')
+    const drift = (label: string) =>
+      drifts.find((d: { label: string }) => d.label === label).diff as string
+    const mcp = drift("mcp:work")
+    expect(mcp).toContain('-       "url": "https://mcp.linear.app/sse-old"')
+    expect(mcp).toContain('+       "url": "https://mcp.linear.app/mcp"')
+    expect(mcp).toContain('"MY_API_KEY": "<redacted>"')
+    expect(mcp).toContain('"MY_TOKEN": "<redacted>"')
+    expect(mcp).toContain('"--api-key",')
+    expect(mcp).toContain('"url": "https://mcp.example.com/sse?<redacted>"')
+    expect(mcp).toContain('"Authorization": "<redacted>"')
     // not credentials: a server named like one, its client id and port, a write toggle
-    expect(work.diff).toContain('"clientId": "dashboard-client"')
-    expect(work.diff).toContain('"callbackPort": 33418')
-    expect(work.diff).toContain('"SLACK_MCP_ALLOW_WRITE": "false"')
-    expect(work.diff).toContain('"url": "https://sso.example.com/mcp"')
-    expect(work.diff).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
-    expect(work.diff).toContain('"url": "https://mcp.zapier.com/api/mcp/s/<redacted>/mcp"')
-    expect(drifts[2].diff).toContain("- old-notes -> ")
+    expect(mcp).toContain('"clientId": "dashboard-client"')
+    expect(mcp).toContain('"callbackPort": 33418')
+    expect(mcp).toContain('"SLACK_MCP_ALLOW_WRITE": "false"')
+    expect(mcp).toContain('"url": "https://sso.example.com/mcp"')
+    expect(mcp).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
+    expect(mcp).toContain('"url": "https://mcp.zapier.com/api/mcp/s/<redacted>/mcp"')
+    // a quoted value keeps its quotes; a token its vendor prefix gives away goes whole
+    expect(mcp).toContain('"API_KEY=\\"<redacted>\\"",')
+    expect(mcp).toContain(`"--password='<redacted>'",`)
+    expect(mcp).toContain('"X-Api-Key: \\"<redacted>\\"",')
+    // a hand-edited git include goes through the same string rules
+    expect(drift("gitconfig:acme")).toContain('[url "https://<redacted>@github.com/"]')
+    expect(drift("skills:work")).toContain("- old-notes -> ")
     // a git skill's cache folder is named after its URL: withheld for a link left behind and for one a tokened source would make
-    expect(drifts[2].diff).toMatch(/- old-private -> \S+\/skills-cache\/git\/<redacted>$/m)
-    expect(drifts[3].diff).toMatch(/\+ private-skills -> \S+\/skills-cache\/git\/<redacted>$/m)
-    expect(drifts[3].diff).toMatch(
+    expect(drift("skills:work")).toMatch(/- old-private -> \S+\/skills-cache\/git\/<redacted>$/m)
+    expect(drift("skills:acme")).toMatch(
+      /\+ private-skills -> \S+\/skills-cache\/git\/<redacted>$/m,
+    )
+    expect(drift("skills:acme")).toMatch(
       /\+ plain-skills -> \S+\/skills-cache\/git\/git\.example\.com-org-plain-skills-[0-9a-f]{7}$/m,
     )
   })
@@ -367,9 +373,9 @@ describe("the config file's own states", () => {
   const configFile = () => path.join(sb.home, ".config", "inscope", "inscope.json")
 
   test("an invalid config is the user's to fix: 422 with inscope's own message", async () => {
-    const original = fs.readFileSync(configFile(), "utf8")
+    const original = await Bun.file(configFile()).text()
     try {
-      fs.writeFileSync(
+      await Bun.write(
         configFile(),
         JSON.stringify({
           version: 1,
@@ -382,14 +388,14 @@ describe("the config file's own states", () => {
       expect(error.code).toBe("INSCOPE_CONFIG_INVALID")
       expect(error.message).toContain("Fix it in ~/.config/inscope/inscope.json")
     } finally {
-      fs.writeFileSync(configFile(), original)
+      await Bun.write(configFile(), original)
     }
   })
 
   test("no config yet is not an error: empty lists everywhere", async () => {
-    const original = fs.readFileSync(configFile(), "utf8")
+    const original = await Bun.file(configFile()).text()
     try {
-      fs.rmSync(configFile())
+      await Bun.file(configFile()).delete()
       expect((await data("/")).config.exists).toBe(false)
       expect((await data("/")).workspaces).toEqual([])
       expect((await data("/status")).workspaces).toEqual([])
@@ -397,7 +403,7 @@ describe("the config file's own states", () => {
       expect(await data("/diff")).toEqual({ adoptable: [], drifts: [] })
       expect((await send("/workspaces/work")).status).toBe(404)
     } finally {
-      fs.writeFileSync(configFile(), original)
+      await Bun.write(configFile(), original)
     }
   })
 })

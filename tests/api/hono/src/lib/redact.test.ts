@@ -320,3 +320,58 @@ describe("skillSourceLabel", () => {
     ).toBe("o/r#skills/audit")
   })
 })
+
+describe("redactString on a quoted value", () => {
+  test("withholds a quoted value in a name=value or a header, keeping its quotes", () => {
+    expect(redactString('API_KEY="quoted-should-be-redacted"')).toBe('API_KEY="<redacted>"')
+    expect(redactString("--password='single-should-be-redacted'")).toBe("--password='<redacted>'")
+    expect(redactString('export API_TOKEN="with space should-be-redacted"')).toBe(
+      'export API_TOKEN="<redacted>"',
+    )
+    expect(redactString('API_KEY="unclosed-should-be-redacted')).toBe('API_KEY="<redacted>')
+    expect(redactString('X-Api-Key: "header-should-be-redacted"')).toBe('X-Api-Key: "<redacted>"')
+    expect(redactString("token: 'single-header-should-be-redacted' rest")).toBe(
+      "token: '<redacted>' rest",
+    )
+  })
+
+  test("keeps a value filled in at run time, the hook's own exports included", () => {
+    for (const value of [
+      'export GITHUB_TOKEN="$tok" GH_TOKEN="$tok"',
+      'GH_TOKEN="$(gh auth token -u demo)"',
+      'Authorization: "Bearer %s"',
+      "clearing any inherited token\n__inscope_resolve_identity",
+    ])
+      expect(redactString(value)).toBe(value)
+  })
+})
+
+describe("redactString on a vendor token", () => {
+  // put together here, so no secret scanner reads a token in this file
+  const body = "0123456789abcdefghijABCDEFGHIJklmnopqrstuvwxyz0123456789"
+
+  test("withholds a token its prefix gives away, even as a bare argument", () => {
+    for (const token of [
+      `ghp_${body.slice(0, 36)}`,
+      `github_pat_${body.slice(0, 40)}`,
+      `sk-proj-${body.slice(0, 40)}`,
+      `sk_live_${body.slice(0, 24)}`,
+      `xoxb-${body.slice(0, 20)}`,
+      `AKIA${"ABCDEFGHIJ012345"}`,
+      `ntn_${body.slice(0, 46)}`,
+      `lin_api_${body.slice(0, 40)}`,
+      `glpat-${body.slice(0, 20)}`,
+      `npm_${body.slice(0, 36)}`,
+      `AIza${body.slice(0, 35)}`,
+      `hf_${body.slice(0, 34)}`,
+    ])
+      expect(`${token}: ${redactString(`npx -y some-server ${token} --flag`)}`).toBe(
+        `${token}: npx -y some-server <redacted> --flag`,
+      )
+  })
+
+  test("keeps a word that only starts like one", () => {
+    for (const value of ["sk-learn", "ghp_short", "xoxo", "npm_config_cache", "AKIA"])
+      expect(redactString(value)).toBe(value)
+  })
+})

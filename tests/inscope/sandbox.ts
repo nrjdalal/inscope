@@ -3,7 +3,10 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-// The fake credentials the stubs hand out: a test asserts none of them ever reaches a response.
+// a token shaped like a GitHub one, put together at run time so no secret scanner reads one in this file
+const VENDOR_TOKEN = `ghp_${"plantedvendortokenshouldberedacted00"}`
+
+// The fake credentials the stubs hand out and the sandbox plants: a test asserts none of them ever reaches a response.
 export const SECRETS = [
   "at-sign-pass-should-be-redacted",
   "bearer-should-be-redacted",
@@ -13,6 +16,8 @@ export const SECRETS = [
   "docker-env-should-be-redacted",
   "fragment-should-be-redacted",
   "gho_demo_token",
+  VENDOR_TOKEN,
+  "gitconfig-token-should-be-redacted",
   "header-bearer-should-be-redacted",
   "helper-bearer-should-be-redacted",
   "inline-env-should-be-redacted",
@@ -21,12 +26,18 @@ export const SECRETS = [
   "nospace-should-be-redacted",
   "pg-pass-should-be-redacted",
   "query-token-should-be-redacted",
+  "quoted-header-should-be-redacted",
+  "quoted-key-should-be-redacted",
+  "single-quoted-should-be-redacted",
   "sk-should-be-redacted",
   "skill-url-token-should-be-redacted",
   "stale-skill-token-should-be-redacted",
   "xoxp-demo-secret",
   "zapier-path-token-should-be-redacted-1",
 ] as const
+
+// deep enough that every page showing its paths has to wrap them on a phone
+const ACME = path.join("clients", "acme-corporation-holdings", "engineering", "acme")
 
 const REPO = path.resolve(import.meta.dir, "..", "..")
 const CLI = path.join(REPO, "packages", "cli", "bin", "index.ts")
@@ -120,7 +131,7 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     "---\nname: readme-audit\ndescription: Audit a README.\n---\n",
   )
 
-  for (const ws of ["personal", "work", path.join("clients", "acme")]) {
+  for (const ws of ["personal", "work", ACME]) {
     fs.mkdirSync(path.join(home, ws), { recursive: true })
     Bun.spawnSync(["git", "init", "-q"], { cwd: path.join(home, ws), env })
   }
@@ -154,7 +165,7 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
           {
             isolate: true,
             name: "acme",
-            path: "~/clients/acme",
+            path: `~/${ACME}`,
             gh: "demo-acme",
             git: { email: "dev@acme.example" },
             servers: {
@@ -206,6 +217,13 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
       "-H",
       "Cookie: a=1; session=cookie-two-should-be-redacted",
       "postgresql://user:x@at-sign-pass-should-be-redacted@db.example/x",
+      // quoted values, as 21st.dev's magic server documents its key, and a bare token its prefix gives away
+      "@21st-dev/magic@latest",
+      'API_KEY="quoted-key-should-be-redacted"',
+      "--password='single-quoted-should-be-redacted'",
+      "-H",
+      'X-Api-Key: "quoted-header-should-be-redacted"',
+      VENDOR_TOKEN,
     ],
     env: {
       MY_API_KEY: "sk-should-be-redacted",
@@ -231,8 +249,14 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
   }
   await write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
 
+  // acme's git include, edited by hand to rewrite GitHub URLs through a token
+  await Bun.write(
+    path.join(home, ".config", "inscope", "git", "acme.gitconfig"),
+    `${await Bun.file(path.join(home, ".config", "inscope", "git", "acme.gitconfig")).text()}[url "https://x-access-token:gitconfig-token-should-be-redacted@github.com/"]\n\tinsteadOf = https://github.com/\n`,
+  )
+
   // acme's .mcp.json was never written (or was deleted)
-  fs.rmSync(path.join(home, "clients", "acme", ".mcp.json"), { force: true })
+  fs.rmSync(path.join(home, ACME, ".mcp.json"), { force: true })
 
   // an inscope link no workspace declares any more, and a skill folder of the user's own
   const workSkills = path.join(home, "work", ".inscope", "skills")
