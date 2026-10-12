@@ -57,9 +57,15 @@ const FILLED_LATER = /%s|\$\{|\$\(|<redacted>|^["']?\$\w+["']?$/
 const holdsCredential = (name: string, value: string): boolean =>
   isCredentialName(name) && !FILLED_LATER.test(value)
 
-// a token whose vendor prefix gives it away wherever it sits, a bare argument included: GitHub, OpenAI and Anthropic, Stripe, Slack, AWS, Notion, Linear, GitLab, npm, Google, Hugging Face
+// a token whose vendor prefix gives it away wherever it sits, a bare argument included: AWS, GitHub, GitLab, Google, Hugging Face, Linear, Notion, npm, OpenAI and Anthropic, Slack, Stripe
 const VENDOR_TOKEN =
-  /\b(?:gh[oprsu]_[A-Za-z0-9]{36}|github_pat_\w{22,}|sk-[\w-]{32,}|[rs]k_(?:live|test)_[A-Za-z0-9]{24,}|xox[abeprs]-[\w-]{10,}|A[KS]IA[0-9A-Z]{16}|(?:ntn|secret)_[A-Za-z0-9]{40,}|lin_api_[A-Za-z0-9]{32,}|glpat-[\w-]{20,}|npm_[A-Za-z0-9]{36}|AIza[\w-]{35}|hf_[A-Za-z0-9]{34,})/g
+  /\b(?:A[KS]IA[0-9A-Z]{16}|gh[oprsu]_[A-Za-z0-9]{36}|github_pat_\w{22,}|glpat-[\w-]{20,}|AIza[\w-]{35}|hf_[A-Za-z0-9]{34,}|lin_api_[A-Za-z0-9]{32,}|(?:ntn|secret)_[A-Za-z0-9]{40,}|npm_[A-Za-z0-9]{36}|sk-[\w-]{32,}|xox[abeprs]-[\w-]{10,}|[rs]k_(?:live|test)_[A-Za-z0-9]{24,})/g
+
+// a shell default (`${API_KEY:-...}`) is the value the variable falls back to, so a credential-named one withholds it, while `${NAME}` and an empty `${NAME:-}` stay whole
+const redactDefaults = (value: string): string =>
+  value.replace(/\$\{(\w+):-([^}]+)\}/g, (whole: string, name: string) =>
+    isCredentialName(name) ? `\${${name}:-${REDACTED}}` : whole,
+  )
 
 // where a value ends, by how it opens: a double-quoted one at its closing quote (escapes allowed), a single-quoted one at its own, a bare one at a quote; none crosses a line
 const VALUE_END: Record<string, RegExp> = {
@@ -95,7 +101,9 @@ const redactHeaders = (value: string): string => {
   let out = ""
   let done = 0
   for (const match of value.matchAll(/\b([A-Za-z_][\w.-]*)\s*:(?!\/\/)\s*/g)) {
-    if (match.index < done || value.slice(0, match.index).endsWith("://")) continue
+    // a URL's user info and a shell default's name are left to the rules for them
+    const before = value.slice(0, match.index)
+    if (match.index < done || before.endsWith("://") || before.endsWith("${")) continue
     const after = match.index + match[0].length
     const quote = value[after] === '"' || value[after] === "'" ? value[after] : ""
     const start = after + quote.length
@@ -110,7 +118,7 @@ const redactHeaders = (value: string): string => {
 // Every credential a free string can carry by its shape: the user info, query, fragment, and opaque path segments of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=, /s/<token>/), an HTTP auth scheme's token in any case, a token with a vendor prefix, a quoted JSON pair, a `name=value` (its value bare or quoted), and a `Name: value` header whose name says credential.
 export const redactString = (value: string): string =>
   redactJsonText(value) ??
-  redactHeaders(value)
+  redactHeaders(redactDefaults(value))
     .replace(new RegExp(`(${URL_START})[^\\s"'@/]*:[^\\s"']*@`, "gi"), `$1${REDACTED}@`)
     .replace(new RegExp(`(${URL_START})[^\\s"'@/:]*@`, "gi"), `$1${REDACTED}@`)
     .replace(new RegExp(`${URL_START}[^\\s"'?#]*`, "gi"), redactUrlPath)
@@ -128,9 +136,10 @@ export const redactString = (value: string): string =>
       (pair: string, name: string, separator: string, value: string) => {
         const quote = /^["']/.test(value) ? value[0] : ""
         const close = quote && value.length > 1 && value.endsWith(quote) ? quote : ""
-        return holdsCredential(name, value)
-          ? `${name}${separator}${quote}${REDACTED}${close}`
-          : pair
+        if (holdsCredential(name, value)) return `${name}${separator}${quote}${REDACTED}${close}`
+        // a harmless name's quoted value can hold credentials of its own (`helper = "!f() { echo password=...; }; f"`), which this pattern has already stepped over
+        const inner = value.slice(quote.length, value.length - close.length)
+        return quote ? `${name}${separator}${quote}${redactString(inner)}${close}` : pair
       },
     )
 
