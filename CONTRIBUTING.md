@@ -175,7 +175,9 @@ what `apply` would change.
   forge them: the rewrite skips `/api/inscope`, and since its matcher does not
   decode, the gate refuses any percent-encoded path (the pages call the API
   directly). A cross-site browser request is refused, a write needs a trusted
-  Origin, and every response, refusals included, is `Cache-Control: no-store`.
+  Origin, and every response the routes give, refusals included, is
+  `Cache-Control: no-store` (a CORS preflight is answered before them, by the
+  app's CORS middleware, with no body).
 - It shows booleans for tokens and keychain items, never values. Everything
   else that can carry a credential is redacted by `api/hono/src/lib/redact.ts`.
   A `.mcp.json` is redacted by structure before it is diffed:
@@ -188,14 +190,18 @@ what `apply` would change.
   - in any string, JSON inside a string included: the user info, query,
     fragment, and long opaque path segments (24+ characters mixing letters and
     digits, the token some hosted servers carry in the URL) of a URL in any
-    scheme, an HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`),
-    and a `name=value`, a quoted `"name": "value"`, or a `Name: value` header
-    (to the end of its line) whose name says credential. A placeholder filled in
-    at run time (`%s`, `${...}`, `$(...)`) is kept, so inscope's own
-    `headersHelper` stays readable.
+    scheme; an HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`);
+    a token whose vendor prefix gives it away (`ghp_`, `github_pat_`, `sk-`,
+    `xoxb-`, `AKIA`, `ntn_`, `lin_api_`, `glpat-`, `npm_`, and others), even as
+    a bare argument; and a `name=value`, a quoted `"name": "value"`, or a
+    `Name: value` header (to the end of its line) whose name says credential,
+    its value bare or quoted (`API_KEY="..."`, `X-Api-Key: '...'`). A value
+    filled in at run time (`%s`, `${...}`, `$(...)`, a lone `$var`) is kept, so
+    inscope's own `headersHelper` and hook stay readable.
 
-  The `diff --adopt` lines go through the same string rules, and so does a git
-  skill's source. A git skill's cache folder is named after its URL, so a path
+  The `diff --adopt` lines go through the same string rules, and so do a git
+  skill's source and the pending changes to the hook and git includes, which a
+  hand edit can put a credential in (`[url "https://user:token@host/"]`). A git skill's cache folder is named after its URL, so a path
   into one (in a skill link, a doctor detail, or a pending change) is shown only
   when the folder belongs to a declared skill whose URL carries no credential.
 
