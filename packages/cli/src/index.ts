@@ -24,9 +24,11 @@ export {
 } from "@/generators/mcp"
 export {
   OTHER_SKILL_KINDS,
+  cacheDirFor,
   otherSkillLabel,
   otherSkillsIn,
   skillLinked,
+  skillsCacheRoot,
   skillsDir,
   sourceLabel,
   workspaceSkills,

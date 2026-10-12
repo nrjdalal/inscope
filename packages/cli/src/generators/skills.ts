@@ -697,16 +697,13 @@ export const OTHER_SKILL_KINDS = ["own", "stale", "synced", "workspace"] as cons
 
 type OtherSkillKind = (typeof OTHER_SKILL_KINDS)[number]
 
-// every listed kind must say what it carries besides its name
-type FieldsPerKind<T extends Record<OtherSkillKind, object>> = T
-
-// The union below is built from the list, so a kind exists in both or in neither.
-type OtherSkillFields = FieldsPerKind<{
+// What each kind carries besides its name. The union below indexes this by every listed kind, so a kind missing here fails to compile.
+type OtherSkillFields = {
   own: { target?: string }
   stale: {}
   synced: {}
   workspace: { workspace: string }
-}>
+}
 
 export type OtherSkill = {
   [K in OtherSkillKind]: { kind: K; name: string } & OtherSkillFields[K]

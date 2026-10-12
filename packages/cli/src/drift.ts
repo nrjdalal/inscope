@@ -50,6 +50,9 @@ const parseDoc = (file: string): Record<string, any> | null => {
 export const mcpTarget = (ws: Workspace): string =>
   serializeMcp(mergeMcpDoc(parseDoc(mcpFilePath(ws)) ?? {}, ws))
 
+// What doctor and diff say about a `.mcp.json` that will not parse.
+export const MCP_INVALID_JSON = "invalid JSON; `apply` will not touch it until you fix it"
+
 // A `.mcp.json` that exists but won't parse: `apply` (via readDocOrThrow) refuses
 // to rewrite it, so surface that instead of a misleading clean-rewrite diff.
 export const mcpError = (ws: Workspace): string | null => {
@@ -59,7 +62,7 @@ export const mcpError = (ws: Workspace): string | null => {
     JSON.parse(fs.readFileSync(file, "utf8"))
     return null
   } catch {
-    return "invalid JSON; `apply` will not touch it until you fix it"
+    return MCP_INVALID_JSON
   }
 }
 
