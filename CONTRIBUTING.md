@@ -234,7 +234,7 @@ The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
 deliberate drift, credentials included. The router, gate, and redaction tests
 (`tests/api/hono/src/{routers,middlewares,lib}/`) run in `bun run test`. The
 e2e suites mirror their subjects (`tests/api/hono/src/routers/inscope.e2e.test.ts`,
-`tests/web/next/src/app/(inscope)/inscope/layout.e2e.test.ts`), read the stack
+`tests/web/next/src/app/(inscope)/layout.e2e.test.ts`), read the stack
 from `tests/stack.ts`, and also need `E2E_INSCOPE_SANDBOX`, which only
 `tests/inscope/serve.ts` sets, since their expectations are the sandbox's. The
 browser half runs where `agent-browser` is installed, as it is in CI

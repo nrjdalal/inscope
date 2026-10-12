@@ -99,8 +99,12 @@ try {
 
   const suites = [
     "tests/api/hono/src/routers/inscope.e2e.test.ts",
-    "tests/web/next/src/app/(inscope)/inscope/layout.e2e.test.ts",
+    "tests/web/next/src/app/(inscope)/layout.e2e.test.ts",
   ]
+  // bun test runs whatever of these it finds and says nothing of the rest, so a moved suite would silently drop out
+  for (const file of suites)
+    if (!(await Bun.file(path.join(REPO, file)).exists()))
+      throw new Error(`no e2e suite at ${file}`)
   const suite = Bun.spawn(["bun", "test", ...suites, "--timeout", "60000"], {
     cwd: REPO,
     env: {
