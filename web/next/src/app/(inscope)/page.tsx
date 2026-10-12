@@ -17,7 +17,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item"
-import { useInscopeOverview, useInscopeStatus } from "@/lib/inscope"
+import { inscopePaths, useInscopeOverview, useInscopeStatus } from "@/lib/inscope"
 
 export default function Page() {
   const overview = useInscopeOverview()
@@ -45,7 +45,7 @@ export default function Page() {
                   <Item
                     key={workspace.name}
                     variant="outline"
-                    render={<Link href={`/inscope/workspaces/${workspace.name}`} />}
+                    render={<Link href={inscopePaths.workspace(workspace.name)} />}
                   >
                     <ItemContent className="gap-2">
                       <ItemTitle>

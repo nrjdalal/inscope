@@ -20,6 +20,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { authClient } from "@/lib/auth/client"
+import { isDashboardPath } from "@/lib/inscope"
 import { isActive } from "@/lib/utils"
 
 const socialLinks = [
@@ -82,7 +83,7 @@ export function Navbar() {
   if (
     pathname?.startsWith("/console") ||
     pathname?.startsWith("/dashboard") ||
-    pathname?.startsWith("/inscope")
+    isDashboardPath(pathname)
   )
     return null
 

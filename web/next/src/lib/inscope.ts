@@ -5,6 +5,24 @@ import { type ApiError, apiClient, unwrap } from "@/lib/api/client"
 // "1 skill", "2 skills": a count the dashboard shows, its noun agreeing with it
 export const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
 
+// Where each dashboard page lives: the workspaces overview is the home page, and each workspace's own page sits under /workspaces.
+export const inscopePaths = {
+  diff: "/diff",
+  doctor: "/doctor",
+  overview: "/",
+  skills: "/skills",
+  workspace: (name: string) => `/workspaces/${name}`,
+}
+
+// Whether the dashboard serves a path, which it does only under `next dev`; the marketing navbar stays off these.
+export const isDashboardPath = (pathname: string | null): boolean =>
+  process.env.NODE_ENV === "development" &&
+  !!pathname &&
+  ([inscopePaths.overview, inscopePaths.diff, inscopePaths.doctor, inscopePaths.skills].includes(
+    pathname,
+  ) ||
+    pathname.startsWith(inscopePaths.workspace("")))
+
 export const inscopeKeys = {
   all: ["inscope"] as const,
   diff: ["inscope", "diff"] as const,

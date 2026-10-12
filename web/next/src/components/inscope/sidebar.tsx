@@ -20,6 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { config } from "@/lib/config"
+import { inscopePaths } from "@/lib/inscope"
 import { isActive } from "@/lib/utils"
 
 type InscopeNavItem = { exact?: boolean; icon: RemixiconComponentType; title: string; url: string }
@@ -27,23 +28,24 @@ type InscopeNavItem = { exact?: boolean; icon: RemixiconComponentType; title: st
 const navGroups: { items: InscopeNavItem[]; label: string }[] = [
   {
     items: [
-      // the overview owns /inscope and every /inscope/workspaces/<name> under it
-      { icon: RiFolderUserLine, title: "Workspaces", url: "/inscope" },
-      { exact: false, icon: RiSparklingLine, title: "Skills", url: "/inscope/skills" },
+      // the overview owns the home page and every workspace's own page
+      { icon: RiFolderUserLine, title: "Workspaces", url: inscopePaths.overview },
+      { exact: false, icon: RiSparklingLine, title: "Skills", url: inscopePaths.skills },
     ],
     label: "Inspect",
   },
   {
     items: [
-      { exact: false, icon: RiStethoscopeLine, title: "Doctor", url: "/inscope/doctor" },
-      { exact: false, icon: RiFileEditLine, title: "Pending changes", url: "/inscope/diff" },
+      { exact: false, icon: RiStethoscopeLine, title: "Doctor", url: inscopePaths.doctor },
+      { exact: false, icon: RiFileEditLine, title: "Pending changes", url: inscopePaths.diff },
     ],
     label: "Verify",
   },
 ]
 
 const workspacesActive = (pathname: string | null) =>
-  isActive(pathname, "/inscope") || (pathname ?? "").startsWith("/inscope/workspaces/")
+  isActive(pathname, inscopePaths.overview) ||
+  (pathname ?? "").startsWith(inscopePaths.workspace(""))
 
 export function InscopeNav() {
   const pathname = usePathname()
@@ -62,7 +64,7 @@ export function InscopeNav() {
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton
                   isActive={
-                    item.url === "/inscope"
+                    item.url === inscopePaths.overview
                       ? workspacesActive(pathname)
                       : isActive(pathname, item.url, { exact: item.exact })
                   }
