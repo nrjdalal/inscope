@@ -51,8 +51,22 @@ export const isCredentialName = (name: string): boolean =>
 // only names an environment variable, with at most an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), or is a plain toggle, so it holds no secret
 const NOT_SECRET = /^(\$\{\w+(:-)?\}|true|false|on|off|yes|no)$/i
 
-// a value filled in at run time (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`), or already withheld, is not a credential itself
-const FILLED_LATER = /%s|\$\{|\$\(|<redacted>/
+// a value filled in at run time (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`, the hook's `"$tok"`), or already withheld, is not a credential itself
+const FILLED_LATER = /%s|\$\{|\$\(|<redacted>|^["']?\$\w+["']?$/
+
+const holdsCredential = (name: string, value: string): boolean =>
+  isCredentialName(name) && !FILLED_LATER.test(value)
+
+// a token whose vendor prefix gives it away wherever it sits, a bare argument included: GitHub, OpenAI and Anthropic, Stripe, Slack, AWS, Notion, Linear, GitLab, npm, Google, Hugging Face
+const VENDOR_TOKEN =
+  /\b(?:gh[oprsu]_[A-Za-z0-9]{36}|github_pat_\w{22,}|sk-[\w-]{32,}|[rs]k_(?:live|test)_[A-Za-z0-9]{24,}|xox[abeprs]-[\w-]{10,}|A[KS]IA[0-9A-Z]{16}|(?:ntn|secret)_[A-Za-z0-9]{40,}|lin_api_[A-Za-z0-9]{32,}|glpat-[\w-]{20,}|npm_[A-Za-z0-9]{36}|AIza[\w-]{35}|hf_[A-Za-z0-9]{34,})/g
+
+// where a value ends, by how it opens: a double-quoted one at its closing quote (escapes allowed), a single-quoted one at its own, a bare one at a quote; none crosses a line
+const VALUE_END: Record<string, RegExp> = {
+  '"': /^(?:[^"\\\r\n]|\\.)*/,
+  "'": /^[^'\r\n]*/,
+  "": /^[^\r\n"']*/,
+}
 
 const URL_START = String.raw`\b[a-z][a-z0-9+.-]*:\/\/`
 const AUTH_SCHEMES = "Basic|Bearer|Token"
@@ -76,24 +90,24 @@ const redactJsonText = (value: string): string | null => {
   }
 }
 
-// A `Name: value` header whose name says credential, withheld to the end of its line (`Cookie: a=x; b=y`); each name on a line is judged, so an earlier, harmless one cannot hide it. A URL's user info (`https://x-access-token:...@host`) is left to the URL rules, which keep the host.
+// A `Name: value` header whose name says credential, withheld to the end of its line (`Cookie: a=x; b=y`) or, quoted, inside its quotes (`X-Api-Key: "..."`); each name on a line is judged, so an earlier, harmless one cannot hide it. A URL's user info (`https://x-access-token:...@host`) is left to the URL rules, which keep the host.
 const redactHeaders = (value: string): string => {
   let out = ""
   let done = 0
   for (const match of value.matchAll(/\b([A-Za-z_][\w.-]*)\s*:(?!\/\/)\s*/g)) {
-    if (match.index < done || !isCredentialName(match[1])) continue
-    if (value.slice(0, match.index).endsWith("://")) continue
-    const start = match.index + match[0].length
-    const length = value.slice(start).search(/[\r\n"']/)
-    const end = length === -1 ? value.length : start + length
-    if (FILLED_LATER.test(value.slice(start, end))) continue
+    if (match.index < done || value.slice(0, match.index).endsWith("://")) continue
+    const after = match.index + match[0].length
+    const quote = value[after] === '"' || value[after] === "'" ? value[after] : ""
+    const start = after + quote.length
+    const inner = value.slice(start).match(VALUE_END[quote])?.[0] ?? ""
+    if (!holdsCredential(match[1], inner)) continue
     out += `${value.slice(done, start)}${REDACTED}`
-    done = end
+    done = start + inner.length
   }
   return out + value.slice(done)
 }
 
-// Every credential a free string can carry by its shape: the user info, query, fragment, and opaque path segments of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=, /s/<token>/), an HTTP auth scheme's token in any case, a quoted JSON pair, a `name=value`, and a `Name: value` header whose name says credential, the header to the end of its line.
+// Every credential a free string can carry by its shape: the user info, query, fragment, and opaque path segments of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=, /s/<token>/), an HTTP auth scheme's token in any case, a token with a vendor prefix, a quoted JSON pair, a `name=value` (its value bare or quoted), and a `Name: value` header whose name says credential.
 export const redactString = (value: string): string =>
   redactJsonText(value) ??
   redactHeaders(value)
@@ -102,20 +116,22 @@ export const redactString = (value: string): string =>
     .replace(new RegExp(`${URL_START}[^\\s"'?#]*`, "gi"), redactUrlPath)
     .replace(new RegExp(`(${URL_START}[^\\s?#"']*\\?)[^\\s#"']+`, "gi"), `$1${REDACTED}`)
     .replace(new RegExp(`(${URL_START}[^\\s#"']*#)[^\\s"']+`, "gi"), `$1${REDACTED}`)
-    .replace(new RegExp(`\\b(${AUTH_SCHEMES})\\s+[\\w.~+/=-]{8,}`, "gi"), `$1 ${REDACTED}`)
+    .replace(new RegExp(`\\b(${AUTH_SCHEMES})[ \\t]+[\\w.~+/=-]{8,}`, "gi"), `$1 ${REDACTED}`)
+    .replace(VENDOR_TOKEN, REDACTED)
     .replace(
       /"([^"\\]+)"(\s*:\s*)"((?:[^"\\]|\\.)*)"/g,
       (pair: string, name: string, separator: string, inner: string) =>
-        isCredentialName(name) && !FILLED_LATER.test(inner)
-          ? `"${name}"${separator}"${REDACTED}"`
-          : pair,
+        holdsCredential(name, inner) ? `"${name}"${separator}"${REDACTED}"` : pair,
     )
     .replace(
-      /\b([A-Za-z_][\w.-]*)(\s*=\s*)([^\s,;&"']+)/g,
-      (pair: string, name: string, separator: string, inner: string) =>
-        isCredentialName(name) && !FILLED_LATER.test(inner)
-          ? `${name}${separator}${REDACTED}`
-          : pair,
+      /\b([A-Za-z_][\w.-]*)(\s*=\s*)("(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?|[^\s,;&"']+)/g,
+      (pair: string, name: string, separator: string, value: string) => {
+        const quote = /^["']/.test(value) ? value[0] : ""
+        const close = quote && value.length > 1 && value.endsWith(quote) ? quote : ""
+        return holdsCredential(name, value)
+          ? `${name}${separator}${quote}${REDACTED}${close}`
+          : pair
+      },
     )
 
 const redactUnlessPlain = (value: unknown): unknown =>

@@ -57,10 +57,11 @@ export const findWorkspaceOrThrow = (
   return { cfg, ws }
 }
 
-// an .mcp.json is redacted by structure; the hook and git includes hold only account names, emails, and paths, and skill links only paths, a git skill's cache folder aside
+// an .mcp.json is redacted by structure; the hook, git includes, and skill links by the string rules, since a hand edit can put a credential anywhere (a git include's `[url "https://user:token@host/"]`), and a skill link's git cache folder by redactSkillPaths
 const driftRow = (cfg: Config, d: Drift) => {
   const isMcp = cfg.workspaces.some((ws) => mcpFilePath(ws) === d.path)
-  const text = isMcp ? redactMcpText : redactSkillPaths(cfg)
+  const paths = redactSkillPaths(cfg)
+  const text = isMcp ? redactMcpText : (value: string) => paths(redactString(value))
   return {
     diff: d.error ? null : diffLines(text(d.current), text(d.next)),
     error: d.error ?? null,
