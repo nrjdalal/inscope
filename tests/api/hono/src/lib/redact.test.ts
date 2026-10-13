@@ -494,20 +494,6 @@ describe("redactString on a credential flag inside one string", () => {
     )
   })
 
-  test("withholds a JSON pair in escaped quotes, keeps an escaped variable, and leaves a header's escaped quotes", () => {
-    expect(redactString('echo "{\\"X-Api-Key\\": \\"escaped-pair-should-be-redacted\\"}"')).toBe(
-      'echo "{\\"X-Api-Key\\": \\"<redacted>\\"}"',
-    )
-    expect(redactString('echo "{\\"apiKey\\":\\"compact-pair-should-be-redacted\\"}"')).toBe(
-      'echo "{\\"apiKey\\":\\"<redacted>\\"}"',
-    )
-    for (const value of ['sh -c "npx srv --api-key \\"$KEY\\""', 'API_KEY=\\"$KEY\\"'])
-      expect(redactString(value)).toBe(value)
-    expect(
-      redactString('sh -c "curl -H \\"X-Api-Key: header-should-be-redacted\\" https://x"'),
-    ).toBe('sh -c "curl -H \\"X-Api-Key: <redacted>\\" https://x"')
-  })
-
   test("an auth scheme's word never takes the flag after it", () => {
     for (const [value, expected] of [
       [
@@ -533,5 +519,32 @@ describe("redactString on a credential flag inside one string", () => {
       "KEY_FILE=/run/keys/server.pem",
     ])
       expect(redactString(value)).toBe(value)
+  })
+})
+
+describe("redactString on escaped quotes and splices", () => {
+  test("withholds a JSON pair in escaped quotes, keeps an escaped variable, and leaves a header's escaped quotes", () => {
+    expect(redactString('echo "{\\"X-Api-Key\\": \\"escaped-pair-should-be-redacted\\"}"')).toBe(
+      'echo "{\\"X-Api-Key\\": \\"<redacted>\\"}"',
+    )
+    expect(redactString('echo "{\\"apiKey\\":\\"compact-pair-should-be-redacted\\"}"')).toBe(
+      'echo "{\\"apiKey\\":\\"<redacted>\\"}"',
+    )
+    for (const value of ['sh -c "npx srv --api-key \\"$KEY\\""', 'API_KEY=\\"$KEY\\"'])
+      expect(redactString(value)).toBe(value)
+    expect(
+      redactString('sh -c "curl -H \\"X-Api-Key: header-should-be-redacted\\" https://x"'),
+    ).toBe('sh -c "curl -H \\"X-Api-Key: <redacted>\\" https://x"')
+  })
+
+  test("keeps what a shell splice or a variable leaves in a quoted pair, Claude Code's own helper included", () => {
+    for (const value of [
+      `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`,
+      'echo "{\\"Authorization\\": \\"Bearer $MY_TOKEN\\"}"',
+    ])
+      expect(redactString(value)).toBe(value)
+    expect(
+      redactString('echo "{\\"Authorization\\": \\"Bearer splice-literal-should-be-redacted\\"}"'),
+    ).toBe('echo "{\\"Authorization\\": \\"Bearer <redacted>\\"}"')
   })
 })

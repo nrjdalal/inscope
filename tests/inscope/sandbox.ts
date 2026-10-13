@@ -265,6 +265,12 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     url: "https://mcp.example.com/scripted",
     headersHelper: 'sh -c "npx -y @acme/token --api-key quoted-command-should-be-redacted"',
   }
+  // Claude Code's own documented header helper: a token spliced in at run time, nothing to withhold
+  mcp.mcpServers.documented = {
+    type: "http",
+    url: "https://mcp.example.com/documented",
+    headersHelper: `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`,
+  }
   // a header helper that prints its JSON from a double-quoted echo, so the pair's own quotes are escaped
   mcp.mcpServers.echoed = {
     type: "http",
