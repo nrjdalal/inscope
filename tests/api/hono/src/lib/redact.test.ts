@@ -551,9 +551,28 @@ describe("redactString on escaped quotes and splices", () => {
     ).toBe('echo "{\\"Authorization\\": \\"Bearer <redacted>\\"}"')
   })
 
-  test("withholds a single-quoted value that starts with $, which the shell keeps literal", () => {
-    expect(redactString("run --password '$ingle-should-be-redacted1'")).toBe(
-      "run --password '<redacted>'",
+  test("reads %s as a placeholder only when it is the whole value, after at most an auth scheme", () => {
+    for (const value of [
+      `printf '{"Authorization":"Bearer %s"}' "$(gh auth token)"`,
+      "X-Api-Key: %s",
+      "run --api-key '%s'",
+    ])
+      expect(redactString(value)).toBe(value)
+    expect(redactString("run --password p%sword-should-be-redacted")).toBe(
+      "run --password <redacted>",
     )
+    expect(redactString("run --password ab%S-should-be-redacted")).toBe("run --password <redacted>")
+  })
+
+  // each value is a valid variable name, so only its single quotes say it is a literal
+  test("withholds a single-quoted value that starts with $, which the shell keeps literal", () => {
+    for (const [value, expected] of [
+      ["run --password '$ingleShouldBeRedacted1'", "run --password '<redacted>'"],
+      ["X-Api-Key: '$ingleShouldBeRedacted1'", "X-Api-Key: '<redacted>'"],
+      [`echo "{'password': '$ingleShouldBeRedacted1'}"`, `echo "{'password': '<redacted>'}"`],
+    ])
+      expect(redactString(value)).toBe(expected)
+    for (const value of ['run --password "$KEY"', 'X-Api-Key: "$KEY"', "X-Api-Key: $KEY"])
+      expect(redactString(value)).toBe(value)
   })
 })

@@ -214,13 +214,17 @@ describe("GET /api/inscope", () => {
     ).toBe(true)
   })
 
-  // a hand edit can leave mcpServers an array or a string, whose indexes are not server names
-  test("an .mcp.json whose mcpServers is not an object names no server on disk", async () => {
+  // a hand edit can leave mcpServers an array or a string, whose indexes are not server names, or the file null, which is still valid JSON
+  test("an .mcp.json that is null, or whose mcpServers is not an object, names no server on disk", async () => {
     const file = path.join(sb.home, "personal", ".mcp.json")
     const original = await Bun.file(file).text()
     try {
-      for (const mcpServers of [["github-personal"], "github-personal"]) {
-        await Bun.write(file, JSON.stringify({ mcpServers }))
+      for (const doc of [
+        { mcpServers: ["github-personal"] },
+        { mcpServers: "github-personal" },
+        null,
+      ]) {
+        await Bun.write(file, JSON.stringify(doc))
         const [personal] = (await data("/")).workspaces
         expect(personal.mcp.error).toBeNull()
         expect(personal.mcp.servers).toEqual([
