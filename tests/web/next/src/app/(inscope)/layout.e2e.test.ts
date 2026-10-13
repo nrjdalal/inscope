@@ -137,7 +137,7 @@ describe.skipIf(!enabled || !SANDBOX || !browser)("web/next/src/app/(inscope) in
       expect(
         `${page} ${ab("eval", "document.documentElement.scrollWidth <= document.documentElement.clientWidth")}`,
       ).toBe(`${page} true`)
-      shoot(`phone${page.replaceAll("/", "-")}`)
+      shoot(`phone-${page.slice(1).replaceAll("/", "-") || "overview"}`)
     }
     ab("set", "viewport", "1782", "972")
   })

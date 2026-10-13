@@ -28,6 +28,7 @@ export const SECRETS = [
   "nospace-should-be-redacted",
   "pg-pass-should-be-redacted",
   "query-token-should-be-redacted",
+  "quoted-command-should-be-redacted",
   "quoted-conn-should-be-redacted",
   "quoted-header-should-be-redacted",
   "quoted-key-should-be-redacted",
@@ -83,7 +84,6 @@ exit 44
 
 export type Sandbox = { root: string; home: string; env: Record<string, string> }
 
-// The sealed environment every process touching the sandbox runs with: nothing from the developer's own logins can leak in.
 // What carries this machine's own identity into a process (its Claude login dir, tokens, git config, and the hook's own variables): the sandbox never inherits these, and a test that puts the sandbox's env on its own process must drop them too.
 export const UNSEALED = [
   "CLAUDE_CONFIG_DIR",
@@ -95,6 +95,7 @@ export const UNSEALED = [
   "SLACK_MCP_XOXP_TOKEN",
 ] as const
 
+// The sealed environment every process touching the sandbox runs with: nothing from the developer's own logins can leak in.
 const sealedEnv = (root: string): Record<string, string> => {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value
@@ -252,6 +253,12 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     url: "https://mcp.example.com/sse?token=query-token-should-be-redacted",
     headers: { Authorization: "Bearer bearer-should-be-redacted" },
     headersHelper: `echo '{"Authorization":"Bearer helper-bearer-should-be-redacted"}'`,
+  }
+  // a header helper that is one shell string, a credential flag inside its quotes, after a package named like an auth scheme
+  mcp.mcpServers.scripted = {
+    type: "http",
+    url: "https://mcp.example.com/scripted",
+    headersHelper: 'sh -c "npx -y @acme/token --api-key quoted-command-should-be-redacted"',
   }
   // a hosted server whose token is a segment of the URL's path
   mcp.mcpServers.zapier = {

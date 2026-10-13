@@ -10,6 +10,10 @@ import {
 const redacted = (doc: unknown) => JSON.parse(redactMcpText(JSON.stringify(doc)))
 
 describe("redactMcpText", () => {
+  test("keeps a flag that follows a credential flag, as in one string", () => {
+    expect(redacted({ args: ["--api-key", "--verbose"] }).args).toEqual(["--api-key", "--verbose"])
+  })
+
   test("withholds every env and headers value, keeping one that only names a variable", () => {
     const doc = redacted({
       mcpServers: {
@@ -445,6 +449,33 @@ describe("redactString on a credential flag inside one string", () => {
     expect(redactString("run --header --api-key next-should-be-redacted")).toBe(
       "run --header --api-key <redacted>",
     )
+  })
+
+  test("looks inside a harmless flag's quoted value, a nested escaped quote included", () => {
+    expect(redactString('sh -c "npx -y @acme/mcp --api-key sh-c-should-be-redacted"')).toBe(
+      'sh -c "npx -y @acme/mcp --api-key <redacted>"',
+    )
+    expect(redactString("bash -c 'cred --password bash-c-should-be-redacted'")).toBe(
+      "bash -c 'cred --password <redacted>'",
+    )
+    expect(redactString('run -c "echo \\"--api-key nested-should-be-redacted\\""')).toBe(
+      'run -c "echo \\"--api-key <redacted>\\""',
+    )
+  })
+
+  test("an auth scheme's word never takes the flag after it", () => {
+    for (const [value, expected] of [
+      [
+        "npx -y @acme/token --api-key a-should-be-redacted",
+        "npx -y @acme/token --api-key <redacted>",
+      ],
+      ["x-token --api-key b-should-be-redacted", "x-token --api-key <redacted>"],
+      [
+        "server --mode basic --password c-should-be-redacted",
+        "server --mode basic --password <redacted>",
+      ],
+    ])
+      expect(redactString(value)).toBe(expected)
   })
 
   test("keeps a count, a location, a flag with no value, and a value filled in at run time", () => {

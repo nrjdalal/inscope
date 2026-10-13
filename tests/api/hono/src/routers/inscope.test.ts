@@ -201,6 +201,7 @@ describe("GET /api/inscope", () => {
       { managed: true, name: "linear-work", written: true },
       { managed: false, name: "mine", written: true },
       { managed: false, name: "remote", written: true },
+      { managed: false, name: "scripted", written: true },
       { managed: true, name: "slack-work", written: true },
       { managed: false, name: "zapier", written: true },
     ])
@@ -306,6 +307,7 @@ describe("GET /api/inscope/diff", () => {
     expect(mcp).toContain('"url": "https://mcp.zapier.com/api/mcp/s/<redacted>/mcp"')
     // a credential flag inside one string loses its value; a count that only looks like one keeps it
     expect(mcp).toContain('"npx -y @acme/mcp --api-key <redacted>",')
+    expect(mcp).toContain('"headersHelper": "sh -c \\"npx -y @acme/token --api-key <redacted>\\""')
     expect(mcp).toMatch(/"--max-tokens",\n\s+"4096"/)
     // a quoted value keeps its quotes; a token its vendor prefix gives away goes whole
     expect(mcp).toContain('"API_KEY=\\"<redacted>\\"",')
@@ -369,62 +371,61 @@ describe("no response carries a credential", () => {
 })
 
 describe("the config file's own states", () => {
-  const configFile = () => path.join(sb.home, ".config", "inscope", "inscope.json")
-
-  test("an invalid config is the user's to fix: 422 with inscope's own message", async () => {
-    const original = await Bun.file(configFile()).text()
+  // run a check with the config replaced (or, given null, removed), then put the sandbox's back
+  const withConfig = async (doc: object | null, check: () => Promise<void>) => {
+    const file = path.join(sb.home, ".config", "inscope", "inscope.json")
+    const original = await Bun.file(file).text()
     try {
-      await Bun.write(
-        configFile(),
-        JSON.stringify({
-          version: 1,
-          workspaces: [{ name: "bad name", path: "~/w", servers: {} }],
-        }),
-      )
-      const res = await send("/")
-      expect(res.status).toBe(422)
-      const { error } = await res.json()
-      expect(error.code).toBe("INSCOPE_CONFIG_INVALID")
-      expect(error.message).toContain("Fix it in ~/.config/inscope/inscope.json")
+      if (doc) await Bun.write(file, JSON.stringify(doc))
+      else await Bun.file(file).delete()
+      await check()
     } finally {
-      await Bun.write(configFile(), original)
+      await Bun.write(file, original)
     }
-  })
+  }
 
-  test("the 422 never quotes a credential from the invalid value", async () => {
-    const original = await Bun.file(configFile()).text()
-    try {
-      // a skill URL with no path: its name falls back to the whole URL, token and all, which the config refuses
-      const skill = "https://x-access-token:config-error-should-be-redacted@git.example.com"
-      await Bun.write(
-        configFile(),
-        JSON.stringify({
-          version: 1,
-          workspaces: [{ name: "w", path: "~/w", servers: {}, skills: [skill] }],
-        }),
-      )
-      const res = await send("/")
-      expect(res.status).toBe(422)
-      const { error } = await res.json()
-      expect(error.message).not.toContain("config-error-should-be-redacted")
-      expect(error.message).toContain("<redacted>@git.example.com")
-    } finally {
-      await Bun.write(configFile(), original)
-    }
-  })
+  test("an invalid config is the user's to fix: 422 with inscope's own message", () =>
+    withConfig(
+      { version: 1, workspaces: [{ name: "bad name", path: "~/w", servers: {} }] },
+      async () => {
+        const res = await send("/")
+        expect(res.status).toBe(422)
+        const { error } = await res.json()
+        expect(error.code).toBe("INSCOPE_CONFIG_INVALID")
+        expect(error.message).toContain("Fix it in ~/.config/inscope/inscope.json")
+      },
+    ))
 
-  test("no config yet is not an error: empty lists everywhere", async () => {
-    const original = await Bun.file(configFile()).text()
-    try {
-      await Bun.file(configFile()).delete()
+  // a skill URL with no path: its name falls back to the whole URL, token and all, which the config refuses
+  test("the 422 never quotes a credential from the invalid value", () =>
+    withConfig(
+      {
+        version: 1,
+        workspaces: [
+          {
+            name: "w",
+            path: "~/w",
+            servers: {},
+            skills: ["https://x-access-token:config-error-should-be-redacted@git.example.com"],
+          },
+        ],
+      },
+      async () => {
+        const res = await send("/")
+        expect(res.status).toBe(422)
+        const { error } = await res.json()
+        expect(error.message).not.toContain("config-error-should-be-redacted")
+        expect(error.message).toContain("<redacted>@git.example.com")
+      },
+    ))
+
+  test("no config yet is not an error: empty lists everywhere", () =>
+    withConfig(null, async () => {
       expect((await data("/")).config.exists).toBe(false)
       expect((await data("/")).workspaces).toEqual([])
       expect((await data("/status")).workspaces).toEqual([])
       expect((await data("/doctor")).checks).toEqual([])
       expect(await data("/diff")).toEqual({ adoptable: [], drifts: [] })
       expect((await send("/workspaces/work")).status).toBe(404)
-    } finally {
-      await Bun.write(configFile(), original)
-    }
-  })
+    }))
 })
