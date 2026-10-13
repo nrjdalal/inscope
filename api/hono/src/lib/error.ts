@@ -14,6 +14,8 @@ export const ERROR_CODES = [
   "CONFLICT",
   "ERROR",
   "FORBIDDEN",
+  "INSCOPE_CONFIG_INVALID",
+  "INSCOPE_WORKSPACE_NOT_FOUND",
   "INTERNAL_SERVER_ERROR",
   "NOT_FOUND",
   "TOO_MANY_REQUESTS",
@@ -121,9 +123,17 @@ export const authErrorResponses: ResponsesWithResolver = {
 export const conflictErrorResponses: ResponsesWithResolver = {
   409: errorResponse("CONFLICT", "The value already exists"),
 }
-// Add to routes behind the console gate, the only thing that returns 403.
+// Add to routes behind the console gate or requireLocal, the only things that return 403.
 export const forbiddenErrorResponses: ResponsesWithResolver = {
   403: errorResponse("FORBIDDEN", "Forbidden"),
+}
+// Add to the inscope dashboard routes, which read ~/.config/inscope and return 422 when it does not validate.
+export const inscopeConfigErrorResponses: ResponsesWithResolver = {
+  422: errorResponse("INSCOPE_CONFIG_INVALID", "The inscope config is invalid"),
+}
+// Add to an inscope route that names a workspace, which returns this rather than NOT_FOUND, the code the local gate answers with off the local stage.
+export const inscopeWorkspaceErrorResponses: ResponsesWithResolver = {
+  404: errorResponse("INSCOPE_WORKSPACE_NOT_FOUND", "No workspace by that name"),
 }
 export const notFoundErrorResponses: ResponsesWithResolver = {
   404: errorResponse("NOT_FOUND", "Not found"),

@@ -1,0 +1,10 @@
+// The dashboard's sandbox, stack runner, and page and route lists import no app source, so they type-check against the shared base alone.
+{
+  "extends": "../../packages/config/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

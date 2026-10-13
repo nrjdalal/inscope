@@ -33,6 +33,11 @@ Guidance for AI coding agents working in this repository, a Bun monorepo: the `w
 - ALWAYS: Load the bundled `inscope` self-skill from `.agents/skills/inscope`, a link to `packages/cli/skills/inscope` (the skills tables below skip links, so it is not listed there).
 - ALWAYS: Keep `.github/workflows/release.yml` under that name: npm Trusted Publishing for `inscope` is bound to it. It publishes a canary when a push to `canary` touches `packages/cli`, `packages/scripts`, or `tests`, and `latest` once auto-release tags a version. A test version of a PR is `gh workflow run release.yml -f pr=<n>`, not upstream's `/release` comment (see CONTRIBUTING.md, Releasing).
 
+## Dashboard
+
+- ALWAYS: Keep the dashboard read-only and local: every `/api/inscope` route sits behind `requireLocal` and stays out of `next dev`'s `/api` rewrite in `web/next/next.config.ts`, which passes a caller's forged forwarding headers along; it returns tokens and keychain items as booleans only, and maps library results field by field. A test touching inscope state seals HOME with `tests/inscope/sandbox.ts`, never the developer's own, and the dashboard's e2e suites also skip without `E2E_INSCOPE_SANDBOX`, which `tests/inscope/serve.ts` sets (see CONTRIBUTING.md, Dashboard).
+- ALWAYS: Read the inherited `codebase-map`, `design`, `api-endpoint`, and `dev` skills with the dashboard in mind, rather than editing them, which would stop their sync: here they also cover the `(inscope)` route group and `components/inscope/`, `requireLocal` as a second source of 403, `inscopeConfigErrorResponses` for the 422 an invalid config returns, and `inscopeWorkspaceErrorResponses` for the 404 an unknown workspace returns; and the navbar the `dev` skill points to for logging in is hidden on the dashboard's pages, `/` included (see Logging in (agents)).
+
 ## UI
 
 - ALWAYS: Follow the `design` skill for UI, styling, and design decisions (it holds the canonical conventions). Update it in the same change when a convention changes.
@@ -51,7 +56,7 @@ Guidance for AI coding agents working in this repository, a Bun monorepo: the `w
 
 ## Logging in (agents)
 
-Signs in as `LocalAgent` (`agent@local.host`). The route is gated: set `AGENT_SIGNIN_ENABLED=true` in `.env` first (it is off by default, so the route 404s without it and a deployed default env never exposes it). Then click **Login (agents)** in the dev UI, or use curl:
+Signs in as `LocalAgent` (`agent@local.host`). The route is gated: set `AGENT_SIGNIN_ENABLED=true` in `.env` first (it is off by default, so the route 404s without it and a deployed default env never exposes it). Then click **Login (agents)** in the dev UI's navbar menu (the dashboard's pages, `/` included, hide that navbar under `next dev`, so open any other path first; one that 404s shows it too), or use curl:
 
 ```bash
 WEB=$(bunx portless get inscope); API=$(bunx portless get api.inscope)

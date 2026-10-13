@@ -667,6 +667,17 @@ export const removeSkills = (ws: Workspace) => {
   pruneOwned(skillsDir(ws), new Set())
 }
 
+// The compact "owner/repo#subdir@ref" source label shown in listings.
+export const sourceLabel = (s: NormalizedSkill): string => {
+  const base =
+    s.source.kind === "github"
+      ? s.source.repo
+      : s.source.kind === "git"
+        ? s.source.url
+        : s.source.path
+  return `${base}${s.subdir ? `#${s.subdir}` : ""}${s.ref ? `@${s.ref}` : ""}`
+}
+
 // The skills a workspace lists as its own: the bundled self-skill (unless opted out),
 // then each declared skill. `skill list` prints these first; otherSkillsIn covers the rest.
 export const workspaceSkills = (ws: Workspace): { name: string; skill?: NormalizedSkill }[] => [
@@ -682,11 +693,21 @@ export const workspaceSkills = (ws: Workspace): { name: string; skill?: Normaliz
 // apply removes it), the user's own skill (a dir, or a link inscope did not create), and
 // the skills Claude Code syncs from the login's claude.ai account into `synced/`. Only
 // entries holding a SKILL.md count: Claude loads nothing else.
-export type OtherSkill =
-  | { name: string; kind: "workspace"; workspace: string }
-  | { name: string; kind: "stale" }
-  | { name: string; kind: "own"; target?: string }
-  | { name: string; kind: "synced" }
+export const OTHER_SKILL_KINDS = ["own", "stale", "synced", "workspace"] as const
+
+type OtherSkillKind = (typeof OTHER_SKILL_KINDS)[number]
+
+// What each kind carries besides its name. The union below indexes this by every listed kind, so a kind missing here fails to compile.
+type OtherSkillFields = {
+  own: { target?: string }
+  stale: {}
+  synced: {}
+  workspace: { workspace: string }
+}
+
+export type OtherSkill = {
+  [K in OtherSkillKind]: { kind: K; name: string } & OtherSkillFields[K]
+}[OtherSkillKind]
 
 const hasSkillMd = (dir: string) => fs.existsSync(path.join(dir, "SKILL.md"))
 
@@ -711,6 +732,20 @@ const syncedAccountDir = (stateFile: string): string | null => {
       return `${o.organizationUuid}_${o.accountUuid}`.toLowerCase()
   } catch {}
   return null
+}
+
+// How a listing describes a skill inscope did not add to this workspace.
+export const otherSkillLabel = (o: OtherSkill): string => {
+  switch (o.kind) {
+    case "workspace":
+      return `from workspace "${o.workspace}"`
+    case "stale":
+      return "inscope link no workspace declares (the next apply removes it)"
+    case "synced":
+      return "synced from your claude.ai account"
+    case "own":
+      return o.target ? `yours, -> ${o.target}` : "yours"
+  }
 }
 
 export const otherSkillsIn = (cfg: Config, ws: Workspace): OtherSkill[] => {
