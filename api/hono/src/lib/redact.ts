@@ -70,8 +70,15 @@ const NOT_SECRET = new RegExp(
   "i",
 )
 
-// a value filled in at run time (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`, the hook's `"$tok"`, an escaped `\"$KEY\"`), or already withheld, is not a credential itself
-const FILLED_LATER = /%s|\$\{|\$\(|<redacted>|^(\\?["'])?\$\w+(\\?["'])?$/
+// a value filled in at run time, or already withheld, is not a credential itself: a placeholder (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`), a lone variable after at most an auth scheme (the hook's `"$tok"`, an escaped `\"$KEY\"`, `Bearer $MY_TOKEN`), or what a shell splice leaves inside a quoted pair, an auth scheme and the quote that ends the shell string (Claude Code's own `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`)
+const FILLED_LATER = new RegExp(
+  [
+    String.raw`%s|\$\{|\$\(`,
+    escapeRegExp(REDACTED),
+    String.raw`^(\\?["'])?((${AUTH_SCHEMES}) )?\$\w+(\\?["'])?$`,
+    String.raw`^((${AUTH_SCHEMES}) )?\\?["']$`,
+  ].join("|"),
+)
 
 const holdsCredential = (name: string, value: string): boolean =>
   isCredentialName(name) && !FILLED_LATER.test(value)
@@ -101,9 +108,13 @@ const QUOTED = Object.entries(QUOTES)
 // a bare value, which runs through an escape (`p\$ss`) but stops at an escaped quote closing an outer one, or at any of `stops`
 const bare = (stops = "") => String.raw`(?:[^\s${stops}"'\\]|\\[^"'\s])+`
 
+// the quote a value opens with at `at`, if it opens with one
+const openingQuote = (text: string, at = 0): string =>
+  Object.keys(QUOTES).find((q) => text.startsWith(q, at)) ?? ""
+
 // a value as written: its opening quote, if any, the closing one, if it has one, and what lies between
 const quoteParts = (raw: string) => {
-  const quote = Object.keys(QUOTES).find((q) => raw.startsWith(q)) ?? ""
+  const quote = openingQuote(raw)
   const close = quote && raw.length > quote.length && raw.endsWith(quote) ? quote : ""
   return { close, inner: raw.slice(quote.length, raw.length - close.length), quote }
 }
@@ -162,7 +173,7 @@ const redactHeaders = (value: string): string => {
     const before = value.slice(0, match.index)
     if (match.index < done || before.endsWith("://") || before.endsWith("${")) continue
     const after = match.index + match[0].length
-    const quote = Object.keys(QUOTES).find((q) => value.startsWith(q, after)) ?? ""
+    const quote = openingQuote(value, after)
     const start = after + quote.length
     const inner = value.slice(start).match(VALUE_END[quote])?.[0] ?? ""
     if (!holdsCredential(match[1], inner)) continue
