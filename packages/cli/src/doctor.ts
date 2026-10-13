@@ -38,7 +38,7 @@ export type CheckStatus = (typeof CHECK_STATUSES)[number]
 export type Check = { status: CheckStatus; label: string; detail?: string }
 
 // The prefix every check about one workspace carries in its label.
-export const workspaceTag = (name: string) => `[${name}]`
+const workspaceTag = (name: string) => `[${name}]`
 
 export const workspaceChecks = (checks: Check[], ws: Workspace): Check[] =>
   checks.filter((c) => c.label.startsWith(`${workspaceTag(ws.name)} `))
