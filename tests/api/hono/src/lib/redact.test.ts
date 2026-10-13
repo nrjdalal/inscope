@@ -541,10 +541,19 @@ describe("redactString on escaped quotes and splices", () => {
     for (const value of [
       `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`,
       'echo "{\\"Authorization\\": \\"Bearer $MY_TOKEN\\"}"',
+      // an auth scheme in any case
+      'echo "{\\"Authorization\\": \\"bearer $MY_TOKEN\\"}"',
+      "X-Api-Key: bearer $MY_TOKEN",
     ])
       expect(redactString(value)).toBe(value)
     expect(
       redactString('echo "{\\"Authorization\\": \\"Bearer splice-literal-should-be-redacted\\"}"'),
     ).toBe('echo "{\\"Authorization\\": \\"Bearer <redacted>\\"}"')
+  })
+
+  test("withholds a single-quoted value that starts with $, which the shell keeps literal", () => {
+    expect(redactString("run --password '$ingle-should-be-redacted1'")).toBe(
+      "run --password '<redacted>'",
+    )
   })
 })

@@ -213,6 +213,24 @@ describe("GET /api/inscope", () => {
       ),
     ).toBe(true)
   })
+
+  // a hand edit can leave mcpServers an array or a string, whose indexes are not server names
+  test("an .mcp.json whose mcpServers is not an object names no server on disk", async () => {
+    const file = path.join(sb.home, "personal", ".mcp.json")
+    const original = await Bun.file(file).text()
+    try {
+      for (const mcpServers of [["github-personal"], "github-personal"]) {
+        await Bun.write(file, JSON.stringify({ mcpServers }))
+        const [personal] = (await data("/")).workspaces
+        expect(personal.mcp.error).toBeNull()
+        expect(personal.mcp.servers).toEqual([
+          { managed: true, name: "github-personal", written: false },
+        ])
+      }
+    } finally {
+      await Bun.write(file, original)
+    }
+  })
 })
 
 describe("GET /api/inscope/status", () => {
