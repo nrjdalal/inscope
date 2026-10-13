@@ -141,6 +141,118 @@ before committing:
   carries it (its canary already does).
 - The root `catalog`: run `bun update` (within the ranges) and check that
   `bun audit --audit-level high` is clean.
+- The dashboard's hooks into upstream files:
+  - `api/hono/src/lib/error.ts`: the `INSCOPE_CONFIG_INVALID` and
+    `INSCOPE_WORKSPACE_NOT_FOUND` codes, `inscopeConfigErrorResponses` and
+    `inscopeWorkspaceErrorResponses`, and the `requireLocal` mention in the
+    `forbiddenErrorResponses` comment;
+  - the `.route("/inscope", inscopeRouter)` line in `api/hono/src/index.ts` and
+    its re-export in `api/hono/src/routers/index.ts`;
+  - the `/api` rewrite's `source` in `web/next/next.config.ts`, which skips
+    `/api/inscope` (dropping it reopens the dashboard API to the LAN through
+    `next dev`);
+  - the `isDashboardPath` case that hides the marketing navbar on the
+    dashboard's pages in `web/next/src/components/common/navbar.tsx`.
+
+## Dashboard
+
+A read-only web view of this machine's inscope state is the dev stack's home
+page: `web/next/src/app/(inscope)` renders it at `/` (its sections at `/skills`,
+`/doctor`, `/diff`, and `/workspaces/<name>`, listed in `inscopePaths` in
+`web/next/src/lib/inscope.ts`), and
+`api/hono/src/routers/inscope.ts` serves it at `/api/inscope` from the inscope
+library (`packages/cli/src`, imported as the `inscope` workspace package). It
+shows each workspace's identity, MCP servers, skills, the doctor checks, and
+what `apply` would change.
+
+- It is local by construction. The pages render only under `next dev`, and a
+  production build answers 404 at every one of them, the home page included,
+  since the fork's starter placeholder home is gone. The API
+  routes (`requireLocal`, `api/hono/src/middlewares/local.ts`) answer only on
+  the `local` stage, and only to a request addressed to a loopback name from a
+  loopback socket peer. A request relayed by a proxy on this machine must name
+  its client, and every host and client it names must be loopback (portless
+  appends the real client to `x-forwarded-for`); these headers can refuse a
+  request but never admit one. `next dev`'s `/api` rewrite
+  (`web/next/next.config.ts`) relays from loopback and passes the caller's own
+  Host and forwarding headers along, so anyone who can reach port 3000 could
+  forge them: the rewrite skips `/api/inscope`, and since its matcher does not
+  decode, the gate refuses any percent-encoded path (the pages call the API
+  directly). A cross-site browser request is refused, a write needs a trusted
+  Origin, and every response the routes give, refusals included, is
+  `Cache-Control: no-store` (a CORS preflight is answered before them, by the
+  app's CORS middleware, with no body).
+- It shows booleans for tokens and keychain items, never values. Everything
+  else that can carry a credential is redacted by `api/hono/src/lib/redact.ts`.
+  A `.mcp.json` is redacted by structure before it is diffed:
+  - every `env` and `headers` value that does more than name a variable (with at
+    most an auth scheme before it, Claude Code's own `Bearer ${API_KEY}`) or set
+    an on/off toggle (`true`, `off`, `yes`);
+  - anything under a key that names a credential, judged word by word (`apiKey`,
+    `DB_PASSWORD`, `X-Api-Key`, `jwt`, and `clientCreds` count; `keycloak`,
+    `oauth`, and `clientId` do not), while server names are never judged;
+  - the value after a credential flag, a docker `-e`/`--env`, or `--env=K=V`;
+  - in any string, JSON inside a string included: the user info, query,
+    fragment, and long opaque path segments (24+ characters mixing letters and
+    digits, the token some hosted servers carry in the URL) of a URL in any
+    scheme, and user info with no scheme (`oauth2:<token>@gitlab.com/...`); an
+    HTTP auth scheme's token in any case (`Bearer ...`, `basic ...`); a token
+    whose vendor prefix gives it away (`AKIA`, `ghp_`, `github_pat_`, `glpat-`,
+    `lin_api_`, `npm_`, `ntn_`, `sk-`, `xoxb-`, and others), even as a bare
+    argument; the value after a credential flag (`--api-key <key>`, in one
+    string as across two arguments); and a `name=value`, a quoted
+    `"name": "value"`, or a `Name: value` header (to the end of its line) whose
+    name says credential, its value bare, quoted, or in escaped quotes inside
+    one string (`API_KEY="..."`, `X-Api-Key: '...'`, `--api-key \"...\"`).
+
+    A harmless name's or flag's quoted value is searched in turn
+    (`helper = "!f() { echo password=...; }; f"`, `sh -c "npx ... --api-key ..."`),
+    and a credential-named variable's shell default is withheld
+    (`${API_KEY:-<redacted>}`). A printf line escape (`\n`, or `\\n` inside a git
+    config string) ends a bare value and starts a new name, so a credential
+    helper's `printf 'username=me\npassword=...\n'` withholds the password.
+    A value filled in at run time (`${...}`, `$(...)`, a value that is only
+    `%s` or a lone `$var` after at most an auth scheme, the `$var` outside
+    single quotes, which keep `$` literal, or what a shell splice leaves in a
+    quoted pair, as in Claude Code's documented
+    `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`) is kept, so inscope's
+    own `headersHelper` and hook stay readable, and so is a name that only holds
+    a credential word (`maxTokens`, `tokenizer`) or ends in `file`, `path`,
+    `dir`, or `url` (`KEY_FILE`, `cookieFile`).
+
+  The `diff --adopt` lines go through the same string rules, and so do a git
+  skill's source, the message for an invalid config, and the pending changes to
+  the hook and git includes, which a hand edit can put a credential in
+  (`[url "https://user:token@host/"]`). A git skill's cache folder is named
+  after its URL, so a path into one (in a skill link, a doctor detail, or a
+  pending change) is shown only when the folder belongs to a declared skill
+  whose URL carries no credential.
+
+- `bun run dev` opens it on your real `~/.config/inscope`, through portless at
+  `http://inscope.localhost:1355`. To work on it without your own logins, run it
+  on a sealed sandbox instead:
+
+```bash
+bun tests/inscope/serve.ts           # seed a sandbox, start the stack, run the e2e suites
+bun tests/inscope/serve.ts --keep    # the same, left up through portless instead
+```
+
+`--keep` serves the sandbox at `http://sandbox.inscope.localhost:1355` (API at
+`sandbox.api.inscope.localhost`), names of its own so it never takes the real
+stack's; the e2e run stays on ports 3000 and 4000, which CI has without a
+portless proxy. Either one needs the real stack's `next dev` stopped first,
+since Next allows one dev server per app.
+
+The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
+`claude`, and `security` on PATH, three workspaces applied by the real CLI, and
+deliberate drift, credentials included. The router, gate, and redaction tests
+(`tests/api/hono/src/{routers,middlewares,lib}/`) run in `bun run test`. The
+e2e suites mirror their subjects (`tests/api/hono/src/routers/inscope.e2e.test.ts`,
+`tests/web/next/src/app/(inscope)/layout.e2e.test.ts`), read the stack
+from `tests/stack.ts`, and also need `E2E_INSCOPE_SANDBOX`, which only
+`tests/inscope/serve.ts` sets, since their expectations are the sandbox's. The
+browser half runs where `agent-browser` is installed, as it is in CI
+(`test-e2e.yml`); `E2E_SCREENSHOT_DIR` keeps its screenshots.
 
 ## Releasing
 

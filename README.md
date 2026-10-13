@@ -146,7 +146,7 @@ One file, `~/.config/inscope/inscope.json`. Edit it by hand and run `inscope app
       "servers": { "github": true, "linear": true, "notion": true },
       "skills": ["owner/repo#skills/readme-audit"],
     },
-    // a workspace without "isolate" shares your ~/.claude login (e.g. ~/personal)
+    // a workspace without "isolate" shares your ~/.claude login (e.g. ~/personal); without "servers" it has none
   ],
 }
 ```

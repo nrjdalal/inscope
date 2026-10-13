@@ -1,0 +1,44 @@
+name: test-e2e
+
+# The dashboard end to end: tests/inscope/serve.ts seeds a sealed sandbox, starts the API and `next dev` on it, and runs the dashboard's e2e suites against them, the browser half through agent-browser.
+on:
+  pull_request:
+    branches: [canary, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Packages
+        # the API imports the inscope library and the shared packages from their built dist
+        run: bunx turbo run build --filter='./packages/*'
+        env:
+          NODE_ENV: production
+          SKIP_ENV_VALIDATION: true
+
+      - name: Install agent-browser
+        # the browser suite drives each page as a browser renders it; pinned so a release cannot change what CI checks
+        run: |
+          npm install --global agent-browser@0.38.1
+          agent-browser install --with-deps
+
+      - name: Run the dashboard end to end
+        run: bun tests/inscope/serve.ts

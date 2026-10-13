@@ -1,0 +1,10 @@
+// Extends the subject's own config so its paths resolve; the tests import by relative path, since every package defines @/ against its own src.
+{
+  "extends": "../../../api/hono/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

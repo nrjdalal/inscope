@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.18.0
+
+[compare changes](https://github.com/nrjdalal/inscope/compare/v0.17.0...v0.18.0)
+
+### 🚀 Enhancements
+
+- **accounts:** Named Claude accounts with login, logout, usage, and per-workspace assignment ([#60](https://github.com/nrjdalal/inscope/pull/60))
+- **settings:** Route an isolated workspace through an LLM gateway ([#56](https://github.com/nrjdalal/inscope/pull/56))
+- **proxy:** A local multi-account proxy so a conversation carries on past an account's limit ([#61](https://github.com/nrjdalal/inscope/pull/61))
+- **login:** ⚠️ One inscope login, with every Claude Code login behind the proxy ([#62](https://github.com/nrjdalal/inscope/pull/62))
+- **skills:** List every skill in each workspace's skills dir, aligned ([#66](https://github.com/nrjdalal/inscope/pull/66))
+
+### 🩹 Fixes
+
+- P0 bugs from the 2026-10-05 audit ([#59](https://github.com/nrjdalal/inscope/pull/59))
+- **mcp:** Launch the Slack server from a neutral npx root ([#55](https://github.com/nrjdalal/inscope/pull/55))
+- **ci:** Publish PR test versions through workflow_dispatch ([#70](https://github.com/nrjdalal/inscope/pull/70))
+
+### 💅 Refactors
+
+- **cli:** Rebuild inscope on zerostarter, the CLI moves to packages/cli ([#67](https://github.com/nrjdalal/inscope/pull/67))
+
+### 📖 Documentation
+
+- **audit:** Consolidated audit for v0.17.0, superseding 2026-07-09 ([#58](https://github.com/nrjdalal/inscope/pull/58))
+- **ci:** Record the canary release flow's GitHub settings ([#68](https://github.com/nrjdalal/inscope/pull/68))
+
+### ⏪ Reverts
+
+- ⚠️ Remove named accounts, the local proxy, the gateway, and pools ([#64](https://github.com/nrjdalal/inscope/pull/64))
+
+#### ⚠️ Breaking Changes
+
+- **login:** ⚠️ One inscope login, with every Claude Code login behind the proxy ([#62](https://github.com/nrjdalal/inscope/pull/62))
+- ⚠️ Remove named accounts, the local proxy, the gateway, and pools ([#64](https://github.com/nrjdalal/inscope/pull/64))
+
+### ❤️ Contributors
+
+- Neeraj Dalal @nrjdalal
+
 ## v0.17.0
 
 [compare changes](https://github.com/nrjdalal/inscope/compare/v0.16.0...v0.17.0)

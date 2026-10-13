@@ -146,6 +146,14 @@ export const defaultConfig = (): Config => ({
 
 export const configExists = () => fs.existsSync(configPath())
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v)
+
+// left out, null, or false: the config uses false for "off" (e.g. "atlassian": false)
+const isUnset = (v: unknown): v is false | null | undefined => v == null || v === false
+
+const GIT_KEYS = ["email", "name"] as const
+
 export const loadConfig = (): Config => {
   const file = configPath()
   const raw = fs.readFileSync(file, "utf8")
@@ -157,6 +165,8 @@ export const loadConfig = (): Config => {
   } catch {
     throw new Error(`${contractTilde(file)} is not valid JSON; fix it, then re-run.`)
   }
+  if (!isPlainObject(parsed))
+    throw new Error(`${contractTilde(file)} must hold a JSON object; fix it, then re-run.`)
   // A too-new config is fixed by upgrading inscope, not by editing the file, so
   // surface it on its own rather than under the generic "fix it and re-run".
   const versionErr = configVersionError(parsed)
@@ -166,6 +176,13 @@ export const loadConfig = (): Config => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\nFix it in ${contractTilde(file)}, then re-run.`)
+  }
+  // settle an unset servers, gh, or git to one shape, so no command sees a null or false there
+  for (const ws of parsed.workspaces) {
+    if (isUnset(ws.servers)) ws.servers = {}
+    if (isUnset(ws.gh)) delete ws.gh
+    if (isUnset(ws.git)) delete ws.git
+    else for (const key of GIT_KEYS) if (isUnset(ws.git[key])) delete ws.git[key]
   }
   return parsed
 }
@@ -386,12 +403,23 @@ export const validateConfig = (cfg: Config) => {
     throw new Error("config bypass must be a boolean")
   const seen = new Set<string>()
   for (const ws of cfg.workspaces) {
+    if (!isPlainObject(ws)) throw new Error("each workspace must be an object")
     if (!ws.name) throw new Error("a workspace is missing a name")
+    if (typeof ws.name !== "string")
+      throw new Error(`workspace name ${JSON.stringify(ws.name)} must be a string`)
     const nameErr = workspaceNameError(ws.name)
     if (nameErr) throw new Error(`workspace name "${ws.name}" is invalid: ${nameErr}`)
     if (!ws.path) throw new Error(`workspace "${ws.name}" is missing a path`)
+    if (typeof ws.path !== "string") throw new Error(`workspace "${ws.name}" path must be a string`)
     const pathErr = workspacePathError(ws.path)
     if (pathErr) throw new Error(`workspace "${ws.name}" path "${ws.path}" is invalid: ${pathErr}`)
+    // an unset value means none; any other wrong type is a typo to surface, not to ignore
+    if (!isUnset(ws.servers) && !isPlainObject(ws.servers))
+      throw new Error(`workspace "${ws.name}" servers must be an object`)
+    if (!isUnset(ws.git) && !isPlainObject(ws.git))
+      throw new Error(`workspace "${ws.name}" git must be an object`)
+    if (!isUnset(ws.gh) && typeof ws.gh !== "string")
+      throw new Error(`workspace "${ws.name}" gh must be a string`)
     if (ws.gh) {
       const ghErr = hookValueError(ws.gh)
       if (ghErr)
@@ -401,23 +429,18 @@ export const validateConfig = (cfg: Config) => {
       throw new Error(`workspace "${ws.name}" isolate must be a boolean`)
     if (ws.selfSkill !== undefined && typeof ws.selfSkill !== "boolean")
       throw new Error(`workspace "${ws.name}" selfSkill must be a boolean`)
-    if (ws.git?.email) {
-      const emailErr = gitValueError(ws.git.email)
-      if (emailErr)
-        throw new Error(
-          `workspace "${ws.name}" git email "${ws.git.email}" is invalid: ${emailErr}`,
-        )
+    for (const key of GIT_KEYS) {
+      const value: unknown = ws.git?.[key]
+      if (isUnset(value)) continue
+      if (typeof value !== "string")
+        throw new Error(`workspace "${ws.name}" git ${key} must be a string`)
+      const err = gitValueError(value)
+      if (err) throw new Error(`workspace "${ws.name}" git ${key} "${value}" is invalid: ${err}`)
     }
-    if (ws.git?.name) {
-      const gitNameErr = gitValueError(ws.git.name)
-      if (gitNameErr)
-        throw new Error(
-          `workspace "${ws.name}" git name "${ws.git.name}" is invalid: ${gitNameErr}`,
-        )
-    }
+    // the Slack keychain service is interpolated into the hook, and doctor and the hook need it set
     const slack = ws.servers?.slack
-    if (slack && slack.keychain) {
-      const kcErr = hookValueError(slack.keychain)
+    if (slack) {
+      const kcErr = typeof slack.keychain === "string" ? hookValueError(slack.keychain) : "missing"
       if (kcErr)
         throw new Error(
           `workspace "${ws.name}" Slack keychain "${slack.keychain}" is invalid: ${kcErr}`,
@@ -462,7 +485,7 @@ export const validateConfig = (cfg: Config) => {
       const seenSkill = new Set<string>()
       for (const spec of ws.skills) {
         const isStr = typeof spec === "string"
-        if (!isStr && (spec === null || typeof spec !== "object" || Array.isArray(spec)))
+        if (!isStr && !isPlainObject(spec))
           throw new Error(`workspace "${ws.name}" has a skill that is not a string or object`)
         if (!isStr) {
           const o = spec as Record<string, unknown>
