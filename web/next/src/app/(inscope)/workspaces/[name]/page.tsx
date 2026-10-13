@@ -16,12 +16,14 @@ import { PageShell } from "@/components/shell/page-shell"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { useInscopeWorkspace } from "@/lib/inscope"
 
-const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="grid grid-cols-[8rem_1fr] gap-2 text-sm">
-    <dt className="text-muted-foreground">{label}</dt>
-    <dd className="min-w-0 font-mono wrap-anywhere">{children}</dd>
-  </div>
-)
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[8rem_1fr] gap-2 text-sm">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 font-mono wrap-anywhere">{children}</dd>
+    </div>
+  )
+}
 
 export default function Page() {
   const { name } = useParams<{ name: string }>()
