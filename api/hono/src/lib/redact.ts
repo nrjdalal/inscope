@@ -75,9 +75,12 @@ const FILLED_LATER = new RegExp(
   [
     String.raw`%s|\$\{|\$\(`,
     escapeRegExp(REDACTED),
-    String.raw`^(\\?["'])?((${AUTH_SCHEMES}) )?\$\w+(\\?["'])?$`,
+    // in double quotes only: single quotes keep a `$` literal (`'$ecret'`), so that is a value, not a variable
+    String.raw`^(\\?")?((${AUTH_SCHEMES}) )?\$\w+(\\?")?$`,
     String.raw`^((${AUTH_SCHEMES}) )?\\?["']$`,
   ].join("|"),
+  // an auth scheme in any case, as the other rules read it
+  "i",
 )
 
 const holdsCredential = (name: string, value: string): boolean =>
