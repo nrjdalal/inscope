@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { config } from "@/lib/config"
-import { inscopePaths } from "@/lib/inscope"
+import { inscopePaths, isWorkspacePath } from "@/lib/inscope"
 import { isActive } from "@/lib/utils"
 
 type InscopeNavItem = { exact?: boolean; icon: RemixiconComponentType; title: string; url: string }
@@ -44,8 +44,7 @@ const navGroups: { items: InscopeNavItem[]; label: string }[] = [
 ]
 
 const workspacesActive = (pathname: string | null) =>
-  isActive(pathname, inscopePaths.overview) ||
-  (pathname ?? "").startsWith(inscopePaths.workspace(""))
+  isActive(pathname, inscopePaths.overview) || isWorkspacePath(pathname)
 
 export function InscopeNav() {
   const pathname = usePathname()

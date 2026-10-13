@@ -14,14 +14,18 @@ export const inscopePaths = {
   workspace: (name: string) => `/workspaces/${name}`,
 }
 
+// each page the dashboard has at a fixed path, every one in inscopePaths but a workspace's own
+const sectionPaths = Object.values(inscopePaths).filter((p): p is string => typeof p === "string")
+
+// Whether a path is a workspace's own page.
+export const isWorkspacePath = (pathname: string | null): boolean =>
+  !!pathname?.startsWith(inscopePaths.workspace(""))
+
 // Whether the dashboard serves a path, which it does only under `next dev`; the marketing navbar stays off these.
 export const isDashboardPath = (pathname: string | null): boolean =>
   process.env.NODE_ENV === "development" &&
   !!pathname &&
-  ([inscopePaths.overview, inscopePaths.diff, inscopePaths.doctor, inscopePaths.skills].includes(
-    pathname,
-  ) ||
-    pathname.startsWith(inscopePaths.workspace("")))
+  (sectionPaths.includes(pathname) || isWorkspacePath(pathname))
 
 export const inscopeKeys = {
   all: ["inscope"] as const,
