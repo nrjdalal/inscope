@@ -204,13 +204,14 @@ what `apply` would change.
     name says credential, its value bare or quoted (`API_KEY="..."`,
     `X-Api-Key: '...'`).
 
-    A harmless name's quoted value is searched in turn
-    (`helper = "!f() { echo password=...; }; f"`), and a credential-named
-    variable's shell default is withheld (`${API_KEY:-<redacted>}`). A value
-    filled in at run time (`%s`, `${...}`, `$(...)`, a lone `$var`) is kept, so
-    inscope's own `headersHelper` and hook stay readable, and so is a name that
-    only holds a credential word (`maxTokens`, `tokenizer`) or ends in `file`,
-    `path`, `dir`, or `url` (`KEY_FILE`, `cookieFile`).
+    A harmless name's or flag's quoted value is searched in turn
+    (`helper = "!f() { echo password=...; }; f"`, `sh -c "npx ... --api-key ..."`),
+    and a credential-named variable's shell default is withheld
+    (`${API_KEY:-<redacted>}`). A value filled in at run time (`%s`, `${...}`,
+    `$(...)`, a lone `$var`) is kept, so inscope's own `headersHelper` and hook
+    stay readable, and so is a name that only holds a credential word
+    (`maxTokens`, `tokenizer`) or ends in `file`, `path`, `dir`, or `url`
+    (`KEY_FILE`, `cookieFile`).
 
   The `diff --adopt` lines go through the same string rules, and so do a git
   skill's source, the message for an invalid config, and the pending changes to
