@@ -564,6 +564,35 @@ describe("redactString on escaped quotes and splices", () => {
     expect(redactString("run --password ab%S-should-be-redacted")).toBe("run --password <redacted>")
   })
 
+  test("ends a value at a printf line escape, as a git credential helper prints its lines", () => {
+    for (const [value, expected] of [
+      [
+        String.raw`printf 'username=me\npassword=printf-should-be-redacted\n'`,
+        String.raw`printf 'username=me\npassword=<redacted>\n'`,
+      ],
+      [
+        String.raw`helper = "!f() { printf 'username=me\\npassword=printf-should-be-redacted\\n'; }; f"`,
+        String.raw`helper = "!f() { printf 'username=me\\npassword=<redacted>\\n'; }; f"`,
+      ],
+      [
+        String.raw`echo -e "username=me\npassword=printf-should-be-redacted"`,
+        String.raw`echo -e "username=me\npassword=<redacted>"`,
+      ],
+      [
+        String.raw`printf "Host: x\nX-Api-Key: printf-should-be-redacted\r\n"`,
+        String.raw`printf "Host: x\nX-Api-Key: <redacted>\r\n"`,
+      ],
+    ])
+      expect(redactString(value)).toBe(expected)
+    for (const value of [
+      String.raw`printf 'password=%s\n' "$PW"`,
+      String.raw`helper = "!f() { printf 'password=%s\\n' \"$(gh auth token)\"; }; f"`,
+      String.raw`printf 'Authorization: Bearer %s\n' "$TOKEN"`,
+      String.raw`printf 'X-Api-Key: %s\r\n' "$KEY"`,
+    ])
+      expect(redactString(value)).toBe(value)
+  })
+
   // each value is a valid variable name, so only its single quotes say it is a literal
   test("withholds a single-quoted value that starts with $, which the shell keeps literal", () => {
     for (const [value, expected] of [

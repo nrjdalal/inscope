@@ -350,6 +350,13 @@ describe("GET /api/inscope/diff", () => {
     expect(drift("gitconfig:acme")).toContain(
       "echo username=x-token-auth; echo password=<redacted>;",
     )
+    // a printf line escape ends a value, so the name after it is judged on its own, and `%s` before one is still a placeholder
+    expect(drift("gitconfig:acme")).toContain(
+      String.raw`printf 'username=me\\npassword=<redacted>\\n'`,
+    )
+    expect(drift("gitconfig:acme")).toContain(
+      String.raw`printf 'password=%s\\n' \"$(gh auth token)\"`,
+    )
     expect(drift("skills:work")).toContain("- old-notes -> ")
     // a git skill's cache folder is named after its URL: withheld for a link left behind and for one a tokened source would make
     expect(drift("skills:work")).toMatch(/- old-private -> \S+\/skills-cache\/git\/<redacted>$/m)

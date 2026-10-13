@@ -29,6 +29,7 @@ export const SECRETS = [
   "lower-token-should-be-redacted",
   "nospace-should-be-redacted",
   "pg-pass-should-be-redacted",
+  "printf-password-should-be-redacted",
   "query-token-should-be-redacted",
   "quoted-command-should-be-redacted",
   "quoted-conn-should-be-redacted",
@@ -284,7 +285,7 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
   }
   await write(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`)
 
-  // acme's git include, edited by hand to rewrite GitHub URLs through a token and to answer a host's credential prompts with a shell helper
+  // acme's git include, edited by hand to rewrite GitHub URLs through a token and to answer hosts' credential prompts with shell helpers, one printing a literal password with printf's line escapes and one filling it in at run time
   const acmeInclude = path.join(home, ".config", "inscope", "git", "acme.gitconfig")
   await Bun.write(
     acmeInclude,
@@ -292,6 +293,10 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
 \tinsteadOf = https://github.com/
 [credential "https://bitbucket.org"]
 \thelper = "!f() { echo username=x-token-auth; echo password=helper-password-should-be-redacted; }; f"
+[credential "https://gitlab.example.com"]
+\thelper = "!f() { printf 'username=me\\\\npassword=printf-password-should-be-redacted\\\\n'; }; f"
+[credential "https://git.example.org"]
+\thelper = "!f() { printf 'password=%s\\\\n' \\"$(gh auth token)\\"; }; f"
 `,
   )
 
