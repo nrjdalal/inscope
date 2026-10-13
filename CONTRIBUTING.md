@@ -185,7 +185,8 @@ what `apply` would change.
 - It shows booleans for tokens and keychain items, never values. Everything
   else that can carry a credential is redacted by `api/hono/src/lib/redact.ts`.
   A `.mcp.json` is redacted by structure before it is diffed:
-  - every `env` and `headers` value that does more than name a variable or set
+  - every `env` and `headers` value that does more than name a variable (with at
+    most an auth scheme before it, Claude Code's own `Bearer ${API_KEY}`) or set
     an on/off toggle (`true`, `off`, `yes`);
   - anything under a key that names a credential, judged word by word (`apiKey`,
     `DB_PASSWORD`, `X-Api-Key`, `jwt`, and `clientCreds` count; `keycloak`,
@@ -201,8 +202,8 @@ what `apply` would change.
     argument; the value after a credential flag (`--api-key <key>`, in one
     string as across two arguments); and a `name=value`, a quoted
     `"name": "value"`, or a `Name: value` header (to the end of its line) whose
-    name says credential, its value bare or quoted (`API_KEY="..."`,
-    `X-Api-Key: '...'`).
+    name says credential, its value bare, quoted, or in escaped quotes inside
+    one string (`API_KEY="..."`, `X-Api-Key: '...'`, `--api-key \"...\"`).
 
     A harmless name's or flag's quoted value is searched in turn
     (`helper = "!f() { echo password=...; }; f"`, `sh -c "npx ... --api-key ..."`),
@@ -227,8 +228,14 @@ what `apply` would change.
 
 ```bash
 bun tests/inscope/serve.ts           # seed a sandbox, start the stack, run the e2e suites
-bun tests/inscope/serve.ts --keep    # the same, left up at http://localhost:3000
+bun tests/inscope/serve.ts --keep    # the same, left up through portless instead
 ```
+
+`--keep` serves the sandbox at `http://sandbox.inscope.localhost:1355` (API at
+`sandbox.api.inscope.localhost`), names of its own so it never takes the real
+stack's; the e2e run stays on ports 3000 and 4000, which CI has without a
+portless proxy. Either one needs the real stack's `next dev` stopped first,
+since Next allows one dev server per app.
 
 The sandbox (`tests/inscope/sandbox.ts`) is its own HOME with stub `gh`,
 `claude`, and `security` on PATH, three workspaces applied by the real CLI, and
