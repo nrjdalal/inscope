@@ -14,6 +14,8 @@ import {
 
 const REDACTED = "<redacted>"
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
 // words that name a credential on their own, and longer ones that do even inside a word ("dbpassword", "githubToken")
 const CREDENTIAL_WORDS = new Set([
   "auth",
@@ -59,8 +61,8 @@ export const isCredentialName = (name: string): boolean => {
   )
 }
 
-// only names an environment variable, with at most an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), or is a plain toggle, so it holds no secret
-const NOT_SECRET = /^(\$\{\w+(:-)?\}|true|false|on|off|yes|no)$/i
+// only names an environment variable, with at most an auth scheme before it (`Bearer ${API_KEY}`, Claude Code's own header form) and an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), or is a plain toggle, so it holds no secret
+const NOT_SECRET = /^(((Basic|Bearer|Token) )?\$\{\w+(:-)?\}|true|false|on|off|yes|no)$/i
 
 // a value filled in at run time (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`, the hook's `"$tok"`), or already withheld, is not a credential itself
 const FILLED_LATER = /%s|\$\{|\$\(|<redacted>|^["']?\$\w+["']?$/
@@ -78,13 +80,25 @@ const redactDefaults = (value: string): string =>
     isCredentialName(name) ? `\${${name}:-${REDACTED}}` : whole,
   )
 
-// a value written double-quoted (escapes allowed) or single-quoted, its closing quote optional, so an unclosed one is withheld to its line's end
-const QUOTED = String.raw`"(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?`
+// how a value can open, and what may lie inside before it closes: an escaped double quote inside an outer double-quoted string (`sh -c "... --api-key \"...\""`), a double quote (escapes allowed), or a single quote; none crosses a line
+const QUOTES: Record<string, string> = {
+  '\\"': String.raw`(?:[^"\\\r\n]|\\[^"\r\n])*`,
+  '"': String.raw`(?:[^"\\\r\n]|\\.)*`,
+  "'": String.raw`[^'\r\n]*`,
+}
+
+// a quoted value, its closing quote optional, so an unclosed one is withheld to its line's end
+const QUOTED = Object.entries(QUOTES)
+  .map(([quote, inside]) => `${escapeRegExp(quote)}${inside}(?:${escapeRegExp(quote)})?`)
+  .join("|")
+
+// a bare value, which runs through an escape (`p\$ss`) but stops at an escaped quote closing an outer one, or at any of `stops`
+const bare = (stops = "") => String.raw`(?:[^\s${stops}"'\\]|\\[^"'\s])+`
 
 // a value as written: its opening quote, if any, the closing one, if it has one, and what lies between
 const quoted = (raw: string) => {
-  const quote = /^["']/.test(raw) ? raw[0] : ""
-  const close = quote && raw.length > 1 && raw.endsWith(quote) ? quote : ""
+  const quote = Object.keys(QUOTES).find((q) => raw.startsWith(q)) ?? ""
+  const close = quote && raw.length > quote.length && raw.endsWith(quote) ? quote : ""
   return { close, inner: raw.slice(quote.length, raw.length - close.length), quote }
 }
 
@@ -100,10 +114,15 @@ const withheld = (raw: string): string => {
   return `${quote}${REDACTED}${close}`
 }
 
-// where a value ends, by how it opens: a double-quoted one at its closing quote (escapes allowed), a single-quoted one at its own, a bare one at a quote; none crosses a line
+// a value as a rule shows it: withheld when its name says credential, otherwise searched inside if quoted
+const shownValue = (name: string, raw: string): string =>
+  holdsCredential(name, raw) ? withheld(raw) : searchedInside(raw)
+
+// where a header's value ends, by how it opens: a quoted one at its closing quote, a bare one at a quote; none crosses a line
 const VALUE_END: Record<string, RegExp> = {
-  '"': /^(?:[^"\\\r\n]|\\.)*/,
-  "'": /^[^'\r\n]*/,
+  ...Object.fromEntries(
+    Object.entries(QUOTES).map(([quote, inside]) => [quote, new RegExp(`^${inside}`)]),
+  ),
   "": /^[^\r\n"']*/,
 }
 
@@ -138,7 +157,7 @@ const redactHeaders = (value: string): string => {
     const before = value.slice(0, match.index)
     if (match.index < done || before.endsWith("://") || before.endsWith("${")) continue
     const after = match.index + match[0].length
-    const quote = value[after] === '"' || value[after] === "'" ? value[after] : ""
+    const quote = Object.keys(QUOTES).find((q) => value.startsWith(q, after)) ?? ""
     const start = after + quote.length
     const inner = value.slice(start).match(VALUE_END[quote])?.[0] ?? ""
     if (!holdsCredential(match[1], inner)) continue
@@ -169,9 +188,9 @@ export const redactString = (value: string): string =>
     .replace(VENDOR_TOKEN, REDACTED)
     .replace(
       // a flag can open a nested, escaped quote (`-c "echo \"--api-key ...\""`), so it may follow a quote as well as a space
-      new RegExp(String.raw`(^|[\s"'])(--?[A-Za-z][\w-]*)([ \t]+)(?!-)(${QUOTED}|[^\s"'\\]+)`, "g"),
+      new RegExp(String.raw`(^|[\s"'])(--?[A-Za-z][\w-]*)([ \t]+)(?!-)(${QUOTED}|${bare()})`, "g"),
       (_: string, lead: string, flag: string, space: string, raw: string) =>
-        `${lead}${flag}${space}${holdsCredential(flag, raw) ? withheld(raw) : searchedInside(raw)}`,
+        `${lead}${flag}${space}${shownValue(flag, raw)}`,
     )
     .replace(
       /"([^"\\]+)"(\s*:\s*)"((?:[^"\\]|\\.)*)"/g,
@@ -179,9 +198,9 @@ export const redactString = (value: string): string =>
         holdsCredential(name, inner) ? `"${name}"${separator}"${REDACTED}"` : pair,
     )
     .replace(
-      new RegExp(String.raw`\b([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|[^\s,;&"']+)`, "g"),
+      new RegExp(String.raw`\b([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|${bare(",;&")})`, "g"),
       (_: string, name: string, separator: string, raw: string) =>
-        `${name}${separator}${holdsCredential(name, raw) ? withheld(raw) : searchedInside(raw)}`,
+        `${name}${separator}${shownValue(name, raw)}`,
     )
 
 const redactUnlessPlain = (value: unknown): unknown =>
@@ -253,8 +272,6 @@ export const skillSourceLabel = (skill: NormalizedSkill): string =>
       ? { ...skill, source: { ...skill.source, url: redactString(skill.source.url) } }
       : skill,
   )
-
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 // A git skill's cache folder is named after its URL, credentials included (skills-cache/git/x-access-token-ghp_...-host-org-repo), so a path into one is shown only when the folder belongs to a skill the config declares from a URL that carries none; any other is withheld, since a link can outlive the skill that made it.
 export const redactSkillPaths = (cfg: Config): ((text: string) => string) => {
