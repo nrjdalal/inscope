@@ -78,11 +78,20 @@ const redactDefaults = (value: string): string =>
     isCredentialName(name) ? `\${${name}:-${REDACTED}}` : whole,
   )
 
+// a value written double-quoted (escapes allowed) or single-quoted, its closing quote optional, so an unclosed one is withheld to its line's end
+const QUOTED = String.raw`"(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?`
+
 // a value as written: its opening quote, if any, the closing one, if it has one, and what lies between
 const quoted = (raw: string) => {
   const quote = /^["']/.test(raw) ? raw[0] : ""
   const close = quote && raw.length > 1 && raw.endsWith(quote) ? quote : ""
   return { close, inner: raw.slice(quote.length, raw.length - close.length), quote }
+}
+
+// a quoted value searched in turn for credentials of its own (`-c "npx server --api-key ..."`, `helper = "!f() { echo password=...; }; f"`), which a rule that takes the whole quote has stepped over; a bare value is returned as is
+const searchedInside = (raw: string): string => {
+  const { close, inner, quote } = quoted(raw)
+  return quote ? `${quote}${redactString(inner)}${close}` : raw
 }
 
 // a value withheld, its quotes kept
@@ -155,12 +164,14 @@ export const redactString = (value: string): string =>
     .replace(new RegExp(`${URL_START}[^\\s"'?#]*`, "gi"), redactUrlPath)
     .replace(new RegExp(`(${URL_START}[^\\s?#"']*\\?)[^\\s#"']+`, "gi"), `$1${REDACTED}`)
     .replace(new RegExp(`(${URL_START}[^\\s#"']*#)[^\\s"']+`, "gi"), `$1${REDACTED}`)
-    .replace(new RegExp(`\\b(${AUTH_SCHEMES})[ \\t]+[\\w.~+/=-]{8,}`, "gi"), `$1 ${REDACTED}`)
+    // never a following flag, which would take its name and leave its value (`@acme/token --api-key ...`)
+    .replace(new RegExp(`\\b(${AUTH_SCHEMES})[ \\t]+(?!-)[\\w.~+/=-]{8,}`, "gi"), `$1 ${REDACTED}`)
     .replace(VENDOR_TOKEN, REDACTED)
     .replace(
-      /(^|\s)(--?[A-Za-z][\w-]*)([ \t]+)(?!-)("(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?|[^\s"']+)/g,
-      (match: string, lead: string, flag: string, space: string, raw: string) =>
-        holdsCredential(flag, raw) ? `${lead}${flag}${space}${withheld(raw)}` : match,
+      // a flag can open a nested, escaped quote (`-c "echo \"--api-key ...\""`), so it may follow a quote as well as a space
+      new RegExp(String.raw`(^|[\s"'])(--?[A-Za-z][\w-]*)([ \t]+)(?!-)(${QUOTED}|[^\s"'\\]+)`, "g"),
+      (_: string, lead: string, flag: string, space: string, raw: string) =>
+        `${lead}${flag}${space}${holdsCredential(flag, raw) ? withheld(raw) : searchedInside(raw)}`,
     )
     .replace(
       /"([^"\\]+)"(\s*:\s*)"((?:[^"\\]|\\.)*)"/g,
@@ -168,13 +179,9 @@ export const redactString = (value: string): string =>
         holdsCredential(name, inner) ? `"${name}"${separator}"${REDACTED}"` : pair,
     )
     .replace(
-      /\b([A-Za-z_][\w.-]*)(\s*=\s*)("(?:[^"\\\r\n]|\\.)*"?|'[^'\r\n]*'?|[^\s,;&"']+)/g,
-      (pair: string, name: string, separator: string, raw: string) => {
-        if (holdsCredential(name, raw)) return `${name}${separator}${withheld(raw)}`
-        // a harmless name's quoted value can hold credentials of its own (`helper = "!f() { echo password=...; }; f"`), which this pattern has already stepped over
-        const { close, inner, quote } = quoted(raw)
-        return quote ? `${name}${separator}${quote}${redactString(inner)}${close}` : pair
-      },
+      new RegExp(String.raw`\b([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|[^\s,;&"']+)`, "g"),
+      (_: string, name: string, separator: string, raw: string) =>
+        `${name}${separator}${holdsCredential(name, raw) ? withheld(raw) : searchedInside(raw)}`,
     )
 
 const redactUnlessPlain = (value: unknown): unknown =>
@@ -189,12 +196,13 @@ const redactAll = (value: unknown): unknown => {
 
 const ENV_FLAGS = new Set(["-e", "--env"])
 
-// A command line: the value after a credential flag (`--api-key x`), and the value of a `KEY=value` passed to `-e`/`--env` (docker), whatever its name and in either `--env K=V` or `--env=K=V` form; every other argument goes through redactString.
+// A command line: the value after a credential flag (`--api-key x`; an argument starting with `-` is the next flag, as in one string), and the value of a `KEY=value` passed to `-e`/`--env` (docker), whatever its name and in either `--env K=V` or `--env=K=V` form; every other argument goes through redactString.
 const redactArgs = (args: unknown[]): unknown[] =>
   args.map((arg, index) => {
     const previous = args[index - 1]
     const flag = typeof previous === "string" && /^--?[\w-]+$/.test(previous) ? previous : ""
-    if (flag && isCredentialName(flag)) return redactUnlessPlain(arg)
+    const nextFlag = typeof arg === "string" && arg.startsWith("-")
+    if (flag && isCredentialName(flag) && !nextFlag) return redactUnlessPlain(arg)
     if (typeof arg !== "string") return redactValue(arg)
     const variable = arg.match(/^([\w.-]+)=/)
     if (variable && ENV_FLAGS.has(flag)) return `${variable[0]}${REDACTED}`
