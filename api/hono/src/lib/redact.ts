@@ -110,8 +110,12 @@ const QUOTED = Object.entries(QUOTES)
   .map(([quote, inside]) => `${escapeRegExp(quote)}${inside}(?:${escapeRegExp(quote)})?`)
   .join("|")
 
-// a bare value, which runs through an escape (`p\$ss`) but stops at an escaped quote closing an outer one, or at any of `stops`
-const bare = (stops = "") => String.raw`(?:[^\s${stops}"'\\]|\\[^"'\s])+`
+// a printf line escape (`\n`, `\t`, or `\\n` inside a git config string) starts the next line, so a bare value ends before it and a name begins after its letter (`username=me\npassword=...`)
+const LINE_ESCAPE = String.raw`\\(?=\\*[nrt])`
+const NAME_START = String.raw`(?:(?<=\\[nrt])|(?<!\\)\b)`
+
+// a bare value, which runs through an escape (`p\$ss`) but stops at an escaped quote closing an outer one, at a line escape, or at any of `stops`
+const bare = (stops = "") => String.raw`(?:[^\s${stops}"'\\]|(?!${LINE_ESCAPE})\\[^"'\s])+`
 
 // the quote a value opens with at `at`, if it opens with one
 const openingQuote = (text: string, at = 0): string =>
@@ -145,7 +149,7 @@ const VALUE_END: Record<string, RegExp> = {
   ...Object.fromEntries(
     Object.entries(QUOTES).map(([quote, inside]) => [quote, new RegExp(`^${inside}`)]),
   ),
-  "": /^(?:[^\r\n"'\\]|\\[^"'\r\n])*/,
+  "": new RegExp(String.raw`^(?:[^\r\n"'\\]|(?!${LINE_ESCAPE})\\[^"'\r\n])*`),
 }
 
 const URL_START = String.raw`\b[a-z][a-z0-9+.-]*:\/\/`
@@ -169,11 +173,14 @@ const redactJsonText = (value: string): string | null => {
   }
 }
 
+// a header's name and colon, never a URL's scheme (`https://`)
+const HEADER_NAME = new RegExp(String.raw`${NAME_START}([A-Za-z_][\w.-]*)\s*:(?!\/\/)\s*`, "g")
+
 // A `Name: value` header whose name says credential, withheld to the end of its line (`Cookie: a=x; b=y`) or, quoted, inside its quotes (`X-Api-Key: "..."`); each name on a line is judged, so an earlier, harmless one cannot hide it. A URL's user info (`https://x-access-token:...@host`) is left to the URL rules, which keep the host.
 const redactHeaders = (value: string): string => {
   let out = ""
   let done = 0
-  for (const match of value.matchAll(/\b([A-Za-z_][\w.-]*)\s*:(?!\/\/)\s*/g)) {
+  for (const match of value.matchAll(HEADER_NAME)) {
     // a URL's user info and a shell default's name are left to the rules for them
     const before = value.slice(0, match.index)
     if (match.index < done || before.endsWith("://") || before.endsWith("${")) continue
@@ -241,7 +248,7 @@ export const redactString = (value: string): string =>
           `${lead}${flag}${space}${shownValue(flag, raw)}`,
       ),
   ).replace(
-    new RegExp(String.raw`\b([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|${bare(",;&")})`, "g"),
+    new RegExp(String.raw`${NAME_START}([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|${bare(",;&")})`, "g"),
     (_: string, name: string, separator: string, raw: string) =>
       `${name}${separator}${shownValue(name, raw)}`,
   )
