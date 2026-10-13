@@ -209,8 +209,9 @@ what `apply` would change.
     (`helper = "!f() { echo password=...; }; f"`, `sh -c "npx ... --api-key ..."`),
     and a credential-named variable's shell default is withheld
     (`${API_KEY:-<redacted>}`). A value filled in at run time (`%s`, `${...}`,
-    `$(...)`, a lone `$var` after at most an auth scheme, or what a shell splice
-    leaves in a quoted pair, as in Claude Code's documented
+    `$(...)`, a lone `$var` after at most an auth scheme and outside single
+    quotes, which keep `$` literal, or what a shell splice leaves in a quoted
+    pair, as in Claude Code's documented
     `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`) is kept, so inscope's
     own `headersHelper` and hook stay readable, and so is a name that only holds
     a credential word (`maxTokens`, `tokenizer`) or ends in `file`, `path`,
