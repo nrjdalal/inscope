@@ -108,8 +108,8 @@ const mcpSummary = async (ws: Workspace, drifts: Drift[]) => {
   let error: string | null = null
   if (text !== null) {
     try {
-      const { mcpServers } = JSON.parse(text)
-      // a hand edit can leave mcpServers something other than an object, which names no server
+      // a hand edit can leave the file null, or mcpServers something other than an object, which names no server
+      const { mcpServers } = JSON.parse(text) ?? {}
       onDisk =
         mcpServers && typeof mcpServers === "object" && !Array.isArray(mcpServers)
           ? Object.keys(mcpServers)
