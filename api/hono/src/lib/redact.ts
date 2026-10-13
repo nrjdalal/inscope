@@ -61,11 +61,17 @@ export const isCredentialName = (name: string): boolean => {
   )
 }
 
-// only names an environment variable, with at most an auth scheme before it (`Bearer ${API_KEY}`, Claude Code's own header form) and an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), or is a plain toggle, so it holds no secret
-const NOT_SECRET = /^(((Basic|Bearer|Token) )?\$\{\w+(:-)?\}|true|false|on|off|yes|no)$/i
+// the HTTP auth schemes whose token follows them (`Bearer ...`), read in any case
+const AUTH_SCHEMES = "Basic|Bearer|Token"
 
-// a value filled in at run time (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`, the hook's `"$tok"`), or already withheld, is not a credential itself
-const FILLED_LATER = /%s|\$\{|\$\(|<redacted>|^["']?\$\w+["']?$/
+// only names an environment variable, with at most an auth scheme before it (`Bearer ${API_KEY}`, Claude Code's own header form) and an empty default (`${SLACK_MCP_XOXP_TOKEN:-}`), or is a plain toggle, so it holds no secret
+const NOT_SECRET = new RegExp(
+  String.raw`^(((${AUTH_SCHEMES}) )?\$\{\w+(:-)?\}|true|false|on|off|yes|no)$`,
+  "i",
+)
+
+// a value filled in at run time (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`, the hook's `"$tok"`, an escaped `\"$KEY\"`), or already withheld, is not a credential itself
+const FILLED_LATER = /%s|\$\{|\$\(|<redacted>|^(\\?["'])?\$\w+(\\?["'])?$/
 
 const holdsCredential = (name: string, value: string): boolean =>
   isCredentialName(name) && !FILLED_LATER.test(value)
@@ -96,7 +102,7 @@ const QUOTED = Object.entries(QUOTES)
 const bare = (stops = "") => String.raw`(?:[^\s${stops}"'\\]|\\[^"'\s])+`
 
 // a value as written: its opening quote, if any, the closing one, if it has one, and what lies between
-const quoted = (raw: string) => {
+const quoteParts = (raw: string) => {
   const quote = Object.keys(QUOTES).find((q) => raw.startsWith(q)) ?? ""
   const close = quote && raw.length > quote.length && raw.endsWith(quote) ? quote : ""
   return { close, inner: raw.slice(quote.length, raw.length - close.length), quote }
@@ -104,13 +110,13 @@ const quoted = (raw: string) => {
 
 // a quoted value searched in turn for credentials of its own (`-c "npx server --api-key ..."`, `helper = "!f() { echo password=...; }; f"`), which a rule that takes the whole quote has stepped over; a bare value is returned as is
 const searchedInside = (raw: string): string => {
-  const { close, inner, quote } = quoted(raw)
+  const { close, inner, quote } = quoteParts(raw)
   return quote ? `${quote}${redactString(inner)}${close}` : raw
 }
 
 // a value withheld, its quotes kept
 const withheld = (raw: string): string => {
-  const { close, quote } = quoted(raw)
+  const { close, quote } = quoteParts(raw)
   return `${quote}${REDACTED}${close}`
 }
 
@@ -118,16 +124,15 @@ const withheld = (raw: string): string => {
 const shownValue = (name: string, raw: string): string =>
   holdsCredential(name, raw) ? withheld(raw) : searchedInside(raw)
 
-// where a header's value ends, by how it opens: a quoted one at its closing quote, a bare one at a quote; none crosses a line
+// where a header's value ends, by how it opens: a quoted one at its closing quote, a bare one at a quote, escaped or not; none crosses a line
 const VALUE_END: Record<string, RegExp> = {
   ...Object.fromEntries(
     Object.entries(QUOTES).map(([quote, inside]) => [quote, new RegExp(`^${inside}`)]),
   ),
-  "": /^[^\r\n"']*/,
+  "": /^(?:[^\r\n"'\\]|\\[^"'\r\n])*/,
 }
 
 const URL_START = String.raw`\b[a-z][a-z0-9+.-]*:\/\/`
-const AUTH_SCHEMES = "Basic|Bearer|Token"
 
 // a long opaque segment of a URL's path (24+ characters mixing letters and digits) is a token some hosted servers carry in the URL itself (https://mcp.zapier.com/api/mcp/s/<token>/mcp); a long versioned slug can be withheld with them
 const OPAQUE_SEGMENT = /^(?=.*\d)(?=.*[A-Za-z])[\w-]{24,}$/
@@ -174,34 +179,56 @@ const redactBareUserInfo = (value: string): string =>
     `$1${REDACTED}@`,
   )
 
+// a quoted `"name": "value"` pair whose name says credential, its quotes plain, escaped inside an outer double-quoted string (`echo "{\"X-Api-Key\": \"...\"}"`), or single
+const PAIRS = Object.entries(QUOTES).map(([quote, inside]) => {
+  const q = escapeRegExp(quote)
+  return {
+    pattern: new RegExp(String.raw`${q}([^"'\\]+)${q}(\s*:\s*)${q}(${inside})${q}`, "g"),
+    quote,
+  }
+})
+
+const redactPairs = (value: string): string =>
+  PAIRS.reduce(
+    (text, { pattern, quote }) =>
+      text.replace(pattern, (pair: string, name: string, separator: string, inner: string) =>
+        holdsCredential(name, inner)
+          ? `${quote}${name}${quote}${separator}${quote}${REDACTED}${quote}`
+          : pair,
+      ),
+    value,
+  )
+
 // Every credential a free string can carry by its shape: the user info, query, fragment, and opaque path segments of a URL in any scheme (postgresql://user:pw@, wss://, ?token=, #access_token=, /s/<token>/), user info with no scheme (oauth2:<token>@gitlab.com/...), an HTTP auth scheme's token in any case, a token with a vendor prefix, a quoted JSON pair, a credential flag's value (`--api-key <key>`), a `name=value` (its value bare or quoted), and a `Name: value` header whose name says credential.
 export const redactString = (value: string): string =>
   redactJsonText(value) ??
-  redactHeaders(redactBareUserInfo(redactDefaults(value)))
-    .replace(new RegExp(`(${URL_START})[^\\s"'@/]*:[^\\s"']*@`, "gi"), `$1${REDACTED}@`)
-    .replace(new RegExp(`(${URL_START})[^\\s"'@/:]*@`, "gi"), `$1${REDACTED}@`)
-    .replace(new RegExp(`${URL_START}[^\\s"'?#]*`, "gi"), redactUrlPath)
-    .replace(new RegExp(`(${URL_START}[^\\s?#"']*\\?)[^\\s#"']+`, "gi"), `$1${REDACTED}`)
-    .replace(new RegExp(`(${URL_START}[^\\s#"']*#)[^\\s"']+`, "gi"), `$1${REDACTED}`)
-    // never a following flag, which would take its name and leave its value (`@acme/token --api-key ...`)
-    .replace(new RegExp(`\\b(${AUTH_SCHEMES})[ \\t]+(?!-)[\\w.~+/=-]{8,}`, "gi"), `$1 ${REDACTED}`)
-    .replace(VENDOR_TOKEN, REDACTED)
-    .replace(
-      // a flag can open a nested, escaped quote (`-c "echo \"--api-key ...\""`), so it may follow a quote as well as a space
-      new RegExp(String.raw`(^|[\s"'])(--?[A-Za-z][\w-]*)([ \t]+)(?!-)(${QUOTED}|${bare()})`, "g"),
-      (_: string, lead: string, flag: string, space: string, raw: string) =>
-        `${lead}${flag}${space}${shownValue(flag, raw)}`,
-    )
-    .replace(
-      /"([^"\\]+)"(\s*:\s*)"((?:[^"\\]|\\.)*)"/g,
-      (pair: string, name: string, separator: string, inner: string) =>
-        holdsCredential(name, inner) ? `"${name}"${separator}"${REDACTED}"` : pair,
-    )
-    .replace(
-      new RegExp(String.raw`\b([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|${bare(",;&")})`, "g"),
-      (_: string, name: string, separator: string, raw: string) =>
-        `${name}${separator}${shownValue(name, raw)}`,
-    )
+  redactPairs(
+    redactHeaders(redactBareUserInfo(redactDefaults(value)))
+      .replace(new RegExp(`(${URL_START})[^\\s"'@/]*:[^\\s"']*@`, "gi"), `$1${REDACTED}@`)
+      .replace(new RegExp(`(${URL_START})[^\\s"'@/:]*@`, "gi"), `$1${REDACTED}@`)
+      .replace(new RegExp(`${URL_START}[^\\s"'?#]*`, "gi"), redactUrlPath)
+      .replace(new RegExp(`(${URL_START}[^\\s?#"']*\\?)[^\\s#"']+`, "gi"), `$1${REDACTED}`)
+      .replace(new RegExp(`(${URL_START}[^\\s#"']*#)[^\\s"']+`, "gi"), `$1${REDACTED}`)
+      // never a following flag, which would take its name and leave its value (`@acme/token --api-key ...`)
+      .replace(
+        new RegExp(`\\b(${AUTH_SCHEMES})[ \\t]+(?!-)[\\w.~+/=-]{8,}`, "gi"),
+        `$1 ${REDACTED}`,
+      )
+      .replace(VENDOR_TOKEN, REDACTED)
+      .replace(
+        // a flag can open a nested, escaped quote (`-c "echo \"--api-key ...\""`), so it may follow a quote as well as a space
+        new RegExp(
+          String.raw`(^|[\s"'])(--?[A-Za-z][\w-]*)([ \t]+)(?!-)(${QUOTED}|${bare()})`,
+          "g",
+        ),
+        (_: string, lead: string, flag: string, space: string, raw: string) =>
+          `${lead}${flag}${space}${shownValue(flag, raw)}`,
+      ),
+  ).replace(
+    new RegExp(String.raw`\b([A-Za-z_][\w.-]*)(\s*=\s*)(${QUOTED}|${bare(",;&")})`, "g"),
+    (_: string, name: string, separator: string, raw: string) =>
+      `${name}${separator}${shownValue(name, raw)}`,
+  )
 
 const redactUnlessPlain = (value: unknown): unknown =>
   typeof value === "string" && NOT_SECRET.test(value) ? value : REDACTED
