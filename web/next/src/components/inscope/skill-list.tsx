@@ -1,9 +1,10 @@
+import { FullDescription } from "@/components/inscope/full-description"
 import { StatusBadge } from "@/components/inscope/status-badge"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
-import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item"
+import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item"
 import type { InscopeWorkspace } from "@/lib/inscope"
 
-// What `inscope skill list` prints for one workspace: the skills inscope links here, then anything else in the folder with whose it is. A source or a link's target is a long path or URL, so it wraps anywhere and is never clamped.
+// What `inscope skill list` prints for one workspace: the skills inscope links here, then anything else in the folder with whose it is.
 export function SkillList({ skills }: { skills: InscopeWorkspace["skills"] }) {
   if (!skills.own.length && !skills.other.length)
     return (
@@ -30,9 +31,9 @@ export function SkillList({ skills }: { skills: InscopeWorkspace["skills"] }) {
                   <StatusBadge tone="warn">Missing</StatusBadge>
                 )}
               </ItemTitle>
-              <ItemDescription className="line-clamp-none font-mono wrap-anywhere">
+              <FullDescription className="font-mono">
                 {skill.source ?? "bundled self-skill"}
-              </ItemDescription>
+              </FullDescription>
             </ItemContent>
           </Item>
         ))}
@@ -50,9 +51,7 @@ export function SkillList({ skills }: { skills: InscopeWorkspace["skills"] }) {
                     <span className="font-mono">{skill.name}</span>
                     {skill.kind === "stale" && <StatusBadge tone="warn">Stale</StatusBadge>}
                   </ItemTitle>
-                  <ItemDescription className="line-clamp-none wrap-anywhere">
-                    {skill.label}
-                  </ItemDescription>
+                  <FullDescription>{skill.label}</FullDescription>
                 </ItemContent>
               </Item>
             ))}

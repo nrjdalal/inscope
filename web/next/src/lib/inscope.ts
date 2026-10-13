@@ -32,7 +32,7 @@ export const inscopeKeys = {
   workspace: (name: string) => ["inscope", "workspaces", name] as const,
 }
 
-// Every inscope route spawns claude, gh, or git on this machine, so data stays fresh for a short while, is never refetched on focus, and a failure is shown rather than retried; the error is the API's own { code, message }.
+// Every inscope route reads this machine's state and some spawn claude, gh, or git to do it, so data stays fresh for a short while, is never refetched on focus, and a failure is shown rather than retried; the error is the API's own { code, message }.
 const useInscopeQuery = <T>(
   queryKey: QueryKey,
   call: () => Promise<{ data: T; error: null } | { data: null; error: ApiError }>,

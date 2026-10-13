@@ -1,10 +1,11 @@
+import { FullDescription } from "@/components/inscope/full-description"
 import { StatusBadge } from "@/components/inscope/status-badge"
-import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item"
+import { Item, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item"
 import type { InscopeCheck } from "@/lib/inscope"
 
 const statusLabel = { fail: "Fail", ok: "OK", warn: "Warn" } as const
 
-// Each check with its status; a detail can hold a long path, so it wraps anywhere and is never clamped.
+// Each check with its status and, when it has one, its detail.
 export function CheckList({ checks }: { checks: InscopeCheck[] }) {
   return (
     <ItemGroup>
@@ -16,9 +17,7 @@ export function CheckList({ checks }: { checks: InscopeCheck[] }) {
               <span className="font-mono">{check.label}</span>
             </ItemTitle>
             {check.detail && (
-              <ItemDescription className="line-clamp-none font-mono wrap-anywhere">
-                {check.detail}
-              </ItemDescription>
+              <FullDescription className="font-mono">{check.detail}</FullDescription>
             )}
           </ItemContent>
         </Item>
