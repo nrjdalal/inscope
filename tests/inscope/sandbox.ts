@@ -14,6 +14,7 @@ export const SECRETS = [
   "cookie-two-should-be-redacted",
   "default-token-should-be-redacted",
   "docker-env-should-be-redacted",
+  "echoed-json-should-be-redacted",
   "escaped-quote-should-be-redacted",
   "flag-in-string-should-be-redacted",
   "fragment-should-be-redacted",
@@ -263,6 +264,12 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
     type: "http",
     url: "https://mcp.example.com/scripted",
     headersHelper: 'sh -c "npx -y @acme/token --api-key quoted-command-should-be-redacted"',
+  }
+  // a header helper that prints its JSON from a double-quoted echo, so the pair's own quotes are escaped
+  mcp.mcpServers.echoed = {
+    type: "http",
+    url: "https://mcp.example.com/echoed",
+    headersHelper: 'echo "{\\"X-Api-Key\\": \\"echoed-json-should-be-redacted\\"}"',
   }
   // a hosted server whose token is a segment of the URL's path
   mcp.mcpServers.zapier = {
