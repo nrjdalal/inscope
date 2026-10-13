@@ -79,7 +79,7 @@ export const useInscopeRefresh = () => {
   return () => client.invalidateQueries({ queryKey: inscopeKeys.all })
 }
 
-export type InscopeOverview = NonNullable<ReturnType<typeof useInscopeOverview>["data"]>
+type InscopeOverview = NonNullable<ReturnType<typeof useInscopeOverview>["data"]>
 export type InscopeWorkspace = InscopeOverview["workspaces"][number]
 export type InscopeIdentity = NonNullable<
   ReturnType<typeof useInscopeStatus>["data"]
