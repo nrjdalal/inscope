@@ -110,7 +110,7 @@ const QUOTED = Object.entries(QUOTES)
   .map(([quote, inside]) => `${escapeRegExp(quote)}${inside}(?:${escapeRegExp(quote)})?`)
   .join("|")
 
-// a printf line escape (`\n`, `\t`, or `\\n` inside a git config string) starts the next line, so a bare value ends before it and a name begins after its letter (`username=me\npassword=...`)
+// a printf line escape (`\n`, `\r`, or `\\n` inside a git config string) starts the next line, and a tab (`\t`) the next field, so a bare value ends before one and a name begins after its letter (`username=me\npassword=...`)
 const LINE_ESCAPE = String.raw`\\(?=\\*[nrt])`
 const NAME_START = String.raw`(?:(?<=\\[nrt])|(?<!\\)\b)`
 
@@ -144,7 +144,7 @@ const withheld = (raw: string): string => {
 const shownValue = (name: string, raw: string): string =>
   holdsCredential(name, raw) ? withheld(raw) : searchedInside(raw)
 
-// where a header's value ends, by how it opens: a quoted one at its closing quote, a bare one at a quote, escaped or not; none crosses a line
+// where a header's value ends, by how it opens: a quoted one at its closing quote, a bare one at a quote, escaped or not, or at a line escape; none crosses a line
 const VALUE_END: Record<string, RegExp> = {
   ...Object.fromEntries(
     Object.entries(QUOTES).map(([quote, inside]) => [quote, new RegExp(`^${inside}`)]),
