@@ -303,6 +303,8 @@ describe("GET /api/inscope/diff", () => {
     expect(mcp).toContain('"callbackPort": 33418')
     expect(mcp).toContain('"SLACK_MCP_ALLOW_WRITE": "false"')
     expect(mcp).toContain('"url": "https://sso.example.com/mcp"')
+    expect(mcp).toContain('"Authorization": "Bearer ${KEYCLOAK_TOKEN}"')
+    expect(mcp).toContain('"sh -c \\"npx srv --api-key \\\\\\"<redacted>\\\\\\"\\""')
     expect(mcp).toContain('"SLACK_MCP_XOXP_TOKEN": "${SLACK_MCP_XOXP_TOKEN:-}"')
     expect(mcp).toContain('"url": "https://mcp.zapier.com/api/mcp/s/<redacted>/mcp"')
     // a credential flag inside one string loses its value; a count that only looks like one keeps it

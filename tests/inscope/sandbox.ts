@@ -14,6 +14,7 @@ export const SECRETS = [
   "cookie-two-should-be-redacted",
   "default-token-should-be-redacted",
   "docker-env-should-be-redacted",
+  "escaped-quote-should-be-redacted",
   "flag-in-string-should-be-redacted",
   "fragment-should-be-redacted",
   "gho_demo_token",
@@ -236,6 +237,8 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
       "npx -y @acme/mcp --api-key flag-in-string-should-be-redacted",
       "--max-tokens",
       "4096",
+      // a value in escaped quotes inside one shell string
+      'sh -c "npx srv --api-key \\"escaped-quote-should-be-redacted\\""',
     ],
     env: {
       MY_API_KEY: "sk-should-be-redacted",
@@ -246,6 +249,7 @@ export const seedSandbox = async (dir?: string): Promise<Sandbox> => {
   mcp.mcpServers.keycloak = {
     type: "http",
     url: "https://sso.example.com/mcp",
+    headers: { Authorization: "Bearer ${KEYCLOAK_TOKEN}" },
     oauth: { callbackPort: 33418, clientId: "dashboard-client" },
   }
   mcp.mcpServers.remote = {

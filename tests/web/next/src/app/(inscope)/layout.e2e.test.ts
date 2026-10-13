@@ -18,6 +18,8 @@ describe.skipIf(!enabled || !SANDBOX)("web/next/src/app/(inscope) over HTTP", ()
       for (const label of ["Workspaces", "Skills", "Doctor", "Pending changes", "Local, read-only"])
         expect(html).toContain(label)
       expect(html).toContain('data-sidebar="sidebar"')
+      // the marketing navbar's own landmark, which the shell replaces
+      expect(html).not.toContain('aria-label="Main navigation"')
     }
   })
 

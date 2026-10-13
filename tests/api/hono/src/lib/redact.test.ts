@@ -10,6 +10,22 @@ import {
 const redacted = (doc: unknown) => JSON.parse(redactMcpText(JSON.stringify(doc)))
 
 describe("redactMcpText", () => {
+  test("keeps a header that is only an auth scheme before a variable, Claude Code's own form", () => {
+    expect(
+      redacted({
+        headers: {
+          Authorization: "Bearer ${API_KEY}",
+          "X-Empty": "Bearer ${API_KEY:-}",
+          "X-Default": "Bearer ${API_KEY:-default-should-be-redacted}",
+        },
+      }).headers,
+    ).toEqual({
+      Authorization: "Bearer ${API_KEY}",
+      "X-Empty": "Bearer ${API_KEY:-}",
+      "X-Default": "<redacted>",
+    })
+  })
+
   test("keeps a flag that follows a credential flag, as in one string", () => {
     expect(redacted({ args: ["--api-key", "--verbose"] }).args).toEqual(["--api-key", "--verbose"])
   })
@@ -460,6 +476,21 @@ describe("redactString on a credential flag inside one string", () => {
     )
     expect(redactString('run -c "echo \\"--api-key nested-should-be-redacted\\""')).toBe(
       'run -c "echo \\"--api-key <redacted>\\""',
+    )
+  })
+
+  test("withholds a value in escaped quotes inside one string, and runs a bare value through its escapes", () => {
+    expect(redactString('sh -c "npx srv --api-key \\"escaped-should-be-redacted\\""')).toBe(
+      'sh -c "npx srv --api-key \\"<redacted>\\""',
+    )
+    expect(redactString('sh -c "API_KEY=\\"pair-should-be-redacted\\" npx srv"')).toBe(
+      'sh -c "API_KEY=\\"<redacted>\\" npx srv"',
+    )
+    expect(redactString('--token=\\"flag-pair-should-be-redacted\\"')).toBe(
+      '--token=\\"<redacted>\\"',
+    )
+    expect(redactString('sh -c "npx srv --password p\\$ss-should-be-redacted"')).toBe(
+      'sh -c "npx srv --password <redacted>"',
     )
   })
 
