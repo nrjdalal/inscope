@@ -71,20 +71,22 @@ const NOT_SECRET = new RegExp(
 )
 
 // a value filled in at run time, or already withheld, is not a credential itself: a placeholder (`Bearer %s`, `${TOKEN}`, `$(gh auth token)`), a lone variable after at most an auth scheme (the hook's `"$tok"`, an escaped `\"$KEY\"`, `Bearer $MY_TOKEN`), or what a shell splice leaves inside a quoted pair, an auth scheme and the quote that ends the shell string (Claude Code's own `echo '{"Authorization": "Bearer '"$(get-token)"'"}'`)
-const FILLED_LATER = new RegExp(
-  [
-    String.raw`%s|\$\{|\$\(`,
-    escapeRegExp(REDACTED),
-    // in double quotes only: single quotes keep a `$` literal (`'$ecret'`), so that is a value, not a variable
-    String.raw`^(\\?")?((${AUTH_SCHEMES}) )?\$\w+(\\?")?$`,
-    String.raw`^((${AUTH_SCHEMES}) )?\\?["']$`,
-  ].join("|"),
-  // an auth scheme in any case, as the other rules read it
-  "i",
-)
+const FILLED_LATER = [
+  new RegExp(String.raw`\$\{|\$\(|${escapeRegExp(REDACTED)}`),
+  // these match the whole value, after at most an auth scheme read in any case as the other rules read it, so a literal with `%s` inside (`p%sword`) is still a value; a lone variable counts in double quotes only, since single quotes keep a `$` literal (`'$ecret'`)
+  new RegExp(
+    [
+      String.raw`^(\\?["'])?((${AUTH_SCHEMES}) )?%s(\\?["'])?$`,
+      String.raw`^(\\?")?((${AUTH_SCHEMES}) )?\$\w+(\\?")?$`,
+      String.raw`^(\\?["'])?((${AUTH_SCHEMES}) )?\\?["'](\\?["'])?$`,
+    ].join("|"),
+    "i",
+  ),
+]
 
-const holdsCredential = (name: string, value: string): boolean =>
-  isCredentialName(name) && !FILLED_LATER.test(value)
+// `quote` is the one a rule stepped over to reach the value, put back so a single-quoted `'$ecret'` reads as the literal it is
+const holdsCredential = (name: string, value: string, quote = ""): boolean =>
+  isCredentialName(name) && !FILLED_LATER.some((rule) => rule.test(`${quote}${value}${quote}`))
 
 // a token whose vendor prefix gives it away wherever it sits, a bare argument included: AWS, GitHub, GitLab, Google, Hugging Face, Linear, Notion, npm, OpenAI and Anthropic, Slack, Stripe
 const VENDOR_TOKEN =
@@ -179,7 +181,7 @@ const redactHeaders = (value: string): string => {
     const quote = openingQuote(value, after)
     const start = after + quote.length
     const inner = value.slice(start).match(VALUE_END[quote])?.[0] ?? ""
-    if (!holdsCredential(match[1], inner)) continue
+    if (!holdsCredential(match[1], inner, quote)) continue
     out += `${value.slice(done, start)}${REDACTED}`
     done = start + inner.length
   }
@@ -206,7 +208,7 @@ const redactPairs = (value: string): string =>
   PAIRS.reduce(
     (text, { pattern, quote }) =>
       text.replace(pattern, (pair: string, name: string, separator: string, inner: string) =>
-        holdsCredential(name, inner)
+        holdsCredential(name, inner, quote)
           ? `${quote}${name}${quote}${separator}${quote}${REDACTED}${quote}`
           : pair,
       ),
